@@ -1,3 +1,5 @@
 export * from './types.js'
 export * from './jsonc.js'
 export * from './opencode-config-adapter.js'
+export * from './migrate.js'
+export * from './task-profile-store.js'
