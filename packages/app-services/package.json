@@ -1,0 +1,10 @@
+{
+  "name": "@apc/app-services",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@apc/shared": "workspace:*", "@apc/core": "workspace:*", "@apc/agents": "workspace:*",
+    "@apc/search": "workspace:*", "@apc/vault": "workspace:*", "@apc/llm-wiki": "workspace:*", "@apc/pm": "workspace:*"
+  }
+}

@@ -51,6 +51,7 @@ export default defineConfig({
       '@apc/pm': `${root}packages/pm/src/index.ts`,
       '@apc/dashboard-api': `${root}packages/dashboard-api/src/index.ts`,
       '@apc/harness': `${root}packages/harness/src/index.ts`,
+      '@apc/app-services': `${root}packages/app-services/src/index.ts`,
     },
   },
   test: {
