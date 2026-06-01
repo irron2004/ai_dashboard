@@ -1,3 +1,4 @@
 export * from './migrate.js'
 export * from './uri.js'
 export * from './local-config.js'
+export * from './chunker.js'
