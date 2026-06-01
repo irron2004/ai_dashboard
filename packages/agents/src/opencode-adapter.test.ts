@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OpenCodeAdapter } from './opencode-adapter.js'
@@ -33,6 +33,18 @@ describe('OpenCodeAdapter', () => {
     expect(await a.discoverSources(() => undefined)).toHaveLength(1)
     const seen = { sourceId: 'opencode:oc1', position: JSON.stringify({ timeUpdated: 2000 }), updatedAt: 'x' }
     expect(await a.discoverSources((id) => (id === 'opencode:oc1' ? seen : undefined))).toHaveLength(0)
+  })
+
+  test('skips sessions when the cursor is newer than the source', async () => {
+    const a = new OpenCodeAdapter(dbPath)
+    const newer = { sourceId: 'opencode:oc1', position: JSON.stringify({ timeUpdated: 3000 }), updatedAt: 'x' }
+    expect(await a.discoverSources((id) => (id === 'opencode:oc1' ? newer : undefined))).toHaveLength(0)
+  })
+
+  test('returns no sources when the db file cannot be opened as sqlite', async () => {
+    const invalidDb = join(dir, 'invalid.db')
+    writeFileSync(invalidDb, 'not sqlite')
+    await expect(new OpenCodeAdapter(invalidDb).discoverSources(() => undefined)).resolves.toEqual([])
   })
 
   test('parseSource joins message+part into turns and resolves repoPath', async () => {

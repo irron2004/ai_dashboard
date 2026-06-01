@@ -81,7 +81,12 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
   async discoverSources(cursorFor: (id: string) => SourceCursor | undefined): Promise<AgentSource[]> {
     if (!existsSync(this.dbPath)) return []
 
-    const db = new DatabaseSync(this.dbPath, { readOnly: true })
+    let db: DatabaseSync
+    try {
+      db = new DatabaseSync(this.dbPath, { readOnly: true })
+    } catch {
+      return []
+    }
     try {
       const rows = db
         .prepare(
@@ -100,7 +105,7 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
         const cursor = cursorFor(sourceId)
         if (cursor) {
           const position = parseJsonObject(cursor.position)
-          if (numberValue(position?.timeUpdated) === timeUpdated) continue
+          if ((numberValue(position?.timeUpdated) ?? -1) >= timeUpdated) continue
         }
 
         sources.push(
@@ -114,6 +119,8 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
         )
       }
       return sources
+    } catch {
+      return []
     } finally {
       db.close()
     }
