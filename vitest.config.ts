@@ -47,6 +47,7 @@ export default defineConfig({
       '@apc/workflow': `${root}packages/workflow/src/index.ts`,
       '@apc/agents': `${root}packages/agents/src/index.ts`,
       '@apc/search': `${root}packages/search/src/index.ts`,
+      '@apc/llm-wiki': `${root}packages/llm-wiki/src/index.ts`,
     },
   },
   test: {
