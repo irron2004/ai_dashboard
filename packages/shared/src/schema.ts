@@ -2,6 +2,8 @@ import { z } from 'zod'
 
 export const AgentKind = z.enum(['claude', 'codex', 'opencode'])
 export type AgentKind = z.infer<typeof AgentKind>
+/** Alias for AgentKind — used in llm-wiki and other packages. */
+export type AgentType = AgentKind
 
 export const ProjectType = z.enum(['git', 'obsidian', 'hybrid'])
 export const ProjectStatus = z.enum(['active', 'maintenance', 'paused', 'archived'])
