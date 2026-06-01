@@ -1,6 +1,5 @@
 import { defineConfig } from 'vitest/config'
 import { fileURLToPath } from 'node:url'
-import { createRequire } from 'node:module'
 import type { Plugin } from 'vite'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
@@ -21,12 +20,8 @@ const nodeSqlitePlugin: Plugin = {
   },
   load(id) {
     if (id === '\0virtual:node-sqlite') {
-      const req = createRequire(import.meta.url)
-      // Use JSON.stringify so the path is properly escaped in the generated code
-      const modPath = JSON.stringify(
-        fileURLToPath(new URL('node_modules/.pnpm/vite@5.4.21_@types+node@24.12.4/node_modules/vite/dist/node/index.js', import.meta.url))
-      )
-      // Return CJS-style proxy that loads node:sqlite via require
+      // Re-export the real node:sqlite via createRequire at runtime
+      // (vite-node can't resolve the bare specifier itself).
       return `
 import { createRequire as _cr } from 'node:module';
 const _req = _cr(import.meta.url);
