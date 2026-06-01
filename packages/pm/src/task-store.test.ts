@@ -7,6 +7,7 @@ import type { Task } from '@apc/shared'
 const base: Task = {
   id: 'TASK-001', projectId: 'p1', title: 'first', status: 'todo',
   assigneeType: 'agent', assignee: 'codex', priority: 'high', reviewStatus: 'none',
+  acceptanceCriteria: [], linkedWikiPages: [],
 }
 
 describe('TaskStore', () => {
@@ -29,5 +30,25 @@ describe('TaskStore', () => {
     store.updateStatus('TASK-001', 'review', 'pending')
     const t = store.get('TASK-001')!
     expect(t.status).toBe('review'); expect(t.reviewStatus).toBe('pending')
+  })
+
+  test('round-trips PM fields: parentTaskId, acceptanceCriteria, linkedWikiPages, estimate', () => {
+    store.create({
+      ...base, id: 'TASK-010', parentTaskId: 'TASK-001', estimate: '2d',
+      acceptanceCriteria: ['handles empty input', 'logs on failure'],
+      linkedWikiPages: ['wiki/architecture.md', 'decisions/ADR-001.md'],
+    })
+    const t = store.get('TASK-010')!
+    expect(t.parentTaskId).toBe('TASK-001')
+    expect(t.estimate).toBe('2d')
+    expect(t.acceptanceCriteria).toEqual(['handles empty input', 'logs on failure'])
+    expect(t.linkedWikiPages).toEqual(['wiki/architecture.md', 'decisions/ADR-001.md'])
+  })
+
+  test('defaults acceptanceCriteria/linkedWikiPages to empty arrays', () => {
+    store.create({ ...base, id: 'TASK-011', acceptanceCriteria: [], linkedWikiPages: [] })
+    const t = store.get('TASK-011')!
+    expect(t.acceptanceCriteria).toEqual([])
+    expect(t.linkedWikiPages).toEqual([])
   })
 })

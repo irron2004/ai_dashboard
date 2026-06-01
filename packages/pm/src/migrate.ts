@@ -1,5 +1,11 @@
 import type { Db } from '@apc/core'
 
+/** Add a column if it isn't already present (idempotent upgrade for existing DBs). */
+function addColumnIfMissing(db: Db, table: string, column: string, ddl: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+}
+
 export function migratePm(db: Db): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -11,6 +17,10 @@ export function migratePm(db: Db): void {
       assignee      TEXT,
       priority      TEXT NOT NULL DEFAULT 'medium',
       due_date      TEXT,
+      estimate      TEXT,
+      parent_task_id TEXT,
+      acceptance_criteria TEXT NOT NULL DEFAULT '[]',
+      linked_wiki_pages   TEXT NOT NULL DEFAULT '[]',
       context_package TEXT,
       review_status TEXT NOT NULL DEFAULT 'none'
     );
@@ -39,4 +49,10 @@ export function migratePm(db: Db): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_runs_task ON agent_runs(task_id);
   `)
+
+  // Upgrade path for DBs created before these columns existed.
+  addColumnIfMissing(db, 'tasks', 'estimate', 'estimate TEXT')
+  addColumnIfMissing(db, 'tasks', 'parent_task_id', 'parent_task_id TEXT')
+  addColumnIfMissing(db, 'tasks', 'acceptance_criteria', "acceptance_criteria TEXT NOT NULL DEFAULT '[]'")
+  addColumnIfMissing(db, 'tasks', 'linked_wiki_pages', "linked_wiki_pages TEXT NOT NULL DEFAULT '[]'")
 }

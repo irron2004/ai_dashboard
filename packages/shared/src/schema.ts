@@ -35,6 +35,10 @@ export const TaskSchema = z.object({
   assignee: z.string().optional(),
   priority: z.enum(['low', 'medium', 'high']).default('medium'),
   dueDate: z.string().optional(),
+  estimate: z.string().optional(),
+  parentTaskId: z.string().optional(),
+  acceptanceCriteria: z.array(z.string()).default([]),
+  linkedWikiPages: z.array(z.string()).default([]),
   contextPackage: z.string().optional(),
   reviewStatus: ReviewStatus.default('none'),
 })
