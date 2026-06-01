@@ -45,6 +45,8 @@ export default defineConfig({
       '@apc/core': `${root}packages/core/src/index.ts`,
       '@apc/vault': `${root}packages/vault/src/index.ts`,
       '@apc/workflow': `${root}packages/workflow/src/index.ts`,
+      '@apc/agents': `${root}packages/agents/src/index.ts`,
+      '@apc/search': `${root}packages/search/src/index.ts`,
     },
   },
   test: {
