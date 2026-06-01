@@ -1,0 +1,53 @@
+// node-pty is an optionalDependency (native; rebuilt for the Electron ABI on the target
+// machine). It is loaded lazily so the rest of the app works even when it is unavailable.
+type IPty = {
+  onData(cb: (data: string) => void): void
+  onExit(cb: (e: { exitCode: number }) => void): void
+  write(data: string): void
+  kill(): void
+}
+type PtyModule = {
+  spawn(file: string, args: string[], opts: Record<string, unknown>): IPty
+}
+
+export type SendFn = (channel: string, ...args: unknown[]) => void
+
+/**
+ * Manages node-pty sessions keyed by id, streaming output to the renderer.
+ * channels: emits `pty:data` (id, data) and `pty:exit` (id, exitCode).
+ */
+export class PtyManager {
+  private readonly sessions = new Map<string, IPty>()
+  private mod: PtyModule | undefined
+
+  constructor(private readonly send: SendFn) {}
+
+  private async load(): Promise<PtyModule> {
+    if (!this.mod) {
+      this.mod = (await import('@homebridge/node-pty-prebuilt-multiarch')) as unknown as PtyModule
+    }
+    return this.mod
+  }
+
+  async start(id: string, command: string, args: string[], cwd: string): Promise<void> {
+    const pty = await this.load()
+    const p = pty.spawn(command, args, {
+      name: 'xterm-color', cols: 120, rows: 30, cwd, env: process.env,
+    })
+    this.sessions.set(id, p)
+    p.onData((data) => this.send('pty:data', id, data))
+    p.onExit(({ exitCode }) => {
+      this.send('pty:exit', id, exitCode)
+      this.sessions.delete(id)
+    })
+  }
+
+  write(id: string, data: string): void {
+    this.sessions.get(id)?.write(data)
+  }
+
+  kill(id: string): void {
+    this.sessions.get(id)?.kill()
+    this.sessions.delete(id)
+  }
+}

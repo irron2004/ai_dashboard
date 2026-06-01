@@ -1,8 +1,9 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
   ProjectDashboardReq, SearchReq, ListProfilesReq,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq,
+  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
 } from '../shared/ipc-contract.js'
+import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
 
 export type IpcMainLike = {
@@ -36,6 +37,29 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.ingestAll]: async (_payload: unknown) => {
       return container.ingest.ingestAll(container.ingestAdapters)
+    },
+
+    [CH.generateRun]: async (payload: unknown) => {
+      const req = payload as GenerateRunReq
+      const run = container.runs.get(req.runId)
+      if (!run) throw new Error(`Agent run not found: ${req.runId}`)
+      const adapter = container.ingestAdapters.find((a) => a.agentKind === req.agent)
+      if (!adapter) throw new Error(`No ingest adapter for engine: ${req.agent}`)
+      const source: AgentSource = {
+        id: `${req.agent}:${req.transcriptPath}`,
+        agentKind: req.agent,
+        kind: req.agent === 'opencode' ? 'sqlite-session' : 'jsonl-file',
+        locator: req.transcriptPath,
+      }
+      const { session } = await adapter.parseSource(source)
+      return container.runService.completeRun({
+        run,
+        session,
+        projectId: req.projectId,
+        engine: req.engine,
+        currentCanonical: req.currentCanonical,
+        endedAt: new Date().toISOString(),
+      })
     },
 
     [CH.submitReview]: async (payload: unknown) => {

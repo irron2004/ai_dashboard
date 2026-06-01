@@ -1,7 +1,8 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
   ProjectDashboardReq, ProjectDashboardRes, SearchReq,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq,
+  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
+  StartPtyReq, PtyInputReq, PtyKillReq,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile } from '@apc/shared'
 
@@ -9,7 +10,11 @@ declare global {
   interface Window {
     apc: {
       invoke(channel: string, payload?: unknown): Promise<unknown>
-      onPtyData(cb: (id: string, data: string) => void): void
+      startPty(req: StartPtyReq): void
+      writePty(req: PtyInputReq): void
+      killPty(req: PtyKillReq): void
+      onPtyData(cb: (id: string, data: string) => void): () => void
+      onPtyExit(cb: (id: string, code: number) => void): () => void
     }
   }
 }
@@ -27,6 +32,12 @@ export const api = {
   listProfiles(projectPath: string): Promise<AgentProfile[]> {
     return window.apc.invoke(CH.listProfiles, { projectPath }) as Promise<AgentProfile[]>
   },
+  ingestAll(): Promise<{ sources: number; sessions: number }> {
+    return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number }>
+  },
+  generateRun(req: GenerateRunReq): Promise<unknown> {
+    return window.apc.invoke(CH.generateRun, req)
+  },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)
   },
@@ -36,4 +47,11 @@ export const api = {
   selectProfile(req: SelectProfileReq): Promise<unknown> {
     return window.apc.invoke(CH.selectProfile, req)
   },
+
+  // PTY (event-based)
+  startPty(req: StartPtyReq): void { window.apc.startPty(req) },
+  writePty(req: PtyInputReq): void { window.apc.writePty(req) },
+  killPty(req: PtyKillReq): void { window.apc.killPty(req) },
+  onPtyData(cb: (id: string, data: string) => void): () => void { return window.apc.onPtyData(cb) },
+  onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
 }

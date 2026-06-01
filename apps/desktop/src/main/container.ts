@@ -1,11 +1,12 @@
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
-import { migratePm, TaskStore, AgentRunStore, ReviewService } from '@apc/pm'
+import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService } from '@apc/app-services'
+import { IngestService, RunService } from '@apc/app-services'
+import { WikiEngine, CliAgentRunner } from '@apc/llm-wiki'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 
 export type Container = {
@@ -20,6 +21,7 @@ export type Container = {
   taskProfiles: TaskProfileStore
   ingest: IngestService
   ingestAdapters: AgentIngestAdapter[]
+  runService: RunService
   dashboard: typeof getProjectDashboard
 }
 
@@ -51,9 +53,15 @@ export function buildContainer(opts: {
   const ingest = new IngestService({ registry, cursors, index: searchIndex })
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
+  const runService = new RunService({
+    wiki: new WikiEngine(new CliAgentRunner()),
+    vaultWriter: new VaultWriter(vault),
+    tasks,
+    runs,
+  })
 
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
-    ingest, ingestAdapters, dashboard: getProjectDashboard,
+    ingest, ingestAdapters, runService, dashboard: getProjectDashboard,
   }
 }
