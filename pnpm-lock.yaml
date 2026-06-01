@@ -161,6 +161,18 @@ importers:
         specifier: ^4.0.3
         version: 4.0.3
 
+  packages/knowledge:
+    dependencies:
+      '@apc/core':
+        specifier: workspace:*
+        version: link:../core
+      '@apc/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@apc/vault':
+        specifier: workspace:*
+        version: link:../vault
+
   packages/llm-wiki:
     dependencies:
       '@apc/shared':
