@@ -1,12 +1,12 @@
 ---
-title: Agent Project Console — Design (PRD v0.3)
+title: Agent Project Console — Design (PRD v0.4)
 date: 2026-06-01
 status: draft
 owner: irron2004
 supersedes: PRD v0.2 (Multi-Project LLM Wiki Workbench)
 ---
 
-# Agent Project Console — PRD v0.3
+# Agent Project Console — PRD v0.4
 
 ## 0. 한 줄 정의
 
@@ -44,6 +44,7 @@ AI agent 작업 관리 + 리뷰 + 다음 task 생성 도구   ✅
 - **Terminal = Agent Work Execution Panel** (제품 중심이 아니라 "일 시키는 실행 창")
 - **LLM Wiki = 프로젝트 기억 장치** (지식 저장소가 아니라 PM 운영용 메모리)
 - **Obsidian vault = PM 산출물 저장소** (노트 앱이 아니라 task/review/decision/wiki의 저장 기반)
+- **Harness Studio = agent 팀 설계 패널** ("누가/어떤 권한으로 task를 실행하는가"를 PM이 보고 선택; MVP는 읽기+선택)
 
 ---
 
@@ -145,7 +146,7 @@ Project
 │ Application Services                          │
 │  ProjectService · TaskService · AgentRun      │
 │  ReviewService · WikiService · ContextPackage │
-│  ConflictService · JobService                 │
+│  ConflictService · JobService · HarnessService│
 └──────────────────────────────────────────────┘
                   ↓
 ┌──────────────────────────────────────────────┐
@@ -196,6 +197,7 @@ packages/
   agents/                  # AgentSessionManager: 터미널(node-pty) + adapter + transcript resolver
   llm-wiki/                # LLM Wiki pipeline + AgentRunner (Claude/Codex/OpenCode)
   pm/                      # Task / AgentRun / Review 도메인 서비스
+  harness/                 # Harness Studio: AgentConfigAdapter + 정규화 AgentProfile (MVP: 읽기)
   dashboard-api/           # BFF query/usecase (화면 aggregate)
   search/                  # SQLite FTS/BM25
   workflow/                # WorkflowRunner: Local + (P1) Temporal 어댑터
@@ -211,11 +213,12 @@ packages/
 
 `Project` · `Task` · `ContextPackage` · `AgentRun` · `Review` ·
 `CurrentProposal` · `AgentSession` · `NormalizedSession` · `AgentSource(+sourceCursor)` ·
-`Conflict` · `Job`
+`AgentProfile`(읽기 전용) · `Conflict` · `Job`
 
 ### P1 객체
 
-`Milestone` · `Epic` · `Roadmap` · `Decision`(그래프) · `WikiPage / Concept`
+`Milestone` · `Epic` · `Roadmap` · `Decision`(그래프) · `WikiPage / Concept` ·
+`TeamProfile / TeamMember` (Harness 편집/팀)
 
 ### Project
 
@@ -450,6 +453,66 @@ Current Proposal  = LLM이 제안한 최신 업데이트
 
 ---
 
+## 9.5 Harness Studio (agent/team profile 읽기 + 선택)
+
+PM이 **"누가 / 어떤 권한으로 task를 실행하는가"** 를 설계하는 control panel.
+설정 파일을 UI에 직접 박지 않고, 먼저 **정규화된 모델로 읽어** 보여준다.
+
+### MVP = 읽기 + 선택만 (편집/팀은 P1+)
+
+- 각 agent 설정을 **정규화된 `AgentProfile`(읽기 전용)** 로 읽는다.
+- 우측 패널에 profile **목록 + 상세(raw view + form view, read-only)** 를 보여준다.
+- **task 실행 시 어떤 profile/agent로 돌릴지 PM이 선택**한다 (§9 모델 picker의 확장 — 엔진뿐 아니라 profile까지).
+- MVP provider = **OpenCode first** (`opencode.json` + `.opencode/agents/*.md` — 문서화·구조가 명확).
+  `AgentConfigAdapter` 인터페이스는 셋 다 대비해 설계하되 **구현은 OpenCode부터**.
+
+### 정규화 모델 (읽기 전용, MVP)
+
+```ts
+type Perm = "allow" | "ask" | "deny";
+
+type AgentProfile = {
+  id: string;
+  provider: "claude" | "codex" | "opencode";
+  name: string;
+  scope: "global" | "project" | "local" | "managed";
+  mode: "primary" | "subagent" | "reviewer" | "planner" | "builder" | "custom";
+  description?: string;
+  model?: string;
+  prompt?: { inline?: string; filePath?: string };
+  permissions?: { read?: Perm; edit?: Perm; bash?: Perm; web?: Perm; task?: Perm };
+  tools?: string[];
+  maxSteps?: number;
+  temperature?: number;
+  rawConfigPath: string;
+  rawFormat: "json" | "markdown" | "toml" | "unknown";
+};
+
+interface AgentConfigAdapter {
+  provider: "claude" | "codex" | "opencode";
+  discoverProfiles(opts: { projectPath?: string }): Promise<AgentProfile[]>; // read-only
+}
+```
+
+### Config 읽기 안전 원칙 (MVP)
+
+- **인증/세션/token 파일은 읽기 대상에서 제외.** (예: `~/.claude.json`엔 OAuth 세션·MCP 설정·캐시가 섞임
+  → 편집은 물론 profile 소스로도 쓰지 않는다.)
+- **managed / read-only scope는 read-only로 표시.**
+- unknown field는 버리지 않고 보존(편집 P1의 round-trip 보장 토대).
+- **MVP는 쓰기가 없다 → 사용자의 실제 도구 설정 파일 손상 위험 0.**
+
+### P1+ (이번 MVP 밖)
+
+- **OpenCode 편집**: "Create Change Proposal" + diff + backup + **conflict-safe write(§10 `ConflictManager` 재사용)**.
+- **Claude** settings/subagents read-only preview → 제한적 편집.
+- **Codex** config / AGENTS.md / rules / hooks 편집.
+- **`TeamProfile` / `TeamMember`** (planner / builder / reviewer / researcher / tester / pm) + task에 team 연결
+  + team-aware context package 생성.
+- **cross-agent team profile** (provider 혼합 팀).
+
+---
+
 ## 10. 충돌(Conflict) 모델
 
 앱이 문서를 수정하려 할 때 `마지막 읽은 hash ≠ 현재 파일 hash` 이면 덮어쓰지 않고
@@ -504,6 +567,7 @@ Dataview / graph view / Obsidian plugin = P1 이후.
 | **사용자가 지정한 경로만** scan | 계정 세션/쿠키/토큰 저장 |
 | 원본 transcript는 로컬 `raw/`에 보존 | 사용량 우회 |
 | 외부 LLM 전송 시 **사용자 승인 또는 redaction** | 출력물을 타 모델 학습용으로 재가공 |
+| agent 설정은 **read-only로 읽기**(MVP), 편집은 proposal+backup(P1) | 인증/세션이 섞인 config 파일 편집·소스화 |
 
 credential / session token / cookie는 **수집하지 않는다.**
 
@@ -539,6 +603,9 @@ credential / session token / cookie는 **수집하지 않는다.**
 └──────────────────────────────────────────────────────────────┘
 ```
 
+우측 Context panel은 선택한 task에 대해 **Harness Studio**(§9.5)도 노출한다:
+AgentProfile 목록 + 상세(read-only) + **"이 task를 어느 profile/agent로 실행할지" 선택**.
+
 NexusCode식 IDE 화면을 그대로 따르지 않고, **PM 작업 흐름에 맞는 multi-project control room**으로 간다.
 
 ---
@@ -551,6 +618,7 @@ NexusCode식 IDE 화면을 그대로 따르지 않고, **PM 작업 흐름에 맞
 - **PM Control Tower**: 좌 Projects / 중 PM Home(Goal·Active Tasks·Review Queue·Agent Runs·Next Task) / 우 Context / 하 Agent 터미널
 - **Task (평면 리스트)** + **ContextPackage**(Markdown 생성+파일 저장) + **AgentRun** + **Review(승인/반려/수정)** + **Next Task 후보**
 - **AgentSessionManager 터미널 표면**: node-pty + xterm.js로 Claude/Codex/OpenCode CLI 실행 + session metadata 수집
+- **Harness Studio (읽기+선택)**: OpenCode agent 설정을 정규화 `AgentProfile`(read-only)로 읽어 우측 패널에 표시 + task 실행 profile 선택
 - 증분 ingest: 수동 import + 지정 경로 scan
 - **Claude adapter 우선 완성**(터미널 + transcript resolver), Codex·OpenCode는 adapter 인터페이스 + 최소 구현
 - LLM Wiki: **단일 사용자-클릭 + 모델 선택(Claude/Codex/OpenCode) headless 호출**로 work summary / current proposal / next task 후보 생성, canonical 반영은 승인
@@ -566,6 +634,9 @@ NexusCode식 IDE 화면을 그대로 따르지 않고, **PM 작업 흐름에 맞
 - **Epic / Milestone / Roadmap / Timeline 계층** (P1) — MVP는 평면 Task 리스트
 - **Decision 그래프 / ADR 관리** (P1) — MVP는 review 내 next_tasks로 대체
 - **wiki concept page / 자동 개념 링킹** (P1)
+- **Harness Studio 편집/저장** (P1, OpenCode부터): Create Change Proposal · diff · backup · conflict-safe write
+- **Claude/Codex config 읽기·편집** (P1/P2) — MVP는 OpenCode 읽기만
+- **TeamProfile / cross-agent team / team-aware context package** (P1+)
 - Temporal 어댑터 (P1, `AgentTaskWorkflow`부터)
 - 폴더 watch (P1) / hook 자동 ingest (P2)
 - Vector search (P1)
@@ -603,6 +674,8 @@ NexusCode식 IDE 화면을 그대로 따르지 않고, **PM 작업 흐름에 맞
 | 터미널 입력에 credential 노출 | raw keystroke off 기본 + prompt 감지 + 토큰 패턴 redaction |
 | PTY/native module(node-pty) 패키징 | prebuild 바이너리, Electron 버전 핀, 설치 detect 폴백 |
 | 세 agent 포맷 변경 | adapter 격리 + 골든 fixture로 회귀 탐지 |
+| Harness 읽기가 credential 섞인 config 노출 | 인증/세션 파일 제외 화이트리스트, MVP는 쓰기 없음 |
+| Harness 편집이 사용자 실제 도구 설정 손상 | MVP는 read-only, P1 편집은 proposal+diff+backup+conflict-safe write |
 
 ---
 
@@ -674,6 +747,9 @@ AgentTaskWorkflow
 
 ## 부록 D. 문서 이력
 
+- **v0.4 (2026-06-01)**: **Harness Studio** 추가 — PM이 agent/team profile을 보고 task 실행에 연결.
+  MVP = 읽기+선택만(정규화 `AgentProfile` read-only, OpenCode-first, profile 선택).
+  편집(Create Change Proposal+diff+backup+conflict-safe write)/팀/Claude·Codex = P1+.
 - **v0.3 (2026-06-01)**: PM workbench로 재포지셔닝. 제품명 `Agent Project Console`.
   Task lifecycle 중심, PM Control Tower, PM 도메인 객체(Task/AgentRun/Review) 추가.
   MVP = 최소 핵심 루프(평면 Task), 계층/Decision/wiki는 P1.

@@ -1,4 +1,4 @@
-# Agent Project Console — Foundation & Common Core Implementation Plan (Plan 1 of 4)
+# Agent Project Console — Foundation & Common Core Implementation Plan (Plan 1 of 5)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1221,3 +1221,4 @@ git commit -m "feat(workflow): add LocalWorkerRunner (SQLite-backed in-process j
 - `node-pty`/`xterm.js` terminal surface, `AgentAdapter` (Claude first), Transcript Resolver, incremental ingest, SQLite FTS search — **Plan 2**.
 - `AgentRunner` multi-engine + model picker; work summary / current proposal / next-task generation — **Plan 3**.
 - PM domain services (Task/AgentRun/Review lifecycle) + PM Control Tower UI + `dashboard-api` aggregates — **Plan 4**.
+- Harness Studio read+select (`@apc/harness`: `AgentConfigAdapter` + normalized read-only `AgentProfile`, OpenCode-first; right-panel profile list/detail; task-execution profile picker) — **Plan 5**. Editing/teams/Claude+Codex are P1+ per spec §9.5.
