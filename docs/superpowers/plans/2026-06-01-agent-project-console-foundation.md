@@ -1,4 +1,4 @@
-# Agent Project Console — Foundation & Common Core Implementation Plan (Plan 1 of 5)
+# Agent Project Console — Foundation & Common Core Implementation Plan (Plan 1 of 6)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1209,10 +1209,12 @@ git commit -m "feat(workflow): add LocalWorkerRunner (SQLite-backed in-process j
 - [ ] `@apc/vault` round-trips Obsidian-compatible Markdown (frontmatter + `[[wiki-link]]`).
 - [ ] `@apc/workflow` runs and records jobs behind a runner contract that a Temporal adapter can later replace.
 
-## What this plan deliberately defers (later plans)
+## Plan sequence (the 6 plans)
 
-- Electron shell, preload/contextBridge, React renderer, Zustand — **Plan 2**.
-- `node-pty`/`xterm.js` terminal surface, `AgentAdapter` (Claude first), Transcript Resolver, incremental ingest, SQLite FTS search — **Plan 2**.
-- `AgentRunner` multi-engine + model picker; work summary / current proposal / next-task generation — **Plan 3**.
-- PM domain services (Task/AgentRun/Review lifecycle) + PM Control Tower UI + `dashboard-api` aggregates — **Plan 4**.
-- Harness Studio read+select (`@apc/harness`: `AgentConfigAdapter` + normalized read-only `AgentProfile`, OpenCode-first; right-panel profile list/detail; task-execution profile picker) — **Plan 5**. Editing/teams/Claude+Codex are P1+ per spec §9.5.
+The remaining subsystems split into pure-logic engines (Plans 2–5, all Node + `node:sqlite`, fully TDD-able without Electron) and a final UI/integration layer (Plan 6). Each plan produces working, tested software on its own.
+
+- **Plan 2 — Ingest Engine** (`@apc/agents` + `@apc/search`): Claude/Codex/OpenCode ingest adapters → `NormalizedSession`, incremental cursors, secret redaction, FTS5 search. → `2026-06-01-agent-project-console-ingest-engine.md`
+- **Plan 3 — LLM Wiki Engine** (`@apc/llm-wiki`): `AgentRunner` (headless CLI, configurable templates), structured-output parsing, prompt builders, `WikiEngine` (work summary / current proposal / next-tasks, user-selected engine). → `2026-06-01-agent-project-console-llm-wiki-engine.md`
+- **Plan 4 — PM Domain** (`@apc/pm` + `@apc/dashboard-api`): Task/AgentRun/Review stores, review lifecycle state machine, canonical-safe vault writers, `getProjectDashboard`. → `2026-06-01-agent-project-console-pm-domain.md`
+- **Plan 5 — Harness Studio (read+select)** (`@apc/harness`): read-only `OpenCodeConfigAdapter` → normalized `AgentProfile`, per-task profile selection; credential files excluded. → `2026-06-01-agent-project-console-harness-studio.md`
+- **Plan 6 — Electron shell + Terminal + PM Control Tower UI** (`apps/desktop`): main/preload/renderer, `node-pty`+`xterm.js` Agent Work Execution Panel, model picker, Harness panel, and the integration services (`IngestService`, `RunService`, current-proposal→canonical promotion with `ConflictManager`) that compose Plans 2–5 end-to-end. **Written after the engines exist** (avoids speculative UI code now). Outline only at this stage.
