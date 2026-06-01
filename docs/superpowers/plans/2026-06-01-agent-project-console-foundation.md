@@ -6,7 +6,9 @@
 
 **Architecture:** A pnpm monorepo. `@apc/shared` holds Zod schemas (the single source of truth for contracts). `@apc/core` owns the SQLite database layer + ProjectRegistry + ConflictManager. `@apc/vault` reads/writes Obsidian-compatible Markdown (YAML frontmatter + `[[wiki-link]]`). `@apc/workflow` provides the `WorkflowRunner` interface and an MVP `LocalWorkerRunner` that persists jobs to SQLite. No Electron/UI in this plan — those come in Plan 2.
 
-**Tech Stack:** TypeScript (ESM), pnpm workspaces, Vitest, Zod, better-sqlite3, gray-matter (frontmatter), Node 20+.
+**Tech Stack:** TypeScript (ESM), pnpm workspaces, Vitest, Zod, `node:sqlite` (`DatabaseSync`, Node 24 built-in — no native build), gray-matter (frontmatter), Node 24.
+
+> **Environment note (2026-06-01):** this WSL2 box has no C compiler, so `better-sqlite3` cannot build. The DB driver is the built-in **`node:sqlite`** instead, wrapped behind our own `Db` type so it stays swappable (the spec keeps `better-sqlite3` as a packaged-Electron fallback). `node:sqlite` is marked experimental and prints one stderr warning on import — harmless; tests still pass.
 
 > Spec: `docs/superpowers/specs/2026-06-01-agent-project-console-design.md` (PRD v0.3). This plan covers §3 stack, §4 monorepo + Common Core, §5 contracts, §7 project identity, §10 conflict model, §11 vault, plus the `WorkflowRunner`/Job model.
 
@@ -29,7 +31,7 @@ packages/
   core/
     package.json
     src/index.ts
-    src/db.ts                    # better-sqlite3 open + migrate
+    src/db.ts                    # node:sqlite (DatabaseSync) open + migrate
     src/db.test.ts
     src/project-registry.ts      # ProjectRegistry (SQLite-backed)
     src/project-registry.test.ts
@@ -51,12 +53,14 @@ packages/
 
 ## Prerequisite: tooling
 
-This plan assumes `pnpm` and Node 20+ are installed. Verify before Task 1:
+This plan needs **Node ≥ 22.5** (for the built-in `node:sqlite`; this box runs v24) and `pnpm`. Verify before Task 1:
 
 ```bash
-node --version   # expect v20.x or higher
-pnpm --version   # expect 8.x or 9.x; if missing: npm i -g pnpm
+node --version   # expect v22.5+ (v24.x here)
+pnpm --version   # if missing: corepack prepare pnpm@9 --activate
 ```
+
+> `pnpm` and the `feat/foundation` branch were already set up during plan execution. `node:sqlite` was verified working on this Node 24.
 
 ---
 
@@ -85,7 +89,7 @@ pnpm --version   # expect 8.x or 9.x; if missing: npm i -g pnpm
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^24.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
@@ -397,9 +401,9 @@ git commit -m "feat(shared): add Zod contracts for Project/Task/AgentRun/Review"
 - Create: `packages/core/src/db.ts`
 - Test: `packages/core/src/db.test.ts`
 
-- [ ] **Step 1: Create the package manifest and install native deps**
+- [ ] **Step 1: Create the package manifest**
 
-`packages/core/package.json`:
+`packages/core/package.json` (no native deps — DB is the built-in `node:sqlite`):
 
 ```json
 {
@@ -408,11 +412,7 @@ git commit -m "feat(shared): add Zod contracts for Project/Task/AgentRun/Review"
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "@apc/shared": "workspace:*",
-    "better-sqlite3": "^11.1.2"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11"
+    "@apc/shared": "workspace:*"
   }
 }
 ```
@@ -423,7 +423,7 @@ Run:
 pnpm install
 ```
 
-Expected: better-sqlite3 builds its native addon without error.
+Expected: install completes with no native build step.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -464,14 +464,14 @@ Expected: FAIL — cannot resolve `./db.js`.
 `packages/core/src/db.ts`:
 
 ```ts
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 
-export type Db = Database.Database
+export type Db = DatabaseSync
 
 export function openDb(file: string): Db {
-  const db = new Database(file)
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
+  const db = new DatabaseSync(file)
+  db.exec('PRAGMA journal_mode = WAL')
+  db.exec('PRAGMA foreign_keys = ON')
   return db
 }
 
@@ -646,8 +646,8 @@ export class ProjectRegistry {
         `INSERT OR REPLACE INTO projects
          (id, name, status, goal, current_focus, start_date, target_date,
           project_type, repo_paths, vault_paths, source_paths)
-         VALUES (@id, @name, @status, @goal, @currentFocus, @startDate, @targetDate,
-                 @projectType, @repoPaths, @vaultPaths, @sourcePaths)`,
+         VALUES (:id, :name, :status, :goal, :currentFocus, :startDate, :targetDate,
+                 :projectType, :repoPaths, :vaultPaths, :sourcePaths)`,
       )
       .run({
         id: p.id,
@@ -1023,22 +1023,16 @@ git commit -m "feat(core): add ConflictManager (hash detect + conflict document)
 - Create: `packages/workflow/src/local-worker-runner.ts`
 - Test: `packages/workflow/src/local-worker-runner.test.ts`
 
-- [ ] **Step 1: Create the package manifest and install deps**
+- [ ] **Step 1: Create the package manifest**
 
-`packages/workflow/package.json`:
+`packages/workflow/package.json` (no deps — uses the built-in `node:sqlite`):
 
 ```json
 {
   "name": "@apc/workflow",
   "version": "0.0.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "dependencies": {
-    "better-sqlite3": "^11.1.2"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11"
-  }
+  "main": "./src/index.ts"
 }
 ```
 
@@ -1050,14 +1044,14 @@ Run: `pnpm install`
 
 ```ts
 import { beforeEach, describe, expect, test } from 'vitest'
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import { LocalWorkerRunner } from './local-worker-runner.js'
 
 describe('LocalWorkerRunner', () => {
   let runner: LocalWorkerRunner
 
   beforeEach(() => {
-    runner = new LocalWorkerRunner(new Database(':memory:'))
+    runner = new LocalWorkerRunner(new DatabaseSync(':memory:'))
   })
 
   test('runs a registered handler and records a completed job', async () => {
@@ -1095,7 +1089,7 @@ Expected: FAIL — cannot resolve `./local-worker-runner.js`.
 
 ```ts
 import { randomUUID } from 'node:crypto'
-import type Database from 'better-sqlite3'
+import type { DatabaseSync } from 'node:sqlite'
 
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed'
 
@@ -1118,7 +1112,7 @@ export type JobHandler = (input: unknown) => Promise<unknown>
 export class LocalWorkerRunner {
   private readonly handlers = new Map<string, JobHandler>()
 
-  constructor(private readonly db: Database.Database) {
+  constructor(private readonly db: DatabaseSync) {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS jobs (
         id         TEXT PRIMARY KEY,
@@ -1208,7 +1202,7 @@ git commit -m "feat(workflow): add LocalWorkerRunner (SQLite-backed in-process j
 
 ## Definition of Done (Plan 1)
 
-- [ ] `pnpm install` succeeds (including better-sqlite3 native build).
+- [ ] `pnpm install` succeeds (no native build — DB is the built-in `node:sqlite`).
 - [ ] `pnpm test` is green across all four packages.
 - [ ] `@apc/shared` exports validated Zod contracts for Project / Task / AgentRun / Review.
 - [ ] `@apc/core` opens/migrates SQLite, provides ProjectRegistry (repoPath + native-key mapping) and ConflictManager.

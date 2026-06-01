@@ -110,7 +110,7 @@ Project
 
 | 항목 | 선택 |
 |---|---|
-| SQLite | `better-sqlite3` |
+| SQLite | `node:sqlite` (`DatabaseSync`, Node 24 built-in — zero native build). `better-sqlite3`는 패키징된 Electron용 폴백 |
 | Schema / 검증 | Zod (`packages/shared`) |
 | UI state | Zustand |
 | 검색 | SQLite FTS / BM25 |
@@ -673,6 +673,7 @@ NexusCode식 IDE 화면을 그대로 따르지 않고, **PM 작업 흐름에 맞
 | Electron main 비대화 | BFF 얇게, job은 worker process로 강제 분리 |
 | 터미널 입력에 credential 노출 | raw keystroke off 기본 + prompt 감지 + 토큰 패턴 redaction |
 | PTY/native module(node-pty) 패키징 | prebuild 바이너리, Electron 버전 핀, 설치 detect 폴백 |
+| 빌드 환경에 C 컴파일러 없음 (WSL2 검증, 2026-06-01) | DB 드라이버를 node:sqlite(빌드 불필요)로 선택 → SQLite native 빌드 의존 제거 |
 | 세 agent 포맷 변경 | adapter 격리 + 골든 fixture로 회귀 탐지 |
 | Harness 읽기가 credential 섞인 config 노출 | 인증/세션 파일 제외 화이트리스트, MVP는 쓰기 없음 |
 | Harness 편집이 사용자 실제 도구 설정 손상 | MVP는 read-only, P1 편집은 proposal+diff+backup+conflict-safe write |
