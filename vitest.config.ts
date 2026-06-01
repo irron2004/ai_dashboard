@@ -50,6 +50,7 @@ export default defineConfig({
       '@apc/llm-wiki': `${root}packages/llm-wiki/src/index.ts`,
       '@apc/pm': `${root}packages/pm/src/index.ts`,
       '@apc/dashboard-api': `${root}packages/dashboard-api/src/index.ts`,
+      '@apc/harness': `${root}packages/harness/src/index.ts`,
     },
   },
   test: {
