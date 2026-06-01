@@ -558,6 +558,25 @@ Dataview / graph view / Obsidian plugin = P1 이후.
 
 ---
 
+## 11.5 Knowledge Retrieval Core (`@apc/knowledge`)
+
+`@apc/knowledge` indexes Obsidian-compatible project Markdown into a local SQLite FTS5 index
+(별도 패키지 — agent 세션 turn을 인덱싱하는 `@apc/search`와 분리). vault 폴더를 프로젝트
+collection으로 다루고, `/tasks`·`/reviews`·`/decisions`·`/wiki`·`/current.md` 같은 경로에 대한
+context-tree 메타데이터를 저장하며, task 배정용 `ContextPackage`(JSON/files) 출력을 생성한다.
+
+MVP retrieval = 키워드/FTS + PM 메타데이터 랭킹:
+
+- `canonical` / `accepted` 문서는 부스트.
+- `candidate` 문서는 중립.
+- `superseded` / `deprecated` 문서는 디모트.
+- `conflict` 문서는 검색에는 남되 경고(warning)를 단다.
+
+`pmw://project/<projectId>/<relPath>` 결정적 URI로 문서를 식별한다. MCP stdio/HTTP,
+vector/rerank는 SDK-first `KnowledgeRetrieval` / `ContextPackageBuilder` 위의 P1/P2 어댑터로 둔다.
+
+---
+
 ## 12. 안전 원칙 (Claude / 3rd-party — 비협상)
 
 | 해야 하는 것 | 하지 말아야 하는 것 |
