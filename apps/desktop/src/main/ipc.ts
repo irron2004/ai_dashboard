@@ -28,14 +28,14 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.searchIndex.search(req.query, req.projectId ? { projectId: req.projectId } : {})
     },
 
-    [CH.listProfiles]: async (_payload: unknown) => {
-      // Profiles are discovered at runtime from harness adapters — return task-profile selections
-      return []
+    [CH.listProfiles]: async (payload: unknown) => {
+      const req = payload as ListProfilesReq
+      const { OpenCodeConfigAdapter } = await import('@apc/harness')
+      return new OpenCodeConfigAdapter().discoverProfiles({ projectPath: req.projectPath })
     },
 
     [CH.ingestAll]: async (_payload: unknown) => {
-      // Ingest with no adapters in the BFF; callers wire adapters at startup
-      return { sources: 0, sessions: 0 }
+      return container.ingest.ingestAll(container.ingestAdapters)
     },
 
     [CH.submitReview]: async (payload: unknown) => {
