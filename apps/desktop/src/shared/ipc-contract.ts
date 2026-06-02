@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -59,9 +59,10 @@ export type GenerateProjectRes = {
 export type HarnessRunReq = { projectId: string; engine: AgentType }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessGetRunReq = { runId: string }
-export type HarnessGetRunRes = { ok: boolean; runState?: unknown; reason?: string }
-export type HarnessPromoteReq = { runId: string }
-export type HarnessPromoteRes = { ok: boolean; promoted?: string[]; proposals?: string[]; reason?: string }
+export type HarnessArtifactRes = { state: KhState; name: string; path: string; data: unknown }
+export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }
+export type HarnessPromoteReq = { runId: string; allowSecrets?: boolean }
+export type HarnessPromoteRes = { ok: boolean; promoted?: string[]; proposals?: string[]; refusedCanonical?: string[]; reason?: string }
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {

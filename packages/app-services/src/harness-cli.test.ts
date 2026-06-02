@@ -9,9 +9,10 @@ describe('parseArgs', () => {
     expect(parseArgs(['run', '--engine', 'claude']).cmd).toBe('error')
     expect(parseArgs(['run', '--project', 'p1', '--engine', 'gpt']).cmd).toBe('error')
   })
-  test('parses show / promote positional runId', () => {
+  test('parses show / promote positional runId + --allow-secrets', () => {
     expect(parseArgs(['show', 'RUN-1'])).toEqual({ cmd: 'show', runId: 'RUN-1' })
-    expect(parseArgs(['promote', 'RUN-1'])).toEqual({ cmd: 'promote', runId: 'RUN-1' })
+    expect(parseArgs(['promote', 'RUN-1'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: false })
+    expect(parseArgs(['promote', 'RUN-1', '--allow-secrets'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: true })
   })
   test('no args / help → help; unknown → error', () => {
     expect(parseArgs([]).cmd).toBe('help')
@@ -43,9 +44,10 @@ describe('runCli', () => {
     expect(await runCli(['run'], port, c.out)).toBe(2)
     expect(c.lines.join('\n')).toContain('knowledge-harness')
   })
-  test('a failing run yields exit 1', async () => {
+  test('a failing run yields exit 1 and prints the reason', async () => {
     const c = capture()
     const failing: HarnessCliPort = { ...port, async run() { return { ok: false, reason: 'boom' } } }
     expect(await runCli(['run', '--project', 'p', '--engine', 'codex'], failing, c.out)).toBe(1)
+    expect(c.lines.join('\n')).toContain('boom')  // pins the reason-print, not just the exit code
   })
 })

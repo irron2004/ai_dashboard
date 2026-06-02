@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
@@ -88,7 +89,9 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.harnessPromote]: async (payload: unknown) => {
-      return container.harnessPromote(payload as HarnessPromoteReq)
+      // strict parse: only the declared fields reach the service (no arbitrary flag injection)
+      const req = z.object({ runId: z.string(), allowSecrets: z.boolean().optional() }).strict().parse(payload)
+      return container.harnessPromote(req)
     },
 
     [CH.generateRun]: async (payload: unknown) => {
