@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -18,6 +18,7 @@ export const CH = {
   deleteProject: 'c:deleteProject',
   ingestAll: 'c:ingestAll',
   generateRun: 'c:generateRun',
+  generateProject: 'c:generateProject',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -40,6 +41,15 @@ export type ListProfilesReq = { projectPath: string }
 export type SubmitReviewReq = { review: Review }
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
+export type GenerateProjectReq = { projectId: string; engine: AgentType }
+export type GenerateProjectRes = {
+  ok: boolean
+  reason?: string
+  sessionId?: string
+  summaryPath?: string
+  proposalPath?: string
+  generation?: WikiGeneration
+}
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {

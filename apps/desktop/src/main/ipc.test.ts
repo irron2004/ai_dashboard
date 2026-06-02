@@ -109,4 +109,34 @@ describe('IPC handlers (no Electron)', () => {
     expect(res).toEqual({ sources: 1, sessions: 1 })
     expect(c2.searchIndex.search('control tower', { projectId: 'p1' })).toHaveLength(1)
   })
+
+  test('c:generateProject summarizes the latest session into a proposal', async () => {
+    const session: NormalizedSession = {
+      id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      turns: [{ role: 'user', text: 'go', toolCalls: [] }], filesTouched: [],
+    }
+    const fake: AgentIngestAdapter = {
+      agentKind: 'claude',
+      async discoverSources(): Promise<AgentSource[]> {
+        return [{ id: 'claude:s1', agentKind: 'claude', kind: 'jsonl-file', locator: '/x.jsonl', mtimeMs: 1 }]
+      },
+      async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+        return { session, position: '{}' }
+      },
+    }
+    const runner = {
+      async run() {
+        return {
+          ok: true,
+          output: JSON.stringify({ workSummary: 'did it', filesTouched: [], openProblems: [], nextTasks: [], currentProposalMarkdown: '## Current\n- x\n' }),
+          raw: '',
+        }
+      },
+    }
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake], agentRunner: runner })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; proposalPath?: string }
+    expect(res.ok).toBe(true)
+    expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
+  })
 })

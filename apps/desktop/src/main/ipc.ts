@@ -1,7 +1,7 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
+  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GenerateProjectReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
@@ -71,6 +71,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.ingestAll]: async (_payload: unknown) => {
       return container.ingest.ingestAll(container.ingestAdapters)
+    },
+
+    [CH.generateProject]: async (payload: unknown) => {
+      const req = payload as GenerateProjectReq
+      return container.generate.generateForProject(req)
     },
 
     [CH.generateRun]: async (payload: unknown) => {

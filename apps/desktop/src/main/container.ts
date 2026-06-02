@@ -5,8 +5,8 @@ import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService } from '@apc/app-services'
-import { WikiEngine, CliAgentRunner } from '@apc/llm-wiki'
+import { IngestService, RunService, GenerateService } from '@apc/app-services'
+import { WikiEngine, CliAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 
 export type Container = {
@@ -22,6 +22,7 @@ export type Container = {
   ingest: IngestService
   ingestAdapters: AgentIngestAdapter[]
   runService: RunService
+  generate: GenerateService
   dashboard: typeof getProjectDashboard
 }
 
@@ -34,6 +35,7 @@ export function buildContainer(opts: {
   dbFile: string
   vaultRoot: string
   ingestAdapters?: AgentIngestAdapter[]
+  agentRunner?: AgentRunner
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -53,15 +55,13 @@ export function buildContainer(opts: {
   const ingest = new IngestService({ registry, cursors, index: searchIndex })
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
-  const runService = new RunService({
-    wiki: new WikiEngine(new CliAgentRunner()),
-    vaultWriter: new VaultWriter(vault),
-    tasks,
-    runs,
-  })
+  const vaultWriter = new VaultWriter(vault)
+  const wiki = new WikiEngine(opts.agentRunner ?? new CliAgentRunner())
+  const runService = new RunService({ wiki, vaultWriter, tasks, runs })
+  const generate = new GenerateService({ adapters: ingestAdapters, registry, vault, vaultWriter, wiki })
 
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
-    ingest, ingestAdapters, runService, dashboard: getProjectDashboard,
+    ingest, ingestAdapters, runService, generate, dashboard: getProjectDashboard,
   }
 }
