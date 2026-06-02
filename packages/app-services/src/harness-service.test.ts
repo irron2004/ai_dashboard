@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner } from '@apc/llm-wiki'
+import { RunLock } from '@apc/knowledge-harness'
 import { HarnessService } from './harness-service.js'
 
 // repo root from packages/app-services/src/
@@ -62,6 +63,14 @@ describe('HarnessService', () => {
 
   test('show reports an unknown run', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
+  })
+
+  test('a concurrent run for the same project returns a structured failure, not an unhandled throw', async () => {
+    // someone else already holds the project lock
+    new RunLock(join(ws, 'runs', '.locks'), 'p1').acquire('OTHER')
+    const r = await service().run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toMatch(/already in progress/)
   })
 
   test('a PolicyGuard block surfaces as FAILED with a reason (not dropped)', async () => {

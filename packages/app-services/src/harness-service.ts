@@ -48,8 +48,14 @@ export class HarnessService {
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), input.projectId)
     const runner = new HarnessRunner({ gates: FeatureGate.fromFile(this.gatesPath), drivers, now: this.now, lock })
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
-    const rs = await runner.advance(store)
-    return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
+    try {
+      const rs = await runner.advance(store)
+      return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
+    } catch (err) {
+      // Lock contention (another run holds this project's lock) throws out of advance() — surface it as
+      // a structured result rather than an unhandled rejection across the CLI/IPC boundary.
+      return { ok: false, runId, finalState: 'FAILED', reason: err instanceof Error ? err.message : String(err) }
+    }
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState } | { ok: false; reason: string } {
