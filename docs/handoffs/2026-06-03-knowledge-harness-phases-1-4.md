@@ -90,10 +90,12 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
 **수렴 판정**: 라운드3 synthesis가 "secret_assignment 좁히고 + 2개 테스트 갭 메우면 수렴"이라고 명시했고
 정확히 그 3가지를 완료. confirmed 추세 27→13→1로 수렴. **이 지점이 깨끗한 수렴 체크포인트.**
 
-## 2-e. 수렴 후 P1 진행
+## 2-e. 수렴 후 개선 (자신있게 가능한 것 전부 완료)
 
-- [x] **resume 구현**: `HarnessService.resume({runId})` + CLI `resume <runId>` + `c:harnessResume` IPC
-  (수용 기준 #6). 멈춘 state부터 이어감(gate 재독 → 다시 열린 gate면 계속). packages 223 + desktop 21 green.
+- [x] **resume**: `HarnessService.resume({runId})` + CLI `resume <runId>` + `c:harnessResume` IPC (수용 #6).
+- [x] **eval secret_warnings 완전성**: evidence-text(PolicyGuard) + body-content(VALIDATED scan) 합산.
+- [x] **run-dir §6.2 준수**: `diff.patch` + `final-report.md`를 run 루트 top-level 파일로 기록(RunArtifactStore.writeFile).
+- 결과: **packages 224 + desktop 21 green**. 이로써 제품 판단 불요 + 고신뢰 개선은 소진.
 
 ## 3. 다음에 할 일 / 미완 (제품 판단 필요 — 사용자 방향 요망)
 
