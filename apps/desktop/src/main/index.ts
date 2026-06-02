@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { execFile } from 'node:child_process'
+import { exec, execFile } from 'node:child_process'
 import { buildContainer } from './container.js'
 import { registerIpc } from './ipc.js'
 import { PtyManager } from './pty-manager.js'
@@ -54,6 +54,20 @@ function createWindow(): void {
       })
     })
   })
+
+  // Self-update: git pull + pnpm install in the repo root (where the app was launched).
+  ipcMain.handle(CH.appUpdate, async () => {
+    return new Promise<{ ok: boolean; output: string }>((resolve) => {
+      const cmd = 'git pull --ff-only && pnpm install'
+      exec(cmd, { cwd: process.cwd(), timeout: 180_000, windowsHide: true, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+        const output = `$ ${cmd}\n\n${stdout ?? ''}${stderr ? `\n${stderr}` : ''}`.trim()
+        resolve({ ok: !err, output })
+      })
+    })
+  })
+
+  // Relaunch the app to load the pulled code.
+  ipcMain.handle(CH.appRestart, async () => { app.relaunch(); app.quit() })
 
   const pty = new PtyManager((channel, ...args) => win.webContents.send(channel, ...args))
   ipcMain.on(CH.ptyStart, (_e, req: StartPtyReq) => { void pty.start(req.id, req.command, req.args, req.cwd) })

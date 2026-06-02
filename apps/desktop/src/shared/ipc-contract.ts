@@ -9,6 +9,9 @@ export const CH = {
   // dialogs
   selectFolder: 'd:selectFolder',
   testSsh: 'd:testSsh',
+  // app self-update
+  appUpdate: 'c:appUpdate',
+  appRestart: 'c:appRestart',
   // commands
   registerProject: 'c:registerProject',
   updateProject: 'c:updateProject',

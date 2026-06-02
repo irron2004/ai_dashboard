@@ -23,6 +23,12 @@ export const api = {
   selectFolder(): Promise<string | null> {
     return window.apc.invoke(CH.selectFolder) as Promise<string | null>
   },
+  appUpdate(): Promise<{ ok: boolean; output: string }> {
+    return window.apc.invoke(CH.appUpdate) as Promise<{ ok: boolean; output: string }>
+  },
+  appRestart(): Promise<void> {
+    return window.apc.invoke(CH.appRestart) as Promise<void>
+  },
   testSsh(req: { host: string; port: number; username: string; remotePath: string }): Promise<{ ok: boolean; error?: string }> {
     return window.apc.invoke(CH.testSsh, req) as Promise<{ ok: boolean; error?: string }>
   },

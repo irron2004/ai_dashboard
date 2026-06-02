@@ -25,6 +25,9 @@ export function App() {
   const [agent, setAgent] = useState<AgentType>('claude')
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // vertical pane flex per agent; drag to resize
   const termRef = useRef<HTMLDivElement | null>(null)
+  const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
+    { open: false, running: false, log: '', ok: false },
+  )
 
   const startDrag = (i: number) => (e: React.MouseEvent) => {
     e.preventDefault()
@@ -82,6 +85,16 @@ export function App() {
     void api.selectProfile({ taskId, profileId })
   }
 
+  const runUpdate = async () => {
+    setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
+    try {
+      const res = await api.appUpdate()
+      setUpd({ open: true, running: false, log: res.output || '(no output)', ok: res.ok })
+    } catch (e) {
+      setUpd({ open: true, running: false, log: String(e), ok: false })
+    }
+  }
+
   return (
     <div className="app-layout">
       <aside className="app-layout__sidebar">
@@ -99,6 +112,9 @@ export function App() {
         <header className="app-layout__toolbar">
           <button disabled={ingesting} onClick={() => ingest()}>
             {ingesting ? 'Ingesting...' : 'Ingest now'}
+          </button>
+          <button disabled={upd.running} onClick={runUpdate} title="git pull + pnpm install">
+            {upd.running ? 'Updating…' : '⭳ Update'}
           </button>
           {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
@@ -167,6 +183,36 @@ export function App() {
           <div className="app-layout__placeholder">Select a project to open agent terminals</div>
         )}
       </div>
+
+      {upd.open && (
+        <div className="add-project-overlay" onClick={() => { if (!upd.running) setUpd((u) => ({ ...u, open: false })) }}>
+          <div className="add-project-dialog" onClick={(e) => e.stopPropagation()} style={{ width: 640, maxWidth: '92vw' }}>
+            <h2>Update {upd.running ? '…' : upd.ok ? '✓' : '✗'}</h2>
+            <pre style={{
+              background: '#111', color: upd.ok ? '#cfc' : '#ddd', padding: 10, borderRadius: 6,
+              maxHeight: 360, overflow: 'auto', fontSize: '0.78rem', whiteSpace: 'pre-wrap', margin: 0,
+            }}>
+              {upd.log}
+            </pre>
+            {!upd.running && upd.ok && (
+              <p style={{ fontSize: '0.8rem', opacity: 0.7 }}>완료. 변경된 코드를 적용하려면 재시작하세요.</p>
+            )}
+            <div className="add-project-dialog__actions">
+              <button type="button" disabled={upd.running} onClick={() => setUpd((u) => ({ ...u, open: false }))}>
+                Close
+              </button>
+              <button
+                type="button"
+                disabled={upd.running || !upd.ok}
+                onClick={() => api.appRestart()}
+                style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}
+              >
+                Restart now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="error-toast" onClick={clearError}>
