@@ -8,13 +8,14 @@ import { HarnessPanel } from './components/HarnessPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import './app.css'
 
-const AGENTS: AgentType[] = ['claude', 'codex', 'opencode']
+// Display/shortcut order: claude | opencode | codex
+const AGENTS: AgentType[] = ['claude', 'opencode', 'codex']
 
 const STATUS_COLOR: Record<AgentRunStatus, string> = {
-  idle: '#666',       // not started — grey
-  running: '#4ade80', // 동작중 — green
+  idle: '#666',         // not started — grey
+  running: '#4ade80',   // 동작중 — green
   attention: '#facc15', // 사용자 허가 필요 — yellow
-  done: '#f87171',    // 완료 — red
+  done: '#f87171',      // 완료 — red
 }
 
 export function App() {
@@ -23,25 +24,41 @@ export function App() {
     loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
-  const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // vertical pane flex per agent; drag to resize
+  const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
+  const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track)
   const termRef = useRef<HTMLDivElement | null>(null)
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
     { open: false, running: false, log: '', ok: false },
   )
 
-  const startDrag = (i: number) => (e: React.MouseEvent) => {
+  // Drag a divider between terminal column i and i+1 (horizontal resize).
+  const startColDrag = (i: number) => (e: React.MouseEvent) => {
     e.preventDefault()
-    const startY = e.clientY
+    const startX = e.clientX
     const start = [...sizes]
-    const h = termRef.current?.clientHeight ?? 1
+    const w = termRef.current?.clientWidth ?? 1
     const total = start.reduce((x, y) => x + y, 0)
     const onMove = (ev: MouseEvent) => {
-      const d = ((ev.clientY - startY) / h) * total
+      const d = ((ev.clientX - startX) / w) * total
       const next = [...start]
       next[i] = Math.max(0.15, start[i] + d)
       next[i + 1] = Math.max(0.15, start[i + 1] - d)
       setSizes(next)
     }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  // Drag the sidebar/main divider to resize the projects bar.
+  const startSidebarDrag = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarW
+    const onMove = (ev: MouseEvent) => setSidebarW(Math.min(480, Math.max(150, startW + (ev.clientX - startX))))
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
@@ -59,17 +76,20 @@ export function App() {
     }
   }, [selectedProjectId, projects, loadProfiles])
 
-  // Keyboard: Alt+1..9 → select project by index; Ctrl+Shift+1/2/3 → select agent
+  // Keyboard: Alt+1..9 → project by index; Ctrl+Shift+1/2/3 → agent.
+  // Use e.code (Digit1..) because Shift turns e.key '1' into '!'.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && /^[1-3]$/.test(e.key)) {
+      if (!e.code.startsWith('Digit')) return
+      const n = Number(e.code.slice(5))
+      if (e.ctrlKey && e.shiftKey && n >= 1 && n <= AGENTS.length) {
         e.preventDefault()
-        setAgent(AGENTS[Number(e.key) - 1])
+        setAgent(AGENTS[n - 1])
         return
       }
-      if (e.altKey && !e.ctrlKey && !e.shiftKey && /^[1-9]$/.test(e.key)) {
-        const idx = Number(e.key) - 1
-        if (projects[idx]) { e.preventDefault(); selectProject(projects[idx].id) }
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && n >= 1 && n <= 9 && projects[n - 1]) {
+        e.preventDefault()
+        selectProject(projects[n - 1].id)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -96,7 +116,7 @@ export function App() {
   }
 
   return (
-    <div className="app-layout">
+    <div className="app-layout" style={{ gridTemplateColumns: `${sidebarW}px 1fr 240px` }}>
       <aside className="app-layout__sidebar">
         <ProjectSidebar
           projects={projects}
@@ -107,6 +127,13 @@ export function App() {
           onDelete={deleteProject}
         />
       </aside>
+
+      {/* draggable sidebar/main divider */}
+      <div
+        onMouseDown={startSidebarDrag}
+        title="드래그하여 사이드바 크기 조정"
+        style={{ position: 'fixed', top: 0, left: sidebarW - 2, width: 5, height: '100vh', cursor: 'col-resize', zIndex: 50 }}
+      />
 
       <main className="app-layout__main">
         <header className="app-layout__toolbar">
@@ -134,21 +161,21 @@ export function App() {
         <HarnessPanel profiles={profiles} onSelect={handleSelectProfile} />
       </aside>
 
-      {/* Agent Work Execution Panel — vertical split; drag dividers to resize, Ctrl+Shift+N to focus */}
-      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
+      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'row', minHeight: 0 }}>
         {selectedProjectId ? (
           AGENTS.map((a, i) => (
             <Fragment key={a}>
               {i > 0 && (
                 <div
-                  onMouseDown={startDrag(i - 1)}
+                  onMouseDown={startColDrag(i - 1)}
                   title="드래그하여 크기 조정"
-                  style={{ height: 6, cursor: 'row-resize', background: '#333', flex: '0 0 auto' }}
+                  style={{ width: 6, cursor: 'col-resize', background: '#333', flex: '0 0 auto' }}
                 />
               )}
               <div
                 style={{
-                  flex: sizes[i], display: 'flex', flexDirection: 'column', minHeight: 0,
+                  flex: sizes[i], display: 'flex', flexDirection: 'column', minWidth: 0,
                   border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
                   borderRadius: 4, overflow: 'hidden',
                 }}
@@ -157,8 +184,8 @@ export function App() {
                   onClick={() => setAgent(a)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                    padding: '3px 8px', fontSize: '0.8rem',
-                    background: a === agent ? '#23311f' : '#161616', flex: '0 0 auto',
+                    padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
+                    background: a === agent ? '#23311f' : '#161616',
                   }}
                   title={`Ctrl+Shift+${i + 1}`}
                 >
