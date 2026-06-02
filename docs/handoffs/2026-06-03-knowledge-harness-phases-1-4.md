@@ -102,11 +102,21 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
   hash-gating(match→promote, stale→conflict doc). packages 228 + desktop 21 green. (generic 구현이라
   vault-layout 결정 불요였음 — 앞서 과도하게 보수적으로 판단했던 항목.)
 
-## 3. 다음에 할 일 / 미완 (전부 non-blocking; UI/제품 방향 또는 저가치)
+## 2-f. 렌더러 UI — 이미 존재(외부 추가) + 새 채널 연결 완료
 
-- 렌더러 React UI(타임라인/diff/promote·conflict 패널) — IPC 경계까지 완료, 픽셀 UI는 design 방향 필요.
-- per-flag gate wiring(안전망 약화 → skip 권장, §14 문서화로 갈음), `--from <STATE>` rewind,
-  git-worktree staging, 실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
+`apps/desktop/src/renderer/components/`에 `HarnessDashboard/HarnessPanel(+test)/HarnessRunList` +
+`DiffViewer/MarkdownViewer`가 이미 있고 desktop 테스트 green(21). 내 백엔드 변경과 호환됨. `api.ts`에
+`harnessResume`/`harnessPromoteCanonical`을 추가해 새 IPC 채널까지 렌더러에서 호출 가능.
+
+## 상태: MVP 수용 기준 §12의 1~8 전부 충족(7번 hash-gated canonical promote 포함), UI는 IPC 경계까지
+## 연결됨. packages 228 + desktop 21 green, 61 commits. 고신뢰·비-제품판단 작업 소진.
+
+## 3. 남은 backlog (전부 non-blocking, 저가치 또는 비권장)
+
+- per-flag gate wiring → 안전망 약화, skip 권장(§14 문서화로 갈음).
+- `--from <STATE>` rewind(이후 artifact stale), git-worktree staging(perf), 실 CliAgentRunner 통합
+  테스트(CI에서 실 LLM 불가), 선택적 LLM secret 의미판정(설계상 P1/off).
+- 렌더러 컴포넌트가 resume/promoteCanonical 버튼을 노출하도록 하는 것은 UX design 방향 필요.
 - loop 종료: `/cancel-ralph`.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.
