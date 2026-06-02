@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs'
 
-/** Parse the flat `key: true|false` feature-gates file (a YAML subset — no nesting beyond the `features:` header). */
+/**
+ * Parse the feature-gates file. This is NOT a general YAML parser — it understands exactly one
+ * shape: a `features:` header followed by flat `  <name>: true|false` lines (comments with `#`
+ * and blank lines allowed). Anything else (nesting, lists, non-boolean values, typo'd syntax)
+ * is deliberately ignored rather than throwing: an unrecognized line simply leaves its flag
+ * undefined, and `FeatureGate.gate()` treats undefined as `false`. The result is fail-safe by
+ * construction — a malformed or misspelled line can only ever fail to ENABLE automation, never
+ * silently enable it. Editing the file requires no rebuild (it is read at runtime).
+ */
 export function parseFeatureGates(text: string): Record<string, boolean> {
   const out: Record<string, boolean> = {}
   for (const raw of text.split(/\r?\n/)) {
@@ -8,6 +16,7 @@ export function parseFeatureGates(text: string): Record<string, boolean> {
     if (!line || line.startsWith('#') || line === 'features:') continue
     const m = line.match(/^([A-Za-z0-9_]+):\s*(true|false)\s*$/)
     if (m) out[m[1]] = m[2] === 'true'
+    // else: not a recognized `key: true|false` line — ignored (stays undefined → gate() = false).
   }
   return out
 }
