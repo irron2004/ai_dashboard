@@ -3,6 +3,8 @@ import {
   KhStateSchema, KhNodeProposalSchema, KhWritePlanSchema, KhEvalReportSchema, RunStateSchema,
   KhProjectDiscoveryReportSchema, KhSourceInventoryReportSchema, KhConversationHistoryReportSchema,
   KhDocumentIntentReportSchema, KhGraphUpdatePlanSchema, KhSharedPromotionPlanSchema, KhStaleDocReportSchema,
+  KhPolicyReportSchema, KhSecretScanReportSchema, KhGraphValidationReportSchema,
+  KhLinkValidationReportSchema, KhMarkdownYamlValidationReportSchema,
 } from './kh-schema.js'
 
 describe('kh-schema', () => {
@@ -73,5 +75,16 @@ describe('kh-schema', () => {
   test('ConversationHistoryReport + SourceInventoryReport parse', () => {
     expect(KhSourceInventoryReportSchema.parse({ generated_by: 'reader' }).sources).toEqual([])
     expect(KhConversationHistoryReportSchema.parse({ generated_by: 'reader', session_id: 's1' }).highlights).toEqual([])
+  })
+
+  test('verify/policy reports default to ok:true with empty finding lists', () => {
+    expect(KhPolicyReportSchema.parse({}).ok).toBe(true)
+    expect(KhPolicyReportSchema.parse({}).violations).toEqual([])
+    expect(KhSecretScanReportSchema.parse({}).findings).toEqual([])
+    const g = KhGraphValidationReportSchema.parse({})
+    expect(g.broken_links).toEqual([])
+    expect(g.duplicate_node_ids).toEqual([])
+    expect(KhLinkValidationReportSchema.parse({}).broken).toEqual([])
+    expect(KhMarkdownYamlValidationReportSchema.parse({}).problems).toEqual([])
   })
 })

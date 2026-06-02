@@ -208,3 +208,52 @@ export const KhStaleDocReportSchema = z.object({
   })).default([]),
 })
 export type KhStaleDocReport = z.infer<typeof KhStaleDocReportSchema>
+
+export const KhPolicyReportSchema = z.object({
+  generated_by: z.string().default('policy-guard'),
+  ok: z.boolean().default(true),
+  blocked_proposal_ids: z.array(z.string()).default([]),
+  violations: z.array(z.object({
+    proposal_id: z.string().default(''),
+    rule: z.string(),    // raw_write | delete | canonical_overwrite | no_evidence | secret | shared_evidence_min
+    severity: z.enum(['block', 'warn']).default('warn'),
+    detail: z.string().default(''),
+  })).default([]),
+})
+export type KhPolicyReport = z.infer<typeof KhPolicyReportSchema>
+
+export const KhSecretScanReportSchema = z.object({
+  generated_by: z.string().default('secret-scanner'),
+  ok: z.boolean().default(true),
+  findings: z.array(z.object({
+    source: z.string().default(''),
+    rule: z.string(),
+    match_preview: z.string().default(''),
+  })).default([]),
+})
+export type KhSecretScanReport = z.infer<typeof KhSecretScanReportSchema>
+
+export const KhGraphValidationReportSchema = z.object({
+  generated_by: z.string().default('graph-integrity'),
+  ok: z.boolean().default(true),
+  broken_links: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
+  duplicate_node_ids: z.array(z.object({ node_id: z.string(), paths: z.array(z.string()).default([]) })).default([]),
+  orphan_nodes: z.array(z.string()).default([]),
+  node_id_mismatches: z.array(z.object({ path: z.string(), node_id: z.string() })).default([]),
+  missing_backlinks: z.array(z.object({ from: z.string(), to: z.string() })).default([]),
+})
+export type KhGraphValidationReport = z.infer<typeof KhGraphValidationReportSchema>
+
+export const KhLinkValidationReportSchema = z.object({
+  generated_by: z.string().default('obsidian-link-validator'),
+  ok: z.boolean().default(true),
+  broken: z.array(z.object({ path: z.string(), detail: z.string().default('') })).default([]),
+})
+export type KhLinkValidationReport = z.infer<typeof KhLinkValidationReportSchema>
+
+export const KhMarkdownYamlValidationReportSchema = z.object({
+  generated_by: z.string().default('markdown-yaml-validator'),
+  ok: z.boolean().default(true),
+  problems: z.array(z.object({ path: z.string(), kind: z.string(), detail: z.string().default('') })).default([]),
+})
+export type KhMarkdownYamlValidationReport = z.infer<typeof KhMarkdownYamlValidationReportSchema>
