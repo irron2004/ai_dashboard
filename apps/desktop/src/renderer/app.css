@@ -1,0 +1,239 @@
+/* ── Reset & base ───────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  color: #e0e0e0;
+  background: #1e1e2e;
+}
+
+h2 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+h3 { font-size: 0.85rem; font-weight: 600; text-transform: uppercase; color: #888; margin-bottom: 4px; }
+ul { list-style: none; }
+
+button {
+  cursor: pointer;
+  font: inherit;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #2a2a3e;
+  color: #e0e0e0;
+  padding: 6px 12px;
+  transition: background 0.15s;
+}
+button:hover:not(:disabled) { background: #3a3a5e; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── App grid layout ───────────────────────────────────── */
+.app-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr 240px;
+  grid-template-rows: 1fr 280px;
+  grid-template-areas:
+    "sidebar main harness"
+    "sidebar terminal terminal";
+  height: 100%;
+  gap: 1px;
+  background: #111;
+}
+
+.app-layout__sidebar  { grid-area: sidebar;  background: #181828; padding: 12px; overflow-y: auto; }
+.app-layout__main     { grid-area: main;     background: #1e1e2e; padding: 16px; overflow-y: auto; }
+.app-layout__harness  { grid-area: harness;  background: #181828; padding: 12px; overflow-y: auto; }
+.app-layout__terminal { grid-area: terminal; background: #0e0e1a; padding: 8px; display: flex; flex-direction: column; }
+
+.app-layout__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #333;
+}
+.app-layout__toolbar span { font-size: 0.85rem; color: #888; }
+
+.app-layout__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #666;
+  font-size: 1.1rem;
+}
+
+/* ── Project sidebar ───────────────────────────────────── */
+.project-sidebar h2 { margin-bottom: 12px; }
+
+.project-sidebar__group { margin-bottom: 12px; }
+.project-sidebar__group-title { color: #6a6; }
+.project-sidebar__list { display: flex; flex-direction: column; gap: 2px; }
+
+.project-sidebar__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+.project-sidebar__item:hover { background: #2a2a40; }
+.project-sidebar__item--selected { background: #334; color: #fff; border-left: 3px solid #7a7aff; }
+
+.project-sidebar__add-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  background: #2a3a2a;
+  border-color: #4a6a4a;
+  color: #8c8;
+}
+.project-sidebar__add-btn:hover { background: #3a4a3a; }
+
+/* ── PM home ───────────────────────────────────────────── */
+.pm-home { display: flex; flex-direction: column; gap: 20px; }
+.pm-home section { padding: 12px; background: #232338; border-radius: 6px; }
+.pm-home ul { margin-top: 6px; }
+.pm-home li { padding: 4px 0; border-bottom: 1px solid #2a2a40; }
+.pm-home li:last-child { border-bottom: none; }
+
+.task-title { color: #ddd; }
+.task-priority { color: #888; font-size: 0.85rem; }
+.review-status { color: #aa8; font-size: 0.85rem; }
+
+/* ── Harness panel ─────────────────────────────────────── */
+.harness-panel__list { display: flex; flex-direction: column; gap: 6px; }
+
+.harness-panel__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background: #232338;
+  border-radius: 4px;
+}
+.harness-panel__info { display: flex; flex-direction: column; gap: 2px; font-size: 0.85rem; }
+.harness-panel__name { color: #ddd; font-weight: 500; }
+.harness-panel__provider { color: #888; }
+.harness-panel__scope { color: #666; font-size: 0.8rem; }
+.harness-panel__mode { color: #aa8; font-size: 0.8rem; }
+.harness-panel__use-btn { padding: 4px 10px; font-size: 0.8rem; }
+
+/* ── Terminal tabs ─────────────────────────────────────── */
+.terminal-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+.terminal-tabs button {
+  padding: 4px 14px;
+  border: none;
+  border-radius: 4px 4px 0 0;
+  background: #1a1a2a;
+  color: #888;
+  font-size: 0.85rem;
+}
+.terminal-tabs button[aria-pressed="true"] {
+  background: #2a2a4a;
+  color: #fff;
+}
+
+.agent-terminal { flex: 1; min-height: 0; }
+
+/* ── Error toast ───────────────────────────────────────── */
+.error-toast {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #5a2020;
+  color: #fcc;
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: 1px solid #a44;
+  font-size: 0.9rem;
+  z-index: 999;
+  cursor: pointer;
+  max-width: 600px;
+  text-align: center;
+}
+
+/* ── Add-project dialog ────────────────────────────────── */
+.add-project-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.add-project-dialog {
+  background: #232338;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 24px;
+  width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.add-project-dialog h2 { margin-bottom: 4px; }
+.add-project-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+.add-project-dialog input,
+.add-project-dialog select {
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #1a1a2a;
+  color: #e0e0e0;
+  font: inherit;
+}
+.add-project-dialog__tabs {
+  display: flex;
+  gap: 4px;
+}
+.add-project-dialog__tabs button {
+  flex: 1;
+  padding: 6px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #1a1a2a;
+  color: #888;
+  font-size: 0.85rem;
+}
+.add-project-dialog__tabs button.active {
+  background: #2a3a5a;
+  color: #aaf;
+  border-color: #55a;
+}
+
+.add-project-dialog__ssh {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.add-project-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

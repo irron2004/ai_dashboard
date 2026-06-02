@@ -18,28 +18,43 @@ export type SendFn = (channel: string, ...args: unknown[]) => void
  */
 export class PtyManager {
   private readonly sessions = new Map<string, IPty>()
-  private mod: PtyModule | undefined
+  private mod: PtyModule | null | undefined // null = load attempted, unavailable
 
   constructor(private readonly send: SendFn) {}
 
-  private async load(): Promise<PtyModule> {
-    if (!this.mod) {
+  private async load(): Promise<PtyModule | null> {
+    if (this.mod === null) return null // already failed
+    if (this.mod) return this.mod
+    try {
       this.mod = (await import('@homebridge/node-pty-prebuilt-multiarch')) as unknown as PtyModule
+      return this.mod
+    } catch {
+      this.mod = null
+      return null
     }
-    return this.mod
   }
 
   async start(id: string, command: string, args: string[], cwd: string): Promise<void> {
     const pty = await this.load()
-    const p = pty.spawn(command, args, {
-      name: 'xterm-color', cols: 120, rows: 30, cwd, env: process.env,
-    })
-    this.sessions.set(id, p)
-    p.onData((data) => this.send('pty:data', id, data))
-    p.onExit(({ exitCode }) => {
-      this.send('pty:exit', id, exitCode)
-      this.sessions.delete(id)
-    })
+    if (!pty) {
+      this.send('pty:data', id, '[node-pty unavailable — native module not loaded]\r\n')
+      this.send('pty:exit', id, 1)
+      return
+    }
+    try {
+      const p = pty.spawn(command, args, {
+        name: 'xterm-color', cols: 120, rows: 30, cwd, env: process.env,
+      })
+      this.sessions.set(id, p)
+      p.onData((data) => this.send('pty:data', id, data))
+      p.onExit(({ exitCode }) => {
+        this.send('pty:exit', id, exitCode)
+        this.sessions.delete(id)
+      })
+    } catch (e) {
+      this.send('pty:data', id, `[PTY spawn failed: ${e}]\r\n`)
+      this.send('pty:exit', id, 1)
+    }
   }
 
   write(id: string, data: string): void {

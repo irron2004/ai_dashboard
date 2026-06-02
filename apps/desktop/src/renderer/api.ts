@@ -1,6 +1,6 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  ProjectDashboardReq, ProjectDashboardRes, SearchReq,
+  RegisterProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   StartPtyReq, PtyInputReq, PtyKillReq,
 } from '../shared/ipc-contract.js'
@@ -20,8 +20,17 @@ declare global {
 }
 
 export const api = {
+  selectFolder(): Promise<string | null> {
+    return window.apc.invoke(CH.selectFolder) as Promise<string | null>
+  },
+  testSsh(req: { host: string; port: number; username: string; remotePath: string }): Promise<{ ok: boolean; error?: string }> {
+    return window.apc.invoke(CH.testSsh, req) as Promise<{ ok: boolean; error?: string }>
+  },
   listProjects(): Promise<Project[]> {
     return window.apc.invoke(CH.listProjects) as Promise<Project[]>
+  },
+  registerProject(req: RegisterProjectReq): Promise<Project> {
+    return window.apc.invoke(CH.registerProject, req) as Promise<Project>
   },
   projectDashboard(req: ProjectDashboardReq): Promise<ProjectDashboardRes> {
     return window.apc.invoke(CH.projectDashboard, req) as Promise<ProjectDashboardRes>

@@ -1,6 +1,6 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  ProjectDashboardReq, SearchReq, ListProfilesReq,
+  RegisterProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -14,6 +14,21 @@ export function handlers(container: Container): Record<string, (payload: unknown
   return {
     [CH.listProjects]: async (_payload: unknown) => {
       return container.registry.list()
+    },
+
+    [CH.registerProject]: async (payload: unknown) => {
+      const req = payload as RegisterProjectReq
+      const id = `proj-${Date.now()}`
+      container.registry.register({
+        id,
+        name: req.name,
+        status: 'active',
+        projectType: req.projectType as 'git' | 'obsidian' | 'hybrid',
+        repoPaths: req.repoPath ? [req.repoPath] : [],
+        vaultPaths: [],
+        sourcePaths: [],
+      })
+      return container.registry.get(id)
     },
 
     [CH.projectDashboard]: async (payload: unknown) => {

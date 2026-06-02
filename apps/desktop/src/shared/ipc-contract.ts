@@ -6,7 +6,11 @@ export const CH = {
   projectDashboard: 'q:projectDashboard',
   search: 'q:search',
   listProfiles: 'q:listProfiles',
+  // dialogs
+  selectFolder: 'd:selectFolder',
+  testSsh: 'd:testSsh',
   // commands
+  registerProject: 'c:registerProject',
   ingestAll: 'c:ingestAll',
   generateRun: 'c:generateRun',
   submitReview: 'c:submitReview',
@@ -20,6 +24,8 @@ export const CH = {
   ptyExit: 'pty:exit',
 } as const
 
+export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
+export type RegisterProjectReq = { name: string; projectType: string; repoPath: string }
 export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[] }
 export type SearchReq = { query: string; projectId?: string }

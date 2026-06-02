@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
+import { execFile } from 'node:child_process'
 import { buildContainer } from './container.js'
 import { registerIpc } from './ipc.js'
 import { PtyManager } from './pty-manager.js'
-import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq } from '../shared/ipc-contract.js'
+import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq, type TestSshReq } from '../shared/ipc-contract.js'
 
 // electron-vite injects import.meta.dirname-equivalent paths; on Node 24 ESM import.meta.dirname exists.
 const here = import.meta.dirname
@@ -13,7 +14,7 @@ function createWindow(): void {
     width: 1400,
     height: 900,
     webPreferences: {
-      preload: join(here, '../preload/index.js'),
+      preload: join(here, '../preload/index.mjs'),
       sandbox: false,
     },
   })
@@ -26,6 +27,34 @@ function createWindow(): void {
 
   registerIpc(ipcMain, container)
 
+  // Native folder picker dialog
+  ipcMain.handle(CH.selectFolder, async () => {
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: 'Select project folder',
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  // SSH connection test
+  ipcMain.handle(CH.testSsh, async (_e, req: TestSshReq) => {
+    return new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      const args = [
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', 'ConnectTimeout=5',
+        '-p', String(req.port),
+        `${req.username}@${req.host}`,
+        `test -d "${req.remotePath}" && echo OK`,
+      ]
+      execFile('ssh', args, { timeout: 10_000 }, (err, stdout) => {
+        if (err) resolve({ ok: false, error: err.message })
+        else if (stdout.trim() === 'OK') resolve({ ok: true })
+        else resolve({ ok: false, error: 'Remote path not found' })
+      })
+    })
+  })
+
   const pty = new PtyManager((channel, ...args) => win.webContents.send(channel, ...args))
   ipcMain.on(CH.ptyStart, (_e, req: StartPtyReq) => { void pty.start(req.id, req.command, req.args, req.cwd) })
   ipcMain.on(CH.ptyInput, (_e, req: PtyInputReq) => pty.write(req.id, req.data))
@@ -34,6 +63,10 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(here, '../renderer/index.html'))
 }
+
+// Prevent unhandled errors from crashing the main process
+process.on('uncaughtException', (err) => { console.error('[main] uncaughtException:', err) })
+process.on('unhandledRejection', (err) => { console.error('[main] unhandledRejection:', err) })
 
 app.whenReady().then(createWindow)
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
