@@ -286,8 +286,8 @@ export const useStore = create<ApcStore>((set, get) => ({
         set({ harnessMessage: `Resume failed: ${resumed.reason ?? 'unknown reason'}` })
         return
       }
-      set({ harnessMessage: `Resumed ${targetRunId} → ${resumed.finalState ?? '?'}` })
       await get().refreshHarnessRun(targetRunId)
+      set({ harnessMessage: `Resumed ${targetRunId} → ${resumed.finalState ?? '?'}` })  // after refresh (which sets its own message)
     } catch (e) {
       set({ error: `Harness resume failed: ${e}` })
     } finally {
@@ -304,8 +304,8 @@ export const useStore = create<ApcStore>((set, get) => ({
         set({ harnessMessage: `Promote failed: ${promoted.reason ?? 'unknown reason'}` })
         return
       }
-      set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)` })
       await get().refreshHarnessRun(targetRunId)
+      set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)` })  // after refresh (which sets its own message)
     } catch (e) {
       set({ error: `Harness promote failed: ${e}` })
     }
@@ -327,8 +327,8 @@ export const useStore = create<ApcStore>((set, get) => ({
     try {
       const r = await api.harnessPromoteCanonical({ runId: targetRunId, proposalRelPath, lastReadHash })
       if (!r.ok) { set({ harnessMessage: `Canonical promote failed: ${r.reason ?? 'unknown'}` }); return }
+      await get().refreshHarnessRun(targetRunId)  // re-captures hashes after the write (sets its own message)
       set({ harnessMessage: r.status === 'conflict' ? `Conflict written: ${r.conflictPath}` : `Promoted ${r.canonicalPath}` })
-      await get().refreshHarnessRun(targetRunId)  // re-captures hashes after the write
     } catch (e) {
       set({ error: `Canonical promote failed: ${e}` })
     }
