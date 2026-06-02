@@ -189,3 +189,11 @@ raw/delete는 차단; gate 닫히면 해당 state에서 멈추고 resume 가능.
 잘못된 run에 promote 위험 → 전환 지점들에서 clear. minors: 풀 타임스탬프 conflict 파일명, terminal resume
 "nothing to resume" 메시지, resume missing-artifacts fail-fast(missingArtifacts 연결), loadCanonicalProposals
 에러 표면화, lock-contention 복구 힌트. hash-gate/resume core는 SOUND 확인. packages 231 + desktop 33 green.
+
+## 2-m. 라운드 5 (lean, iteration-#4 대상) + 개선 #5
+`wf_e3e9dcde-87c`: 2 raised / 2 confirmed (1 major + 1 informational). resume guards는 correct 확인.
+**MAJOR**: iteration-#4의 cross-run clear는 동기 전환만 커버 → loadCanonicalProposals의 **async race**
+(run A의 IPC가 run B 선택 후 resolve → B 리스트를 A proposals로 덮어씀). 수정: await 후
+selectedHarnessRunId 재확인해 stale 결과 drop(success+error 양쪽) + 로딩 중 run-select 버튼 disable +
+회귀 테스트. cross-run staleness 벡터는 이제 3중 방어(sync clear + async guard + button disable)로 폐쇄.
+packages 231 + desktop 34 green. (리뷰 라운드 추세: 매 라운드 내 변경에서 실버그 발견 — R4 sync, R5 async.)
