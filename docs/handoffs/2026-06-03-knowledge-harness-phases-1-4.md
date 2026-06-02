@@ -120,11 +120,18 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
 ## 상태 최종: packages 228 + desktop 21 green, 63 commits. acceptance §12 1~8 충족.
 ## resume는 backend→CLI→IPC→UI 전 구간. canonical hash-gated promote는 backend→IPC→api 까지(UI 버튼은 아래).
 
-## 3. 남은 backlog (전부 non-blocking)
+## 2-h. canonical-promote primitives 전부 노출 완료
 
-- **canonical-promote UI**: 현재 Promote 버튼은 basic staging promote(api.harnessPromote) 호출. hash-gated
-  canonical promote(api.harnessPromoteCanonical)를 UI에 노출하려면 렌더러가 vault canonical을 읽어
-  lastReadHash를 추적해야 함 → 실 UX-state 설계 필요(렌더러가 vault를 읽는지 등).
+- `HarnessPromoteService.canonicalProposals(runId)` → `{proposalRelPath, canonicalPath, currentHash|null}[]`
+  (service-tested) + `HarnessService.canonicalProposals` + `c:harnessCanonicalProposals` IPC + renderer api.
+  렌더러는 이제 canonical proposal 목록 + 각 vault canonical의 현재 hash를 받아 promoteCanonical에
+  lastReadHash로 넘길 수 있음 — hash-gate에 필요한 모든 primitive 준비됨. packages 230 + desktop 21 green.
+
+## 3. 남은 것: canonical-promote UX **조합**만 (primitive는 전부 있음)
+
+- 올바른 UX = (a) canonicalProposals를 표시할 때 currentHash를 캡처 → (b) 사용자가 **나중에** promote 클릭 시
+  그 hash를 lastReadHash로 전달. 표시-then-즉시-promote(fetch+promote 한 tick)는 hash-gate를 무력화하므로
+  **하면 안 됨**. 따라서 per-proposal 버튼/conflict 표시 등 UX 조합은 design 방향 필요(primitive는 준비됨).
 - per-flag gate wiring(안전망 약화, skip 권장), `--from <STATE>` rewind, git-worktree staging,
   실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
 - loop 종료: `/cancel-ralph`.
