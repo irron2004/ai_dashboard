@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "dependencies": {
     "@apc/shared": "workspace:*", "@apc/core": "workspace:*", "@apc/agents": "workspace:*",
-    "@apc/search": "workspace:*", "@apc/vault": "workspace:*", "@apc/llm-wiki": "workspace:*", "@apc/pm": "workspace:*"
+    "@apc/search": "workspace:*", "@apc/vault": "workspace:*", "@apc/llm-wiki": "workspace:*", "@apc/pm": "workspace:*",
+    "@apc/knowledge-harness": "workspace:*"
   }
 }
