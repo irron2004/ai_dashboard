@@ -8,6 +8,7 @@ type IPty = {
   onExit(cb: (e: { exitCode: number }) => void): void
   write(data: string): void
   kill(): void
+  resize(cols: number, rows: number): void
 }
 type PtyModule = {
   spawn(file: string, args: string[], opts: Record<string, unknown>): IPty
@@ -82,6 +83,10 @@ export class PtyManager {
       spawnCwd = cwd && existsSync(cwd) ? cwd : homedir()
     }
 
+    // Clean up any lingering session with the same id before spawning a new one
+    const existing = this.sessions.get(id)
+    if (existing) { try { existing.kill() } catch { /* ignore */ } this.sessions.delete(id) }
+
     try {
       const p = pty.spawn(file, spawnArgs, {
         name: 'xterm-color', cols: 120, rows: 30, cwd: spawnCwd, env: process.env,
@@ -108,6 +113,10 @@ export class PtyManager {
 
   write(id: string, data: string): void {
     this.sessions.get(id)?.write(data)
+  }
+
+  resize(id: string, cols: number, rows: number): void {
+    this.sessions.get(id)?.resize(cols, rows)
   }
 
   kill(id: string): void {

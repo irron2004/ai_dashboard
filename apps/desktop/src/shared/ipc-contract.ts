@@ -26,6 +26,7 @@ export const CH = {
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
   ptyKill: 'pty:kill',
+  ptyResize: 'pty:resize',
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
 } as const
@@ -64,4 +65,5 @@ export type GenerateRunReq = {
 export type StartPtyReq = { id: string; command: string; args: string[]; cwd: string }
 export type PtyInputReq = { id: string; data: string }
 export type PtyKillReq = { id: string }
+export type PtyResizeReq = { id: string; cols: number; rows: number }
 export type ListProfilesResult = AgentProfile[]

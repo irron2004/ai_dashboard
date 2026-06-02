@@ -14,6 +14,7 @@ declare global {
       startPty(req: StartPtyReq): void
       writePty(req: PtyInputReq): void
       killPty(req: PtyKillReq): void
+      resizePty(req: PtyResizeReq): void
       onPtyData(cb: (id: string, data: string) => void): () => void
       onPtyExit(cb: (id: string, code: number) => void): () => void
     }
@@ -77,6 +78,7 @@ export const api = {
   startPty(req: StartPtyReq): void { window.apc.startPty(req) },
   writePty(req: PtyInputReq): void { window.apc.writePty(req) },
   killPty(req: PtyKillReq): void { window.apc.killPty(req) },
+  resizePty(req: PtyResizeReq): void { window.apc.resizePty(req) },
   onPtyData(cb: (id: string, data: string) => void): () => void { return window.apc.onPtyData(cb) },
   onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
 }

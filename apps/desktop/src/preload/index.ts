@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('apc', {
   startPty: (req: unknown) => ipcRenderer.send(CH.ptyStart, req),
   writePty: (req: unknown) => ipcRenderer.send(CH.ptyInput, req),
   killPty: (req: unknown) => ipcRenderer.send(CH.ptyKill, req),
+  resizePty: (req: unknown) => ipcRenderer.send(CH.ptyResize, req),
 
   onPtyData: (cb: (id: string, data: string) => void) => {
     const handler = (_e: unknown, id: string, data: string) => cb(id, data)

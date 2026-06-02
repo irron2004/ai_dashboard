@@ -4,7 +4,7 @@ import { exec, execFile } from 'node:child_process'
 import { buildContainer } from './container.js'
 import { registerIpc } from './ipc.js'
 import { PtyManager } from './pty-manager.js'
-import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq, type TestSshReq } from '../shared/ipc-contract.js'
+import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq, type PtyResizeReq, type TestSshReq } from '../shared/ipc-contract.js'
 
 // electron-vite injects import.meta.dirname-equivalent paths; on Node 24 ESM import.meta.dirname exists.
 const here = import.meta.dirname
@@ -73,6 +73,7 @@ function createWindow(): void {
   ipcMain.on(CH.ptyStart, (_e, req: StartPtyReq) => { void pty.start(req.id, req.command, req.args, req.cwd) })
   ipcMain.on(CH.ptyInput, (_e, req: PtyInputReq) => pty.write(req.id, req.data))
   ipcMain.on(CH.ptyKill, (_e, req: PtyKillReq) => pty.kill(req.id))
+  ipcMain.on(CH.ptyResize, (_e, req: PtyResizeReq) => pty.resize(req.id, req.cols, req.rows))
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(here, '../renderer/index.html'))
