@@ -97,12 +97,16 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
 - [x] **run-dir §6.2 준수**: `diff.patch` + `final-report.md`를 run 루트 top-level 파일로 기록(RunArtifactStore.writeFile).
 - 결과: **packages 224 + desktop 21 green**. 이로써 제품 판단 불요 + 고신뢰 개선은 소진.
 
-## 3. 다음에 할 일 / 미완 (제품 판단 필요 — 사용자 방향 요망)
+- [x] **hash-gated canonical promote (수용 #7)**: `HarnessPromoteService.promoteCanonical` +
+  `HarnessService.promoteCanonical` + `c:harnessPromoteCanonical` IPC. ConflictManager로 generic
+  hash-gating(match→promote, stale→conflict doc). packages 228 + desktop 21 green. (generic 구현이라
+  vault-layout 결정 불요였음 — 앞서 과도하게 보수적으로 판단했던 항목.)
 
-- **hash-gated current.md promote(수용 #7)**: vault 레이아웃 결정 필요 — harness는 generic 경로
-  (`current.proposal.md`)에 쓰는데 `CurrentPromotionService`는 `projects/<id>/current.*`를 기대. 브리지 설계 필요.
-- **per-flag gate wiring**: 가능하나 always-on 안전망을 약화 → 문서화(§14)로 갈음, skip 권장.
-- 그 외: `--from <STATE>` rewind, 렌더러 UI, git-worktree staging, 실 CliAgentRunner 통합 테스트, LLM secret 의미판정.
+## 3. 다음에 할 일 / 미완 (전부 non-blocking; UI/제품 방향 또는 저가치)
+
+- 렌더러 React UI(타임라인/diff/promote·conflict 패널) — IPC 경계까지 완료, 픽셀 UI는 design 방향 필요.
+- per-flag gate wiring(안전망 약화 → skip 권장, §14 문서화로 갈음), `--from <STATE>` rewind,
+  git-worktree staging, 실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
 - loop 종료: `/cancel-ralph`.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.

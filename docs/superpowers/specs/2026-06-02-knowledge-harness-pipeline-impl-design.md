@@ -342,10 +342,10 @@ artifact 저장 시 `run.json`의 history/artifacts 인덱스를 갱신해 resum
   항상 켜진 안전 검사**를 토글하지 않는다(§4 게이트 표의 일부는 P1에서 per-flag wiring 예정).
   `auto_write_to_real_vault=false`는 vault를 "지키는" 플래그가 아니다 — promote가 그것을 읽지 않으며,
   vault는 구조적으로(자동 파이프라인은 staging에만 write, promote는 사람이 트리거) 보호된다.
-- **canonical `current.md` hash-gated 병합(수용 기준 #7)은 MVP 미연결.** harness promote는 canonical을
-  `.proposal.md`로만 남기고 사람이 Obsidian에서 병합한다. 구조화된 `projects/<id>/current.md`의
-  hash-gated 경로는 기존 `CurrentPromotionService`(별도 `promoteCurrent` 채널) 소관 — harness promote에
-  `lastReadHash`를 통합하는 것은 P1.
+- **canonical hash-gated 병합(수용 기준 #7) 구현됨**: `HarnessPromoteService.promoteCanonical(<x>.proposal.md
+  → <x>.md)`가 `ConflictManager`(CurrentPromotionService와 동일 primitive)로 hash-gated 병합 — layout
+  무관(generic canonical 경로). lastReadHash 불일치 시 conflict doc을 쓰고 canonical을 덮어쓰지 않음.
+  `HarnessService.promoteCanonical` + `c:harnessPromoteCanonical` IPC로 노출. (렌더러 UI는 후속.)
 - **RunLock는 `HarnessService.run`에 연결됨**(프로젝트당 in-process 1 run). 단 cross-process 배타성 +
   stale-lock timeout(§6.3)은 P1.
 - **Resume 구현됨(수용 기준 #6)**: `HarnessService.resume({runId})` + CLI `resume <runId>` +
