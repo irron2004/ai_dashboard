@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { ProjectDashboardRes, GenerateProjectRes } from '../shared/ipc-contract.js'
+import type { ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 import {
   createDefaultHarnessConfig,
@@ -35,6 +35,9 @@ type ApcStore = {
   harnessLoading: boolean
   harnessMessage: string | null
   harnessConfigs: Record<string, HarnessConfig>
+  /** canonical proposals for the selected run; each currentHash captured when this list was fetched
+   * (= the "last read" the hash-gate compares against when the user later clicks promote). */
+  harnessCanonicalProposals: HarnessCanonicalProposalsRes
 
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
   generate(engine: AgentType): Promise<void>
@@ -54,6 +57,8 @@ type ApcStore = {
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   promoteHarnessRun(runId?: string): Promise<void>
+  loadCanonicalProposals(runId?: string): Promise<void>
+  promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string): Promise<void>
   updateHarnessModel(patch: Partial<HarnessConfig['model']>): void
   updateHarnessSafety(patch: Partial<HarnessConfig['safety']>): void
   toggleHarnessGate(key: HarnessFeatureGateKey): void
@@ -97,6 +102,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   generation: null,
 
   harnessRuns: [],
+  harnessCanonicalProposals: [],
   selectedHarnessRunId: null,
   harnessLoading: false,
   harnessMessage: null,
@@ -262,6 +268,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       const runs = upsertRun(get().harnessRuns, bundle)
       set({ harnessRuns: runs, selectedHarnessRunId: targetRunId, harnessMessage: `Refreshed ${targetRunId}` })
       persistProjectRuns(projectId, runs, targetRunId)
+      await get().loadCanonicalProposals(targetRunId)  // capture canonical hashes as of this view
     } catch (e) {
       set({ error: `Failed to refresh harness run: ${e}` })
     } finally {
@@ -301,6 +308,29 @@ export const useStore = create<ApcStore>((set, get) => ({
       await get().refreshHarnessRun(targetRunId)
     } catch (e) {
       set({ error: `Harness promote failed: ${e}` })
+    }
+  },
+
+  async loadCanonicalProposals(runId?: string) {
+    const targetRunId = runId ?? get().selectedHarnessRunId
+    if (!targetRunId) { set({ harnessCanonicalProposals: [] }); return }
+    try {
+      set({ harnessCanonicalProposals: await api.harnessCanonicalProposals({ runId: targetRunId }) })
+    } catch {
+      set({ harnessCanonicalProposals: [] })
+    }
+  },
+
+  async promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string) {
+    const targetRunId = get().selectedHarnessRunId
+    if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
+    try {
+      const r = await api.harnessPromoteCanonical({ runId: targetRunId, proposalRelPath, lastReadHash })
+      if (!r.ok) { set({ harnessMessage: `Canonical promote failed: ${r.reason ?? 'unknown'}` }); return }
+      set({ harnessMessage: r.status === 'conflict' ? `Conflict written: ${r.conflictPath}` : `Promoted ${r.canonicalPath}` })
+      await get().refreshHarnessRun(targetRunId)  // re-captures hashes after the write
+    } catch (e) {
+      set({ error: `Canonical promote failed: ${e}` })
     }
   },
 

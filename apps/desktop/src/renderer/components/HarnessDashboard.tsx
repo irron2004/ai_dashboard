@@ -24,8 +24,9 @@ function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): bo
 export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const {
     selectedProjectId, dashboard, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage, harnessConfigs,
+    harnessCanonicalProposals,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun, promoteHarnessRun,
-    updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
+    promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
   } = useStore()
   const [tab, setTab] = useState<Tab>('markdown')
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null)
@@ -108,6 +109,26 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             {tab === 'graph' && <GraphVisualization data={graphData} onNodeClick={handleNodeClick} />}
             {tab === 'flow' && <TaskFlowView run={currentRun} />}
           </div>
+
+          {harnessCanonicalProposals.length > 0 && (
+            <div className="harness-dashboard__canonical">
+              <h3>Canonical proposals (hash-gated)</h3>
+              <ul>
+                {harnessCanonicalProposals.map((p) => (
+                  <li key={p.proposalRelPath} className="harness-dashboard__canonical-item">
+                    <span>{p.canonicalPath}{p.currentHash === null ? ' (new)' : ''}</span>
+                    <button
+                      type="button"
+                      disabled={harnessLoading}
+                      onClick={() => void promoteCanonicalDoc(p.proposalRelPath, p.currentHash ?? '')}
+                    >
+                      Promote to {p.canonicalPath}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </main>
 
         <AgentConfigPanel
