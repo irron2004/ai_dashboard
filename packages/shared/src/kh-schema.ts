@@ -137,3 +137,74 @@ export const RunStateSchema = z.object({
   error: z.string().optional(),
 })
 export type RunState = z.infer<typeof RunStateSchema>
+
+export const KhProjectDiscoveryReportSchema = z.object({
+  project_id: z.string(),
+  generated_by: z.string(),
+  summary: z.string().default(''),
+  repos: z.array(z.object({ path: z.string(), kind: z.string().default('repo') })).default([]),
+  canonical_docs: z.array(z.object({ path: z.string(), role: z.string().default('canonical') })).default([]),
+  topics: z.array(z.string()).default([]),
+})
+export type KhProjectDiscoveryReport = z.infer<typeof KhProjectDiscoveryReportSchema>
+
+export const KhSourceInventoryReportSchema = z.object({
+  generated_by: z.string(),
+  sources: z.array(z.object({
+    source_id: z.string(), source_path: z.string(), source_kind: z.string().default('agent_session'),
+    mtime: z.string().default(''),
+  })).default([]),
+})
+export type KhSourceInventoryReport = z.infer<typeof KhSourceInventoryReportSchema>
+
+export const KhConversationHistoryReportSchema = z.object({
+  generated_by: z.string(),
+  session_id: z.string(),
+  work_summary: z.string().default(''),
+  highlights: z.array(z.object({
+    text: z.string(), kind: z.string().default('decision'), source_path: z.string().default(''),
+  })).default([]),
+  files_touched: z.array(z.string()).default([]),
+  open_problems: z.array(z.string()).default([]),
+})
+export type KhConversationHistoryReport = z.infer<typeof KhConversationHistoryReportSchema>
+
+export const KhDocumentIntentReportSchema = z.object({
+  generated_by: z.string(),
+  documents: z.array(z.object({
+    path: z.string(),
+    intent: z.string(),                 // canonical | reference | scratch | raw
+    confidence: z.enum(['low', 'medium', 'high']).default('medium'),
+    reason: z.string().default(''),
+  })).default([]),
+})
+export type KhDocumentIntentReport = z.infer<typeof KhDocumentIntentReportSchema>
+
+export const KhGraphUpdatePlanSchema = z.object({
+  created_by: z.string(),
+  node_ops: z.array(z.object({
+    op: z.string(),                     // create | update | merge | link
+    node_id: z.string(),
+    based_on_proposals: z.array(z.string()).default([]),
+    note: z.string().default(''),
+  })).default([]),
+})
+export type KhGraphUpdatePlan = z.infer<typeof KhGraphUpdatePlanSchema>
+
+export const KhSharedPromotionPlanSchema = z.object({
+  created_by: z.string(),
+  candidates: z.array(z.object({
+    node_id: z.string(), reason: z.string().default(''),
+    evidence_count: z.number().int().default(0), requires_human_review: z.boolean().default(true),
+  })).default([]),
+})
+export type KhSharedPromotionPlan = z.infer<typeof KhSharedPromotionPlanSchema>
+
+export const KhStaleDocReportSchema = z.object({
+  generated_by: z.string(),
+  stale: z.array(z.object({
+    path: z.string(), reason: z.string().default(''),
+    suggested_status: z.enum(['deprecated', 'superseded', 'review']).default('review'),
+  })).default([]),
+})
+export type KhStaleDocReport = z.infer<typeof KhStaleDocReportSchema>

@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import {
   KhStateSchema, KhNodeProposalSchema, KhWritePlanSchema, KhEvalReportSchema, RunStateSchema,
+  KhProjectDiscoveryReportSchema, KhSourceInventoryReportSchema, KhConversationHistoryReportSchema,
+  KhDocumentIntentReportSchema, KhGraphUpdatePlanSchema, KhSharedPromotionPlanSchema, KhStaleDocReportSchema,
 } from './kh-schema.js'
 
 describe('kh-schema', () => {
@@ -46,5 +48,30 @@ describe('kh-schema', () => {
     })
     expect(rs.artifacts).toEqual({})
     expect(rs.history[0].state).toBe('CREATED')
+  })
+
+  test('ProjectDiscoveryReport defaults lists to empty', () => {
+    const r = KhProjectDiscoveryReportSchema.parse({ project_id: 'p1', generated_by: 'discovery' })
+    expect(r.repos).toEqual([])
+    expect(r.canonical_docs).toEqual([])
+  })
+
+  test('DocumentIntentReport carries classified docs with intent', () => {
+    const r = KhDocumentIntentReportSchema.parse({
+      generated_by: 'classifier',
+      documents: [{ path: 'current.md', intent: 'canonical', confidence: 'high' }],
+    })
+    expect(r.documents[0].intent).toBe('canonical')
+  })
+
+  test('GraphUpdatePlan / SharedPromotionPlan / StaleDocReport parse with defaults', () => {
+    expect(KhGraphUpdatePlanSchema.parse({ created_by: 'lead' }).node_ops).toEqual([])
+    expect(KhSharedPromotionPlanSchema.parse({ created_by: 'lead' }).candidates).toEqual([])
+    expect(KhStaleDocReportSchema.parse({ generated_by: 'lead' }).stale).toEqual([])
+  })
+
+  test('ConversationHistoryReport + SourceInventoryReport parse', () => {
+    expect(KhSourceInventoryReportSchema.parse({ generated_by: 'reader' }).sources).toEqual([])
+    expect(KhConversationHistoryReportSchema.parse({ generated_by: 'reader', session_id: 's1' }).highlights).toEqual([])
   })
 })
