@@ -36,6 +36,12 @@ function sshExec(ssh: SshTarget, remoteCmd: string, opts: { stdin?: string; time
   })
 }
 
+// Run a command through the remote user's LOGIN shell so their PATH (nvm, ~/.local/bin, etc.)
+// is loaded — a bare `ssh host "codex …"` runs non-login and won't find the CLI.
+function loginShell(cmd: string): string {
+  return `"\${SHELL:-bash}" -lc '${cmd.replace(/'/g, `'\\''`)}'`
+}
+
 // Headless engine command run on the remote (prompt arrives via stdin).
 const ENGINE_CMD: Record<AgentType, string> = {
   claude: 'claude -p --output-format json',
@@ -76,7 +82,7 @@ export async function generateRemote(deps: RemoteGenerateDeps, input: { projectI
 
   // 3. Run the engine CLI on the remote with the prompt on stdin.
   const prompt = buildWikiPrompt(session, { currentCanonical })
-  const run = await exec(ssh, ENGINE_CMD[input.engine], { stdin: prompt, timeoutMs: 180000 })
+  const run = await exec(ssh, loginShell(ENGINE_CMD[input.engine]), { stdin: prompt, timeoutMs: 180000 })
   if (!run.ok) return { ok: false, reason: `remote ${input.engine} failed: ${run.stderr.trim().slice(0, 300) || 'non-zero exit'}` }
 
   let generation: WikiGeneration
