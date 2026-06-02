@@ -142,7 +142,10 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
 액션이 refresh **후에** 메시지를 set하도록 수정(resume/promote/promoteCanonical 3곳). 이전 커밋들에서
 "behaviorally 미검증"이라 명시했던 렌더러 store 검증 갭 해소.
 
-## 상태: acceptance §12 1~8 전부 데스크톱 UX까지 완료. packages 230 + desktop 26 green, 69 commits.
+## 2-k. store 테스트 확장 (core run lifecycle)
+start/refresh/promote 액션 + error path까지 store 테스트 커버(이번엔 새 버그 없음 → coverage 수렴 신호).
+
+## 상태: acceptance §12 1~8 전부 데스크톱 UX까지 완료. packages 230 + desktop 31 green, 71 commits.
 
 ## 3. 남은 backlog (전부 저가치 또는 비권장 — spec 미구현 항목 없음)
 - per-flag gate wiring(안전망 약화, skip 권장), `--from <STATE>` rewind, git-worktree staging,
