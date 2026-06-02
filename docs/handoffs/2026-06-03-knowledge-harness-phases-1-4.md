@@ -197,3 +197,12 @@ raw/delete는 차단; gate 닫히면 해당 state에서 멈추고 resume 가능.
 selectedHarnessRunId 재확인해 stale 결과 drop(success+error 양쪽) + 로딩 중 run-select 버튼 disable +
 회귀 테스트. cross-run staleness 벡터는 이제 3중 방어(sync clear + async guard + button disable)로 폐쇄.
 packages 231 + desktop 34 green. (리뷰 라운드 추세: 매 라운드 내 변경에서 실버그 발견 — R4 sync, R5 async.)
+
+## 2-n. 라운드 6 (loop-until-clean) + 개선 #6
+`wf_b40a1a49-4ea`: 2 raised / 2 confirmed (둘 다 major). cross-run staleness 표면은 **CLEAN 확인**.
+그러나 promoteCanonical이 promote()의 두 게이트를 누락(acceptance #7 추가 시 내가 만든 구멍):
+(1) VALIDATED secret-scan 게이트 — canonical proposal의 비밀이 per-proposal promote로 vault 유입 가능,
+(2) HUMAN_REVIEW_REQUIRED 상태 게이트 — FAILED run의 canonical promote 가능. 공유 `gate()`(state+secret)로
+promote()/promoteCanonical 통합, canonicalProposals는 HUMAN_REVIEW_REQUIRED 아니면 [] 반환(UI 버튼 미노출),
+allowSecrets를 service+IPC로 thread. 회귀 테스트 추가. packages 233 + desktop 34 green.
+(추세: 라운드마다 내 변경에서 실버그 — R4 sync staleness, R5 async staleness, R6 missing gates.)
