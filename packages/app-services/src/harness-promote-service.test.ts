@@ -11,21 +11,26 @@ describe('HarnessPromoteService', () => {
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'kh-promote-')) })
   afterEach(() => { rmSync(root, { recursive: true, force: true }) })
 
-  function seedRun(state: string) {
+  function seedRun(state: string, opts: { applied?: string[]; secretOk?: boolean } = {}) {
+    const applied = opts.applied ?? ['concepts/n1.md']
     const runsRoot = join(root, 'runs')
     const store = new RunArtifactStore(join(runsRoot, 'RUN-1'))
     store.init()
     const rel = store.writeArtifact('STAGING_WRITTEN', 'applied-write-report', {
-      applied: ['concepts/n1.md'], proposals: ['current.proposal.md'], skipped: [],
+      applied, proposals: ['current.proposal.md'], skipped: [],
+    })
+    const secretRel = store.writeArtifact('VALIDATED', 'secret-scan-report', {
+      ok: opts.secretOk ?? true, findings: (opts.secretOk ?? true) ? [] : [{ rule: 'aws_access_key_id' }],
     })
     store.saveRunState(RunStateSchema.parse({
       runId: 'RUN-1', projectId: 'p1', engine: 'claude', state,
-      artifacts: { STAGING_WRITTEN: [rel] },
+      artifacts: { STAGING_WRITTEN: [rel], VALIDATED: [secretRel] },
     }))
     // staging contents the writer produced
     const staging = join(runsRoot, 'RUN-1', 'vault-staging')
     mkdirSync(join(staging, 'concepts'), { recursive: true })
     writeFileSync(join(staging, 'concepts', 'n1.md'), '# N1\n')
+    writeFileSync(join(staging, 'current.md'), '# canonical body\n')
     writeFileSync(join(staging, 'current.proposal.md'), '# proposed current\n')
     return { runsRoot }
   }
@@ -37,10 +42,33 @@ describe('HarnessPromoteService', () => {
     writeFileSync(join(vaultRoot, 'current.md'), '# original current\n')
 
     const res = new HarnessPromoteService({ runsRoot, vaultRoot }).promote({ runId: 'RUN-1' })
-    expect(res).toEqual({ ok: true, promoted: ['concepts/n1.md'], proposals: ['current.proposal.md'] })
+    expect(res).toEqual({ ok: true, promoted: ['concepts/n1.md'], proposals: ['current.proposal.md'], refusedCanonical: [] })
     expect(existsSync(join(vaultRoot, 'concepts', 'n1.md'))).toBe(true)
     expect(existsSync(join(vaultRoot, 'current.proposal.md'))).toBe(true)
     expect(readFileSync(join(vaultRoot, 'current.md'), 'utf8')).toContain('original current')  // untouched
+  })
+
+  test('refuses to copy a canonical path even if it leaked into applied[]', () => {
+    const { runsRoot } = seedRun('HUMAN_REVIEW_REQUIRED', { applied: ['concepts/n1.md', 'current.md'] })
+    const vaultRoot = join(root, 'vault')
+    mkdirSync(vaultRoot, { recursive: true })
+    writeFileSync(join(vaultRoot, 'current.md'), '# original current\n')
+
+    const res = new HarnessPromoteService({ runsRoot, vaultRoot }).promote({ runId: 'RUN-1' })
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.promoted).toEqual(['concepts/n1.md'])
+      expect(res.refusedCanonical).toEqual(['current.md'])
+    }
+    expect(readFileSync(join(vaultRoot, 'current.md'), 'utf8')).toContain('original current')  // NOT overwritten
+  })
+
+  test('refuses promotion when the staging secret scan found something (unless allowSecrets)', () => {
+    const { runsRoot } = seedRun('HUMAN_REVIEW_REQUIRED', { secretOk: false })
+    const vaultRoot = join(root, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    const svc = new HarnessPromoteService({ runsRoot, vaultRoot })
+    expect(svc.promote({ runId: 'RUN-1' }).ok).toBe(false)
+    expect(svc.promote({ runId: 'RUN-1', allowSecrets: true }).ok).toBe(true)  // explicit human override
   })
 
   test('refuses to promote a run that is not at HUMAN_REVIEW_REQUIRED', () => {

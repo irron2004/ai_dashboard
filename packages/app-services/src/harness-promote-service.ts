@@ -1,9 +1,9 @@
 import { cpSync, mkdirSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { RunArtifactStore } from '@apc/knowledge-harness'
+import { dirname } from 'node:path'
+import { RunArtifactStore, isCanonical, resolveInside } from '@apc/knowledge-harness'
 
 export type HarnessPromoteResult =
-  | { ok: true; promoted: string[]; proposals: string[] }
+  | { ok: true; promoted: string[]; proposals: string[]; refusedCanonical: string[] }
   | { ok: false; reason: string }
 
 export type HarnessPromoteDeps = {
@@ -18,21 +18,35 @@ export type HarnessPromoteDeps = {
  * MVP policy (auto_write_to_real_vault=false, auto_update_current=false): copy only the
  * evidence-backed non-canonical files (AppliedWriteReport.applied[]) into the real vault; canonical
  * targets remain as `.proposal.md` (AppliedWriteReport.proposals[]) for the human to merge in Obsidian.
- * Never overwrites an existing canonical doc.
+ *
+ * Deterministic backstops (do not trust upstream): refuses if the VALIDATED secret scan found
+ * anything (unless allowSecrets), never copies a canonical path even if it leaked into applied[],
+ * and resolves every source/target inside its root (no path escape).
  */
 export class HarnessPromoteService {
   constructor(private readonly deps: HarnessPromoteDeps) {}
 
   private stagingDir(runId: string): string {
-    return this.deps.stagingDirFor?.(runId) ?? join(this.deps.runsRoot, runId, 'vault-staging')
+    return this.deps.stagingDirFor?.(runId) ?? resolveInside(this.deps.runsRoot, `${runId}/vault-staging`)
   }
 
-  promote(input: { runId: string }): HarnessPromoteResult {
-    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+  promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {
+    const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, input.runId))
     if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
     const rs = store.loadRunState()
     if (rs.state !== 'HUMAN_REVIEW_REQUIRED') {
       return { ok: false, reason: `run is ${rs.state}, expected HUMAN_REVIEW_REQUIRED` }
+    }
+
+    // Secret gate: a leaked secret in staged content must not reach the real vault.
+    if (!input.allowSecrets) {
+      const secretRel = (rs.artifacts['VALIDATED'] ?? []).find(p => p.endsWith('secret-scan-report.json'))
+      if (secretRel) {
+        const secret = store.readArtifact<{ ok: boolean; findings: unknown[] }>(secretRel)
+        if (!secret.ok) {
+          return { ok: false, reason: `${secret.findings.length} secret finding(s) in staging; promotion blocked (pass allowSecrets to override)` }
+        }
+      }
     }
 
     const appliedPaths = rs.artifacts['STAGING_WRITTEN'] ?? []
@@ -42,16 +56,18 @@ export class HarnessPromoteService {
 
     const staging = this.stagingDir(input.runId)
     const copy = (relPath: string): boolean => {
-      const from = join(staging, relPath)
-      const to = join(this.deps.vaultRoot, relPath)
+      const from = resolveInside(staging, relPath)          // source must be inside staging
+      const to = resolveInside(this.deps.vaultRoot, relPath) // target must be inside the vault
       if (!existsSync(from)) return false
       mkdirSync(dirname(to), { recursive: true })
       cpSync(from, to)
       return true
     }
 
-    const promoted = report.applied.filter(copy)
+    // Belt: a canonical path must never be copied into the real vault, even if it leaked into applied[].
+    const refusedCanonical = report.applied.filter(isCanonical)
+    const promoted = report.applied.filter(p => !isCanonical(p)).filter(copy)
     const proposals = report.proposals.filter(copy)  // .proposal.md siblings — never overwrite canonical
-    return { ok: true, promoted, proposals }
+    return { ok: true, promoted, proposals, refusedCanonical }
   }
 }

@@ -1,5 +1,6 @@
 import type { KhWritePlan, KhWriteOp } from '@apc/shared'
 import type { StagingVault } from '../staging/staging-vault.js'
+import { isCanonical } from '../runtime/vault-fs.js'
 
 export type AppliedWriteReport = { applied: string[]; proposals: string[]; skipped: string[] }
 
@@ -14,6 +15,9 @@ function bodyOf(op: KhWriteOp): string {
 
 /**
  * Deterministic executor of an approved WritePlan against a StagingVault.
+ * - canonical docs (current.md/PRD.md/ADR-*) are ALWAYS routed to a `.proposal.md` sibling,
+ *   regardless of the op's declared mode — the "never overwrite canonical" invariant must not
+ *   depend on the LLM Lead setting mode correctly.
  * - `mode: proposal_only` → writes a `.proposal.md` sibling instead of overwriting.
  * - paths under `raw/` are skipped (defense in depth; PolicyGuard is the primary guard in Phase 3).
  * - only `create_file` / `append_section` ops write content in the MVP; others are skipped.
@@ -26,7 +30,8 @@ export class ObsidianWikiWriter {
     for (const op of plan.operations) {
       if (op.path.startsWith('raw/') || op.path.includes('/raw/')) { report.skipped.push(op.path); continue }
       if (op.op !== 'create_file' && op.op !== 'append_section') { report.skipped.push(op.path); continue }
-      if (op.mode === 'proposal_only') {
+      // Force proposal routing for canonical paths even if the LLM set mode: 'apply'.
+      if (op.mode === 'proposal_only' || isCanonical(op.path)) {
         const p = proposalPath(op.path)
         staging.writeDoc(p, bodyOf(op))
         report.proposals.push(p)

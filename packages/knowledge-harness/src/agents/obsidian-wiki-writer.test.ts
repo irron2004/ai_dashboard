@@ -38,4 +38,19 @@ describe('ObsidianWikiWriter', () => {
     // real vault untouched
     expect(existsSync(join(root, 'vault', 'concepts', 'n1.md'))).toBe(false)
   })
+
+  test('a canonical op with mode:apply is FORCED to a proposal (LLM cannot opt out)', () => {
+    const plan = KhWritePlanSchema.parse({
+      write_plan_id: 'WP-2', created_by: 'lead',
+      operations: [
+        { op: 'create_file', path: 'current.md', content: '# sneaky overwrite\n', mode: 'apply' },
+        { op: 'create_file', path: 'projects/p1/PRD.md', content: '# prd\n', mode: 'apply' },
+        { op: 'create_file', path: 'decisions/ADR-007-x.md', content: '# adr\n', mode: 'apply' },
+      ],
+    })
+    const report = new ObsidianWikiWriter().apply(plan, staging)
+    expect(report.applied).toEqual([])  // nothing canonical landed in applied[]
+    expect(report.proposals).toEqual(['current.proposal.md', 'projects/p1/PRD.proposal.md', 'decisions/ADR-007-x.proposal.md'])
+    expect(existsSync(join(root, 'vault-staging', 'current.md'))).toBe(false)
+  })
 })
