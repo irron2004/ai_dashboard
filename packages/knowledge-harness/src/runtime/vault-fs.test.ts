@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { listMarkdown, isCanonical, resolveInside } from './vault-fs.js'
+import { listMarkdown, isCanonical, isRaw, resolveInside } from './vault-fs.js'
 
 describe('vault-fs', () => {
   let dir: string
@@ -23,6 +23,15 @@ describe('vault-fs', () => {
     expect(isCanonical('decisions/ADR-001-foo.md')).toBe(true)
     expect(isCanonical('concepts/n1.md')).toBe(false)
     expect(isCanonical('not-current.md.bak')).toBe(false)
+  })
+
+  test('isCanonical / isRaw normalize Windows backslash separators', () => {
+    // single backslashes in the JS literal = one backslash at runtime (a Windows-style path)
+    expect(isCanonical('projects\\p1\\PRD.md')).toBe(true)
+    expect(isRaw('a\\raw\\x.md')).toBe(true)
+    expect(isRaw('raw/x.md')).toBe(true)
+    expect(isRaw('raw\\x.md')).toBe(true)
+    expect(isRaw('concepts/n1.md')).toBe(false)
   })
 
   test('resolveInside allows the base + nested paths but rejects sibling-prefix and ../ escapes', () => {

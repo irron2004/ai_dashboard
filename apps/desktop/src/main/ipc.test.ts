@@ -178,4 +178,11 @@ describe('IPC handlers (no Electron)', () => {
     expect(promoted.promoted).toContain('concepts/n1.md')
     rmSync(harnessRoot, { recursive: true, force: true })
   })
+
+  test('c:harnessPromote strict-parses its payload (rejects unknown/missing/mistyped fields)', async () => {
+    const h = handlers(container)
+    await expect(h[CH.harnessPromote]({ runId: 'R', bogus: 1 })).rejects.toThrow()  // unknown key
+    await expect(h[CH.harnessPromote]({})).rejects.toThrow()                          // missing runId
+    await expect(h[CH.harnessPromote]({ runId: 5 })).rejects.toThrow()               // non-string runId
+  })
 })

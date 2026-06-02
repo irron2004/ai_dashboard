@@ -38,6 +38,20 @@ describe('SecretScanner', () => {
     }
   })
 
+  test('does NOT flag benign schema/prose vocabulary (no false-positive promotion blocks)', () => {
+    for (const benign of [
+      'primary_key: integer NOT NULL',
+      'foreign_key = orders_table',
+      'sort_key: timestamp_desc',
+      'partition_key: region_code',
+      'session token: expires after 30 minutes',
+      'client_secret: snake_case_word',
+      'The primary key is the id column',
+    ]) {
+      expect(scanner.scan(benign, 'doc.md'), benign).toEqual([])
+    }
+  })
+
   test('reports every occurrence per rule (global), not just the first', () => {
     const f = scanner.scan('AKIAIOSFODNN7EXAMPL1 and AKIAIOSFODNN7EXAMPL2', 'src')
     expect(f.filter(x => x.rule === 'aws_access_key_id')).toHaveLength(2)

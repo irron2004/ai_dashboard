@@ -22,7 +22,9 @@ const RULES: { rule: string; re: RegExp }[] = [
   { rule: 'connection_string_credentials', re: /\w+:\/\/[^/\s:@]+:[^/\s:@]+@/g },
   { rule: 'bearer_token', re: /bearer\s+[A-Za-z0-9._\-]{20,}/gi },
   { rule: 'private_key', re: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY(?: BLOCK)?-----/g },
-  { rule: 'secret_assignment', re: /(?:password|secret|api[_-]?key|access[_-]?token|token|[a-z0-9]+_key|[a-z0-9]+_token|[a-z0-9]+_secret)\s*[:=]\s*\S{6,}/gi },
+  // Only UNAMBIGUOUS credential key names — NOT generic `*_key`/`*_token`/`*_secret` suffixes or a
+  // bare `token`, which match benign wiki/schema prose (primary_key:, session token:, client_secret: word).
+  { rule: 'secret_assignment', re: /(?:password|passwd|api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|aws_secret_access_key)\s*[:=]\s*\S{6,}/gi },
 ]
 
 /**
