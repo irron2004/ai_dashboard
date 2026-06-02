@@ -2,6 +2,19 @@ import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
 import type { ProjectDashboardRes, GenerateProjectRes } from '../shared/ipc-contract.js'
 import { api } from './api.js'
+import {
+  createDefaultHarnessConfig,
+  loadHarnessConfig,
+  loadHarnessRuns,
+  loadHarnessSelectedRun,
+  saveHarnessConfig,
+  saveHarnessRuns,
+  saveHarnessSelectedRun,
+  type HarnessAgentPromptKey,
+  type HarnessConfig,
+  type HarnessFeatureGateKey,
+  type HarnessRunBundle,
+} from './harness-utils.js'
 
 export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
 
@@ -17,6 +30,12 @@ type ApcStore = {
   generating: boolean
   generation: GenerateProjectRes | null
 
+  harnessRuns: HarnessRunBundle[]
+  selectedHarnessRunId: string | null
+  harnessLoading: boolean
+  harnessMessage: string | null
+  harnessConfigs: Record<string, HarnessConfig>
+
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
   generate(engine: AgentType): Promise<void>
   clearGeneration(): void
@@ -28,6 +47,41 @@ type ApcStore = {
   loadProfiles(projectPath: string): Promise<void>
   ingest(): Promise<void>
   clearError(): void
+
+  hydrateHarnessProject(projectId: string): void
+  selectHarnessRun(runId: string): void
+  startHarnessRun(): Promise<void>
+  refreshHarnessRun(runId?: string): Promise<void>
+  resumeHarnessRun(runId?: string): Promise<void>
+  promoteHarnessRun(runId?: string): Promise<void>
+  updateHarnessModel(patch: Partial<HarnessConfig['model']>): void
+  updateHarnessSafety(patch: Partial<HarnessConfig['safety']>): void
+  toggleHarnessGate(key: HarnessFeatureGateKey): void
+  updateHarnessPrompt(key: HarnessAgentPromptKey, value: string): void
+  clearHarnessMessage(): void
+  attachProfileToActiveTask(profileId: string): Promise<void>
+}
+
+function persistProjectRuns(projectId: string, runs: HarnessRunBundle[], selectedRunId: string | null): void {
+  saveHarnessRuns(projectId, runs)
+  saveHarnessSelectedRun(projectId, selectedRunId)
+}
+
+function upsertRun(runs: HarnessRunBundle[], bundle: HarnessRunBundle): HarnessRunBundle[] {
+  const next = [bundle, ...runs.filter((item) => item.runState.runId !== bundle.runState.runId)]
+  return next.sort((a, b) => {
+    const aAt = a.runState.history.at(-1)?.at ?? a.runState.history[0]?.at ?? ''
+    const bAt = b.runState.history.at(-1)?.at ?? b.runState.history[0]?.at ?? ''
+    return bAt.localeCompare(aAt)
+  })
+}
+
+function getHarnessConfig(state: ApcStore, projectId: string): HarnessConfig {
+  return state.harnessConfigs[projectId] ?? loadHarnessConfig(projectId) ?? createDefaultHarnessConfig()
+}
+
+function updateHarnessConfig(state: ApcStore, projectId: string, next: HarnessConfig): Partial<ApcStore> {
+  return { harnessConfigs: { ...state.harnessConfigs, [projectId]: next } }
 }
 
 export const useStore = create<ApcStore>((set, get) => ({
@@ -41,6 +95,12 @@ export const useStore = create<ApcStore>((set, get) => ({
   agentStatus: { claude: 'idle', codex: 'idle', opencode: 'idle' },
   generating: false,
   generation: null,
+
+  harnessRuns: [],
+  selectedHarnessRunId: null,
+  harnessLoading: false,
+  harnessMessage: null,
+  harnessConfigs: {},
 
   setAgentStatus(agent, status) {
     set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
@@ -94,7 +154,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   async deleteProject(id: string) {
     try {
       await api.deleteProject(id)
-      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [] })
+      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null })
       await get().loadProjects()
     } catch (e) {
       set({ error: `Failed to delete project: ${e}` })
@@ -106,6 +166,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       set({ selectedProjectId: projectId, dashboard: null })
       const dashboard = await api.projectDashboard({ projectId })
       set({ dashboard })
+      get().hydrateHarnessProject(projectId)
     } catch (e) {
       set({ error: `Failed to load dashboard: ${e}` })
     }
@@ -138,4 +199,161 @@ export const useStore = create<ApcStore>((set, get) => ({
   },
 
   clearError() { set({ error: null }) },
+
+  hydrateHarnessProject(projectId: string) {
+    const runs = loadHarnessRuns(projectId)
+    const config = loadHarnessConfig(projectId) ?? createDefaultHarnessConfig()
+    const selectedHarnessRunId = loadHarnessSelectedRun(projectId) ?? runs[0]?.runState.runId ?? null
+    set((state) => ({
+      ...updateHarnessConfig(state, projectId, config),
+      harnessRuns: runs,
+      selectedHarnessRunId,
+      harnessMessage: null,
+    }))
+  },
+
+  selectHarnessRun(runId: string) {
+    const projectId = get().selectedProjectId
+    if (!projectId) return
+    set({ selectedHarnessRunId: runId })
+    saveHarnessSelectedRun(projectId, runId)
+  },
+
+  async startHarnessRun() {
+    const projectId = get().selectedProjectId
+    if (!projectId) { set({ error: 'Select a project first.' }); return }
+    const config = getHarnessConfig(get(), projectId)
+    set({ harnessLoading: true, harnessMessage: null })
+    try {
+      const started = await api.harnessRun({ projectId, engine: config.model.engine })
+      if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
+      const shown = await api.harnessGetRun({ runId: started.runId })
+      if (shown.ok && shown.runState) {
+        const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
+        const runs = upsertRun(get().harnessRuns, bundle)
+        set((state) => ({
+          ...updateHarnessConfig(state, projectId, config),
+          harnessRuns: runs,
+          selectedHarnessRunId: bundle.runState.runId,
+          harnessMessage: `${started.runId} → ${started.finalState ?? bundle.runState.state}`,
+        }))
+        persistProjectRuns(projectId, runs, bundle.runState.runId)
+      } else {
+        set({ harnessMessage: started.reason ?? shown.reason ?? 'Harness run finished but could not be loaded.' })
+      }
+      if (!started.ok) set({ harnessMessage: `${started.runId} → ${started.finalState ?? 'FAILED'}${started.reason ? ` — ${started.reason}` : ''}` })
+    } catch (e) {
+      set({ error: `Harness run failed: ${e}` })
+    } finally {
+      set({ harnessLoading: false })
+    }
+  },
+
+  async refreshHarnessRun(runId?: string) {
+    const targetRunId = runId ?? get().selectedHarnessRunId
+    const projectId = get().selectedProjectId
+    if (!projectId) { set({ error: 'Select a project first.' }); return }
+    if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
+    set({ harnessLoading: true })
+    try {
+      const shown = await api.harnessGetRun({ runId: targetRunId })
+      if (!shown.ok || !shown.runState) throw new Error(shown.reason ?? 'Run not found')
+      const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
+      const runs = upsertRun(get().harnessRuns, bundle)
+      set({ harnessRuns: runs, selectedHarnessRunId: targetRunId, harnessMessage: `Refreshed ${targetRunId}` })
+      persistProjectRuns(projectId, runs, targetRunId)
+    } catch (e) {
+      set({ error: `Failed to refresh harness run: ${e}` })
+    } finally {
+      set({ harnessLoading: false })
+    }
+  },
+
+  async resumeHarnessRun(runId?: string) {
+    const targetRunId = runId ?? get().selectedHarnessRunId
+    if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
+    set({ harnessLoading: true })
+    try {
+      const resumed = await api.harnessResume({ runId: targetRunId })
+      if (!resumed.ok) {
+        set({ harnessMessage: `Resume failed: ${resumed.reason ?? 'unknown reason'}` })
+        return
+      }
+      set({ harnessMessage: `Resumed ${targetRunId} → ${resumed.finalState ?? '?'}` })
+      await get().refreshHarnessRun(targetRunId)
+    } catch (e) {
+      set({ error: `Harness resume failed: ${e}` })
+    } finally {
+      set({ harnessLoading: false })
+    }
+  },
+
+  async promoteHarnessRun(runId?: string) {
+    const targetRunId = runId ?? get().selectedHarnessRunId
+    if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
+    try {
+      const promoted = await api.harnessPromote({ runId: targetRunId })
+      if (!promoted.ok) {
+        set({ harnessMessage: `Promote failed: ${promoted.reason ?? 'unknown reason'}` })
+        return
+      }
+      set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)` })
+      await get().refreshHarnessRun(targetRunId)
+    } catch (e) {
+      set({ error: `Harness promote failed: ${e}` })
+    }
+  },
+
+  updateHarnessModel(patch) {
+    const projectId = get().selectedProjectId
+    if (!projectId) return
+    const current = getHarnessConfig(get(), projectId)
+    const next = { ...current, model: { ...current.model, ...patch } }
+    set((state) => updateHarnessConfig(state as ApcStore, projectId, next))
+    saveHarnessConfig(projectId, next)
+  },
+
+  updateHarnessSafety(patch) {
+    const projectId = get().selectedProjectId
+    if (!projectId) return
+    const current = getHarnessConfig(get(), projectId)
+    const next = { ...current, safety: { ...current.safety, ...patch } }
+    set((state) => updateHarnessConfig(state as ApcStore, projectId, next))
+    saveHarnessConfig(projectId, next)
+  },
+
+  toggleHarnessGate(key) {
+    const projectId = get().selectedProjectId
+    if (!projectId) return
+    const current = getHarnessConfig(get(), projectId)
+    const next = { ...current, featureGates: { ...current.featureGates, [key]: !current.featureGates[key] } }
+    set((state) => updateHarnessConfig(state as ApcStore, projectId, next))
+    saveHarnessConfig(projectId, next)
+  },
+
+  updateHarnessPrompt(key, value) {
+    const projectId = get().selectedProjectId
+    if (!projectId) return
+    const current = getHarnessConfig(get(), projectId)
+    const next = { ...current, prompts: { ...current.prompts, [key]: value } }
+    set((state) => updateHarnessConfig(state as ApcStore, projectId, next))
+    saveHarnessConfig(projectId, next)
+  },
+
+  clearHarnessMessage() { set({ harnessMessage: null }) },
+
+  async attachProfileToActiveTask(profileId: string) {
+    const dashboard = get().dashboard
+    const taskId = dashboard?.activeTasks[0]?.id
+    if (!taskId) {
+      set({ error: 'Select/create a task first to attach a profile.' })
+      return
+    }
+    try {
+      await api.selectProfile({ taskId, profileId })
+      set({ harnessMessage: `Attached profile ${profileId} to ${taskId}` })
+    } catch (e) {
+      set({ error: `Failed to attach profile: ${e}` })
+    }
+  },
 }))
