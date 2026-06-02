@@ -8,7 +8,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "rebuild": "electron-rebuild -f -w better-sqlite3,@homebridge/node-pty-prebuilt-multiarch",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:pty": "electron-rebuild -f -w @homebridge/node-pty-prebuilt-multiarch",
     "test": "vitest run"
   },
   "dependencies": {
