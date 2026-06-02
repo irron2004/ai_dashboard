@@ -111,12 +111,22 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
 ## 상태: MVP 수용 기준 §12의 1~8 전부 충족(7번 hash-gated canonical promote 포함), UI는 IPC 경계까지
 ## 연결됨. packages 228 + desktop 21 green, 61 commits. 고신뢰·비-제품판단 작업 소진.
 
-## 3. 남은 backlog (전부 non-blocking, 저가치 또는 비권장)
+## 2-g. 데스크톱 UX 연결 (resume 노출)
 
-- per-flag gate wiring → 안전망 약화, skip 권장(§14 문서화로 갈음).
-- `--from <STATE>` rewind(이후 artifact stale), git-worktree staging(perf), 실 CliAgentRunner 통합
-  테스트(CI에서 실 LLM 불가), 선택적 LLM secret 의미판정(설계상 P1/off).
-- 렌더러 컴포넌트가 resume/promoteCanonical 버튼을 노출하도록 하는 것은 UX design 방향 필요.
+- `store.resumeHarnessRun`(api.harnessResume 호출, ok면 refresh) + HarnessDashboard hero에 **Resume 버튼**.
+  acceptance #6 데스크톱 UX까지 완료. (렌더러 store는 단위 테스트 하네스가 없어 wiring+typecheck만; 동작
+  단위테스트는 미실시 — promoteHarnessRun과 동일 패턴 mirror.)
+
+## 상태 최종: packages 228 + desktop 21 green, 63 commits. acceptance §12 1~8 충족.
+## resume는 backend→CLI→IPC→UI 전 구간. canonical hash-gated promote는 backend→IPC→api 까지(UI 버튼은 아래).
+
+## 3. 남은 backlog (전부 non-blocking)
+
+- **canonical-promote UI**: 현재 Promote 버튼은 basic staging promote(api.harnessPromote) 호출. hash-gated
+  canonical promote(api.harnessPromoteCanonical)를 UI에 노출하려면 렌더러가 vault canonical을 읽어
+  lastReadHash를 추적해야 함 → 실 UX-state 설계 필요(렌더러가 vault를 읽는지 등).
+- per-flag gate wiring(안전망 약화, skip 권장), `--from <STATE>` rewind, git-worktree staging,
+  실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
 - loop 종료: `/cancel-ralph`.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.
