@@ -15,6 +15,25 @@ type PtyModule = {
 
 export type SendFn = (channel: string, ...args: unknown[]) => void
 
+type SshTarget = { user: string; host: string; port: number; path: string }
+
+/** Parse an ssh://user@host:port/remote/path project path, or null if not ssh. */
+function parseSsh(raw: string): SshTarget | null {
+  if (!raw || !raw.startsWith('ssh://')) return null
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'ssh:') return null
+    return {
+      user: decodeURIComponent(u.username) || 'root',
+      host: u.hostname,
+      port: u.port ? Number(u.port) : 22,
+      path: decodeURIComponent(u.pathname) || '.',
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * Manages node-pty sessions keyed by id, streaming output to the renderer.
  * channels: emits `pty:data` (id, data) and `pty:exit` (id, exitCode).
@@ -44,16 +63,28 @@ export class PtyManager {
       this.send('pty:exit', id, 1)
       return
     }
-    // Spawn the OS shell (always exists) in a valid cwd, then auto-type the agent command.
-    // This handles Windows .cmd shims (PATH/PATHEXT resolution) and shows an error in-shell
-    // instead of crashing when the agent isn't installed or cwd is invalid (e.g. an ssh:// path).
-    const shell = process.platform === 'win32'
-      ? (process.env.ComSpec || 'cmd.exe')
-      : (process.env.SHELL || '/bin/bash')
-    const safeCwd = cwd && existsSync(cwd) ? cwd : homedir()
+    // SSH project (cwd is an ssh:// URL) → connect to the remote and open an interactive
+    // shell in the remote folder. node-pty gives ssh a real PTY, so password prompts work
+    // in the terminal. Otherwise spawn the local OS shell in a valid cwd.
+    const ssh = parseSsh(cwd)
+    let file: string
+    let spawnArgs: string[]
+    let spawnCwd: string
+    if (ssh) {
+      file = process.platform === 'win32' ? 'ssh.exe' : 'ssh'
+      const remotePath = ssh.path.replace(/'/g, "'\\''")
+      const remoteCmd = `cd '${remotePath}' 2>/dev/null; exec "\${SHELL:-bash}" -l`
+      spawnArgs = ['-t', '-o', 'StrictHostKeyChecking=accept-new', '-p', String(ssh.port), `${ssh.user}@${ssh.host}`, remoteCmd]
+      spawnCwd = homedir()
+    } else {
+      file = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : (process.env.SHELL || '/bin/bash')
+      spawnArgs = []
+      spawnCwd = cwd && existsSync(cwd) ? cwd : homedir()
+    }
+
     try {
-      const p = pty.spawn(shell, [], {
-        name: 'xterm-color', cols: 120, rows: 30, cwd: safeCwd, env: process.env,
+      const p = pty.spawn(file, spawnArgs, {
+        name: 'xterm-color', cols: 120, rows: 30, cwd: spawnCwd, env: process.env,
       })
       this.sessions.set(id, p)
       p.onData((data) => this.send('pty:data', id, data))
@@ -61,8 +92,12 @@ export class PtyManager {
         this.send('pty:exit', id, exitCode)
         this.sessions.delete(id)
       })
-      const line = [command, ...args].filter(Boolean).join(' ').trim()
-      if (line) setTimeout(() => { try { p.write(line + '\r') } catch { /* shell closed */ } }, 500)
+      // Local: auto-run the agent. SSH: don't auto-type (could land in a password prompt) —
+      // the user runs the agent once connected.
+      if (!ssh) {
+        const line = [command, ...args].filter(Boolean).join(' ').trim()
+        if (line) setTimeout(() => { try { p.write(line + '\r') } catch { /* shell closed */ } }, 500)
+      }
     } catch (e) {
       this.send('pty:data', id, `[PTY spawn failed: ${e}]\r\n`)
       this.send('pty:exit', id, 1)
