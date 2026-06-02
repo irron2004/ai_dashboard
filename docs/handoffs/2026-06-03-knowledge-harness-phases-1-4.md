@@ -206,3 +206,15 @@ packages 231 + desktop 34 green. (리뷰 라운드 추세: 매 라운드 내 변
 promote()/promoteCanonical 통합, canonicalProposals는 HUMAN_REVIEW_REQUIRED 아니면 [] 반환(UI 버튼 미노출),
 allowSecrets를 service+IPC로 thread. 회귀 테스트 추가. packages 233 + desktop 34 green.
 (추세: 라운드마다 내 변경에서 실버그 — R4 sync staleness, R5 async staleness, R6 missing gates.)
+
+## 2-o. 라운드 7 (loop-until-clean 종료) → CLEAN ✅
+`wf_6430800e-989`: **0 raised / 0 confirmed → CLEAN**. canonical-promote feature 수렴 확인.
+6개 probe 전부 검증: gate() 완전성(promote/promoteCanonical 동일 게이트), ungated vault write 없음
+(conflict-doc·canonical write 모두 gate 통과 후), canonicalProposals↔promoteCanonical 일관성,
+hash-gate 정확성, 경로 containment, allowSecrets end-to-end. 라운드 4·5·6이 매번 실버그를 찾았으나
+라운드 7이 CLEAN → loop-until-clean 종료 조건 충족.
+
+## ★ 최종 수렴 상태 ★
+- 7 review rounds (R1-6 각각 실버그 발견 후 수정, R7 CLEAN). canonical-promote feature까지 수렴.
+- acceptance §12 1~8 전부 데스크톱 UX까지 충족. packages 233 + desktop 34 green.
+- 남은 backlog는 전부 저가치/비권장(per-flag gate[비권장], --from rewind, git-worktree, 실 LLM CI test).
