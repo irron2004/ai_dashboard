@@ -49,9 +49,10 @@ describe('generateRemote', () => {
     expect(res.generation?.workSummary).toBe('remote summary')
     expect(res.summaryPath).toContain('projects/p1/agent-runs/')
     expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
-    // engine ran with the built prompt on stdin
+    // engine ran inside the remote project dir, with the built prompt on stdin
     const engineCall = calls.find((c) => !c.cmd.includes('.claude/projects'))
     expect(engineCall?.cmd).toContain('claude')
+    expect(engineCall?.cmd).toMatch(/cd .*\/home\/me\/work\/apc/) // engine cd's into the project dir
     expect(engineCall?.stdin).toBeTruthy()
   })
 

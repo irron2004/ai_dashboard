@@ -50,9 +50,11 @@ function loginShell(cmd: string): string {
 }
 
 // Headless engine command run on the remote (prompt arrives via stdin).
+// codex refuses to run outside a trusted git repo unless --skip-git-repo-check is passed;
+// we cd into the project dir below, but the flag keeps it working for non-repo projects too.
 const ENGINE_CMD: Record<AgentType, string> = {
   claude: 'claude -p --output-format json',
-  codex: 'codex exec',
+  codex: 'codex exec --skip-git-repo-check',
   opencode: 'opencode run',
 }
 
@@ -87,9 +89,12 @@ export async function generateRemote(deps: RemoteGenerateDeps, input: { projectI
   let currentCanonical = ''
   try { currentCanonical = deps.vault.readDoc(`projects/${input.projectId}/current.md`).body } catch { /* none yet */ }
 
-  // 3. Run the engine CLI on the remote with the prompt on stdin.
+  // 3. Run the engine CLI on the remote, inside the project dir, with the prompt on stdin.
+  // cd into the repo so the agent has project context (and codex's git-repo trust check passes).
   const prompt = buildWikiPrompt(session, { currentCanonical })
-  const run = await exec(ssh, loginShell(ENGINE_CMD[input.engine]), { stdin: prompt, timeoutMs: 180000 })
+  const cdPath = ssh.path.replace(/'/g, `'\\''`)
+  const engineCmd = `cd '${cdPath}' && ${ENGINE_CMD[input.engine]}`
+  const run = await exec(ssh, loginShell(engineCmd), { stdin: prompt, timeoutMs: 180000 })
   if (!run.ok) return { ok: false, reason: `remote ${input.engine} failed: ${run.stderr.trim().slice(0, 300) || 'non-zero exit'}` }
 
   let generation: WikiGeneration
