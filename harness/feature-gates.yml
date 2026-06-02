@@ -1,3 +1,13 @@
+# Feature gates. NOTE on what the MVP runtime actually consults:
+#  HONORED (drive the pipeline via run-state-machine PIPELINE step.gate):
+#    enable_conversation_history_reader, auto_classify_documents, auto_create_node_proposals,
+#    auto_create_write_plan, auto_write_to_staging.
+#  STRUCTURALLY ENFORCED regardless of flag (always-on safety, fail-safe by design — NOT toggleable
+#  in the MVP): PolicyGuard/SecretScanner/evidence-required run unconditionally; writers only touch
+#  the staging vault; canonical docs are always routed to .proposal.md; promotion is human-triggered
+#  and refuses secret-flagged content. The remaining flags below are FORWARD-DECLARED for P1 wiring
+#  (per-flag toggling of those checks, real-vault auto-apply, shared promotion, deletes) and are
+#  intentionally inert today — flipping them does NOT currently change behavior.
 features:
   auto_classify_documents: true
   auto_create_node_proposals: true

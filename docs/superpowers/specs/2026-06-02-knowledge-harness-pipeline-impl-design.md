@@ -325,3 +325,27 @@ artifact 저장 시 `run.json`의 history/artifacts 인덱스를 갱신해 resum
 - CLI headless 동작은 agent/버전 의존(기존 `CliAgentRunner` 주의사항 계승) → 실패는 `ok:false`로 표면화.
 - staging fs 복사는 대형 vault에서 느릴 수 있음 → P1 git worktree로 교체.
 - shared 자동 승격·real-vault 자동 반영·자동 삭제는 **MVP 미지원**(feature gate false 고정).
+
+---
+
+## 14. MVP 구현 narrowing (팀 리뷰 2026-06-03 반영)
+
+구현이 상위 설계 대비 **의도적으로 좁힌** 지점을 명시한다(스펙과 코드 일치 목적).
+
+- **안전 불변식은 결정론으로 강제** — LLM 프롬프트가 아니라 코드로 보장한다:
+  - canonical(`current.md`/`PRD.md`/`ADR-*`)은 `ObsidianWikiWriter`가 op.mode와 무관하게 항상
+    `.proposal.md`로 라우팅하고, `HarnessPromoteService`가 applied[]의 canonical 경로 복사를 거부한다.
+  - secret이 staging에 있으면 `HarnessPromoteService.promote`가 거부한다(`allowSecrets`로만 override).
+  - 모든 staging write/promote 경로는 `resolveInside`(separator 경계)로 경로 탈출을 막는다.
+  - `raw/` write·delete는 PolicyGuard가 block(run FAILED).
+- **feature gate는 5개만 런타임 소비**(PIPELINE step.gate). 나머지는 forward-declared이며 **fail-safe로
+  항상 켜진 안전 검사**를 토글하지 않는다(§4 게이트 표의 일부는 P1에서 per-flag wiring 예정).
+  `auto_write_to_real_vault=false`는 vault를 "지키는" 플래그가 아니다 — promote가 그것을 읽지 않으며,
+  vault는 구조적으로(자동 파이프라인은 staging에만 write, promote는 사람이 트리거) 보호된다.
+- **canonical `current.md` hash-gated 병합(수용 기준 #7)은 MVP 미연결.** harness promote는 canonical을
+  `.proposal.md`로만 남기고 사람이 Obsidian에서 병합한다. 구조화된 `projects/<id>/current.md`의
+  hash-gated 경로는 기존 `CurrentPromotionService`(별도 `promoteCurrent` 채널) 소관 — harness promote에
+  `lastReadHash`를 통합하는 것은 P1.
+- **RunLock는 `HarnessService.run`에 연결됨**(프로젝트당 in-process 1 run). 단 cross-process 배타성 +
+  stale-lock timeout(§6.3)은 P1. **Resume**는 runtime(`HarnessRunner.advance`)에서 동작하고 테스트되나,
+  CLI `--from <STATE>`/전용 IPC는 P1(현재 `HarnessService.run`은 항상 새 runId 생성).
