@@ -76,24 +76,25 @@ export function App() {
     }
   }, [selectedProjectId, projects, loadProfiles])
 
-  // Keyboard: Alt+1..9 → project by index; Ctrl+Shift+1/2/3 → agent.
-  // Use e.code (Digit1..) because Shift turns e.key '1' into '!'.
+  // Keyboard: Ctrl+1..9 → project by index; Shift+1/2/3 → agent.
+  // Use e.code (Digit1..) because Shift turns e.key '1' into '!'. Capture phase + stopPropagation
+  // so a focused terminal doesn't also receive the keystroke.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.code.startsWith('Digit')) return
       const n = Number(e.code.slice(5))
-      if (e.ctrlKey && e.shiftKey && n >= 1 && n <= AGENTS.length) {
-        e.preventDefault()
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && n >= 1 && n <= AGENTS.length) {
+        e.preventDefault(); e.stopPropagation()
         setAgent(AGENTS[n - 1])
         return
       }
-      if (e.altKey && !e.ctrlKey && !e.shiftKey && n >= 1 && n <= 9 && projects[n - 1]) {
-        e.preventDefault()
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && n >= 1 && n <= 9 && projects[n - 1]) {
+        e.preventDefault(); e.stopPropagation()
         selectProject(projects[n - 1].id)
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [projects, selectProject])
 
   const project = projects.find((p) => p.id === selectedProjectId)
@@ -145,7 +146,7 @@ export function App() {
           </button>
           {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
-            Alt+1..9 project · Ctrl+Shift+1/2/3 agent
+            Ctrl+1..9 project · Shift+1/2/3 agent
           </span>
         </header>
         {dashboard ? (
@@ -187,11 +188,11 @@ export function App() {
                     padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
                     background: a === agent ? '#23311f' : '#161616',
                   }}
-                  title={`Ctrl+Shift+${i + 1}`}
+                  title={`Shift+${i + 1}`}
                 >
                   <span style={{ color: STATUS_COLOR[agentStatus[a]], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
                   <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⌃⇧{i + 1}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{i + 1}</span>
                 </div>
                 <div style={{ flex: 1, minHeight: 0 }}>
                   <AgentTerminal

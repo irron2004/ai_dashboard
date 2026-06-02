@@ -1,5 +1,8 @@
 // node-pty is an optionalDependency (native; rebuilt for the Electron ABI on the target
 // machine). It is loaded lazily so the rest of the app works even when it is unavailable.
+import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+
 type IPty = {
   onData(cb: (data: string) => void): void
   onExit(cb: (e: { exitCode: number }) => void): void
@@ -41,9 +44,16 @@ export class PtyManager {
       this.send('pty:exit', id, 1)
       return
     }
+    // Spawn the OS shell (always exists) in a valid cwd, then auto-type the agent command.
+    // This handles Windows .cmd shims (PATH/PATHEXT resolution) and shows an error in-shell
+    // instead of crashing when the agent isn't installed or cwd is invalid (e.g. an ssh:// path).
+    const shell = process.platform === 'win32'
+      ? (process.env.ComSpec || 'cmd.exe')
+      : (process.env.SHELL || '/bin/bash')
+    const safeCwd = cwd && existsSync(cwd) ? cwd : homedir()
     try {
-      const p = pty.spawn(command, args, {
-        name: 'xterm-color', cols: 120, rows: 30, cwd, env: process.env,
+      const p = pty.spawn(shell, [], {
+        name: 'xterm-color', cols: 120, rows: 30, cwd: safeCwd, env: process.env,
       })
       this.sessions.set(id, p)
       p.onData((data) => this.send('pty:data', id, data))
@@ -51,6 +61,8 @@ export class PtyManager {
         this.send('pty:exit', id, exitCode)
         this.sessions.delete(id)
       })
+      const line = [command, ...args].filter(Boolean).join(' ').trim()
+      if (line) setTimeout(() => { try { p.write(line + '\r') } catch { /* shell closed */ } }, 500)
     } catch (e) {
       this.send('pty:data', id, `[PTY spawn failed: ${e}]\r\n`)
       this.send('pty:exit', id, 1)
