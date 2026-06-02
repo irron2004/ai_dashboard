@@ -1,0 +1,86 @@
+# Handoff — Knowledge Harness 구현 (Phase 1~4) + 팀 리뷰
+
+- **날짜**: 2026-06-03
+- **브랜치**: `docs/knowledge-harness-pipeline-spec` (repo: `ai_dashboard`)
+- **세션 성격**: Ralph loop — Phase 1→4 구현, phase마다 commit, 완료 후 team-mode 평가 + 개선 반복.
+
+## 1. 이번 세션에 한 일 (결론 중심)
+
+증거 기반 위키 파이프라인 `@apc/knowledge-harness`를 **4개 phase 전부 구현**했다. 기존
+`GenerateService`(one-shot)는 건드리지 않고 새 패키지로 병행. 모든 작업은 TDD + task별 커밋.
+
+- **Phase 1 — 런타임 골격**: kh-schema 계약(Zod, `@apc/shared`), 12-state 머신, FeatureGate(평평한
+  yml subset 파서, fail-safe), RunArtifactStore(fs, atomic temp+rename), RunLock, HarnessRunner
+  (driver 주입, resume, FAILED). `harness/` config 3종.
+- **Phase 1 하드닝** (사용자 코드리뷰 반영): RunLock을 `advance()`에 연결(acquire/finally-release,
+  foreign-lock 가드), terminal state(FAILED/MERGED) idempotency, atomic write + `missingArtifacts`
+  resume 검증, feature-gate YAML-subset 문서화 + 오탈자 fail-safe 테스트. **#2(repo-root 경로)는
+  반례 검증으로 푸시백** — `4× ../` = repo root가 맞고 5×는 오버슈트(empirically + 테스트 green).
+- **Phase 2 — LLM agents + staging**: LlmAgent base + 5 LLM agent(discovery/reader/classifier/
+  extractor/lead) + ObsidianWikiWriter(결정론 WritePlan 실행기) + StagingVault(vault→staging 복사 +
+  `git diff --no-index`) + `makeDrivers(deps)` 팩토리. **harness-runner.ts는 한 줄도 안 바뀜**(driver
+  factory로만 주입). 테스트는 전부 `FakeAgentRunner`(실 LLM 호출 없음).
+- **Phase 3 — policy/verify/eval (결정론)**: SecretScanner(마스킹 regex 카탈로그), PolicyGuard
+  (no_evidence/shared_evidence_min → block, raw/delete → block, canonical_overwrite/secret → warn),
+  GraphIntegrity(broken/dup/orphan/mismatch/missing-backlink), md-yaml + obsidian-link validator,
+  EvalReport 빌더. NODE_PROPOSALS_CREATED에서 PolicyGuard 차단 시 run FAILED, VALIDATED에서 검증,
+  HUMAN_REVIEW_REQUIRED에서 EvalReport+final-report 생성.
+- **Phase 4 — 표면**: HarnessPromoteService(staging→real vault 반영, canonical은 `.proposal.md`로 보존),
+  HarnessService(run/show/promote, `@apc/app-services`), CLI(`knowledge-harness run|show|promote` +
+  bin), 데스크톱 IPC 3채널(`c:harnessRun`/`c:harnessGetRun`/`c:harnessPromote`) + container DI.
+- **타입 정합성**: 리포에 typecheck 스텝이 없어(vitest=esbuild) 안 잡히던 tsc 오류를 신규 파일에 대해
+  수정 — LlmAgentConfig의 Zod Input 미고정으로 O를 OUTPUT 타입에 바인딩, HarnessRunResult 단일 형태화.
+
+**부수적으로 잡은 실제 결함 2건**: (a) 데스크톱 runsRoot가 vault **안**에 있어 staging 복사가
+self-subdir로 크래시 → vault 바깥으로 이동 + 컨테이너 기본값 수정. (b) LLM agent 출력 타입이 Zod
+input 형태로 추론되던 문제.
+
+## 2. 변경 파일 / 커밋 상태
+
+- **신규 패키지**: `packages/knowledge-harness/` (runtime, agents, policy, verify, eval, staging).
+- **수정**: `packages/shared/src/kh-schema.ts`(+index), `packages/app-services/src/harness-*.ts`(+index,
+  package.json bin/dep), `apps/desktop/src/{shared/ipc-contract,main/container,main/ipc}.ts`(+ipc.test).
+- **config/docs**: `harness/{feature-gates.yml,harness-rules.md,run-state-machine.yml}`,
+  `docs/superpowers/plans/2026-06-02-knowledge-harness-phase{1,2,3,4}.md`.
+- **커밋**: `40e230a`(Phase1 첫 모듈)…`2743e7d`(타입수정)까지 ~33개, **task당 1커밋**. 전부 커밋됨.
+- **미커밋(이번 작업 아님, 세션 시작부터 존재)**: `remote-generate.ts`, `packages/agents/*adapter*`,
+  `packages/shared/src/ingest-schema*`, untracked `packages/agents/src/source-discovery.ts`,
+  `docs/superpowers/specs/2026-06-02-llm-wiki-agent-spec.md`. **건드리지 않았으니 그대로 둘 것.**
+- **로컬 전용**: `.claude/ralph-progress.md`(gitignored) — loop 상태 추적기.
+
+## 3. 다음에 할 일 / 미완
+
+- **팀 리뷰 결과 반영(개선 반복)**: 백그라운드 Workflow `wf_82e87259-8ac` 실행 중 — 5개 리뷰어
+  (correctness/spec/safety/tests/simplicity) → adversarial verify → synthesis. **완료되면 confirmed
+  findings를 우선순위대로 수정**하는 것이 다음 단계. (Ralph loop의 "개선 반복" 단계.)
+- **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
+  경계까지만 됨. 픽셀 UI는 수동 후속.
+- **P1 후보**: git-worktree staging, 실 LLM(CliAgentRunner) 통합 테스트, 선택적 LLM secret 의미판정,
+  스케줄 실행, shared 자동승격(현재 gate false 고정).
+- **리포 typecheck 부재**: 신규 파일은 tsc clean이나 `wiki-engine.ts(16)` 등 **기존** z.input/output
+  오류가 잠복. 리포 차원의 typecheck 스텝 도입은 별도 결정 필요.
+
+## 4. 재현 / 검증
+
+```bash
+# 패키지 테스트 (203 green) — 루트
+cd ai_dashboard && pnpm test
+# 데스크톱 테스트 (20 green) — 자체 vitest config
+cd ai_dashboard/apps/desktop && pnpm exec vitest run
+# 신규 파일 typecheck (리포에 스텝 없음 → 수동)
+pnpm exec tsc --noEmit --strict --module ESNext --moduleResolution Bundler --target ES2022 \
+  --esModuleInterop --skipLibCheck --resolveJsonModule --types node \
+  packages/knowledge-harness/src/index.ts packages/app-services/src/harness-service.ts
+# 핵심 경로
+#  계약:    packages/shared/src/kh-schema.ts
+#  런타임:  packages/knowledge-harness/src/runtime/{run-state-machine,harness-runner,make-drivers}.ts
+#  안전망:  packages/knowledge-harness/src/{policy,verify,eval}/**
+#  표면:    packages/app-services/src/harness-{service,promote-service,cli}.ts
+#  데스크톱: apps/desktop/src/main/{container,ipc}.ts
+#  설계:    docs/superpowers/specs/2026-06-02-knowledge-harness-{design,pipeline-impl-design}.md
+#  플랜:    docs/superpowers/plans/2026-06-02-knowledge-harness-phase{1,2,3,4}.md
+```
+
+**핵심 불변식(테스트로 보증됨)**: Writer는 staging에만 write, 실 vault는 promote 전까지 불변;
+evidence 없는 proposal은 PolicyGuard가 차단(run FAILED); canonical은 직접 덮어쓰지 않고 `.proposal.md`;
+raw/delete는 차단; gate 닫히면 해당 state에서 멈추고 resume 가능.
