@@ -6,6 +6,7 @@ import { ProjectSidebar } from './components/ProjectSidebar.js'
 import { PmHome } from './components/PmHome.js'
 import { HarnessPanel } from './components/HarnessPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
+import { ModelPicker } from './components/ModelPicker.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -20,10 +21,13 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 
 export function App() {
   const {
-    projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus,
+    projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus, generating, generation,
     loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
+    generate, clearGeneration,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track)
   const termRef = useRef<HTMLDivElement | null>(null)
@@ -121,6 +125,18 @@ export function App() {
     }
   }
 
+  const handlePromote = async () => {
+    if (!selectedProjectId) return
+    try {
+      const res = (await api.promoteCurrent({ projectId: selectedProjectId, lastReadHash: '' })) as
+        { status: string; conflictPath?: string; canonicalPath?: string }
+      if (res.status === 'conflict') setPromoteMsg(`충돌: ${res.conflictPath} 생성됨 (current.md 유지).`)
+      else setPromoteMsg(`current.md에 반영됨 (${res.canonicalPath}).`)
+    } catch (e) {
+      setPromoteMsg(`Promote 실패: ${e}`)
+    }
+  }
+
   return (
     <div className="app-layout" style={{ gridTemplateColumns: `${sidebarW}px 1fr 240px` }}>
       {/* Update button — fixed at the top-right of the window */}
@@ -155,6 +171,9 @@ export function App() {
         <header className="app-layout__toolbar">
           <button disabled={ingesting} onClick={() => ingest()}>
             {ingesting ? 'Ingesting...' : 'Ingest now'}
+          </button>
+          <button disabled={generating || !selectedProjectId} onClick={() => setPickerOpen(true)} title="최근 세션 요약 → current.md 제안 생성 (모델 선택)">
+            {generating ? 'Generating…' : '✨ Generate'}
           </button>
           {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
@@ -251,6 +270,66 @@ export function App() {
                 Restart now
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {pickerOpen && (
+        <div className="add-project-overlay" onClick={() => setPickerOpen(false)}>
+          <div className="add-project-dialog" onClick={(e) => e.stopPropagation()}>
+            <ModelPicker
+              defaultEngine="claude"
+              onPick={(engine) => { setPickerOpen(false); setPromoteMsg(null); void generate(engine) }}
+            />
+            <div className="add-project-dialog__actions">
+              <button type="button" onClick={() => setPickerOpen(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {generation && (
+        <div className="add-project-overlay" onClick={() => { clearGeneration(); setPromoteMsg(null) }}>
+          <div className="add-project-dialog" onClick={(e) => e.stopPropagation()} style={{ width: 680, maxWidth: '92vw' }}>
+            {generation.ok ? (
+              <>
+                <h2>Generated ✓</h2>
+                <p style={{ fontSize: '0.85rem' }}><b>Summary:</b> {generation.generation?.workSummary}</p>
+                {!!generation.generation?.filesTouched.length && (
+                  <p style={{ fontSize: '0.8rem' }}><b>Files:</b> {generation.generation.filesTouched.join(', ')}</p>
+                )}
+                {!!generation.generation?.openProblems.length && (
+                  <p style={{ fontSize: '0.8rem' }}><b>Open problems:</b> {generation.generation.openProblems.join('; ')}</p>
+                )}
+                {!!generation.generation?.nextTasks.length && (
+                  <div style={{ fontSize: '0.8rem' }}>
+                    <b>Next tasks:</b>
+                    <ul style={{ marginLeft: 16 }}>
+                      {generation.generation.nextTasks.map((t, i) => <li key={i}>{t.title}</li>)}
+                    </ul>
+                  </div>
+                )}
+                <p style={{ fontSize: '0.8rem', marginTop: 6 }}><b>current.md proposal:</b></p>
+                <pre style={{ background: '#111', color: '#cfc', padding: 10, borderRadius: 6, maxHeight: 240, overflow: 'auto', fontSize: '0.78rem', whiteSpace: 'pre-wrap', margin: 0 }}>
+                  {generation.generation?.currentProposalMarkdown || '(no proposal)'}
+                </pre>
+                {promoteMsg && <p style={{ fontSize: '0.8rem', color: '#9cf' }}>{promoteMsg}</p>}
+                <div className="add-project-dialog__actions">
+                  <button type="button" onClick={() => { clearGeneration(); setPromoteMsg(null) }}>Close</button>
+                  <button type="button" disabled={!generation.proposalPath} onClick={handlePromote} style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}>
+                    Promote current
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>Generate ✗</h2>
+                <p style={{ fontSize: '0.85rem' }}>{generation.reason ?? 'failed'}</p>
+                <div className="add-project-dialog__actions">
+                  <button type="button" onClick={() => clearGeneration()}>Close</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

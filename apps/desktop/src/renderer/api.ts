@@ -2,6 +2,7 @@ import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
+  GenerateProjectReq, GenerateProjectRes,
   StartPtyReq, PtyInputReq, PtyKillReq,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile } from '@apc/shared'
@@ -58,6 +59,9 @@ export const api = {
   },
   generateRun(req: GenerateRunReq): Promise<unknown> {
     return window.apc.invoke(CH.generateRun, req)
+  },
+  generateProject(req: GenerateProjectReq): Promise<GenerateProjectRes> {
+    return window.apc.invoke(CH.generateProject, req) as Promise<GenerateProjectRes>
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

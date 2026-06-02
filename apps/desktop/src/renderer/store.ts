@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { ProjectDashboardRes } from '../shared/ipc-contract.js'
+import type { ProjectDashboardRes, GenerateProjectRes } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 
 export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
@@ -14,8 +14,12 @@ type ApcStore = {
   lastIngest: { sources: number; sessions: number } | null
   error: string | null
   agentStatus: Record<AgentType, AgentRunStatus>
+  generating: boolean
+  generation: GenerateProjectRes | null
 
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
+  generate(engine: AgentType): Promise<void>
+  clearGeneration(): void
   loadProjects(): Promise<void>
   addProject(name: string, projectType: string, repoPath: string): Promise<void>
   updateProject(id: string, name: string, projectType: string, repoPath: string): Promise<void>
@@ -35,10 +39,29 @@ export const useStore = create<ApcStore>((set, get) => ({
   lastIngest: null,
   error: null,
   agentStatus: { claude: 'idle', codex: 'idle', opencode: 'idle' },
+  generating: false,
+  generation: null,
 
   setAgentStatus(agent, status) {
     set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
   },
+
+  async generate(engine) {
+    const { selectedProjectId } = get()
+    if (!selectedProjectId) { set({ error: 'Select a project first.' }); return }
+    set({ generating: true, generation: null })
+    try {
+      const generation = await api.generateProject({ projectId: selectedProjectId, engine })
+      set({ generation })
+      if (!generation.ok) set({ error: generation.reason ?? 'Generate failed' })
+    } catch (e) {
+      set({ error: `Generate failed: ${e}` })
+    } finally {
+      set({ generating: false })
+    }
+  },
+
+  clearGeneration() { set({ generation: null }) },
 
   async loadProjects() {
     try {
