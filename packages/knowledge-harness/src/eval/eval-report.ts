@@ -10,6 +10,8 @@ export type EvalInputs = {
   policy?: KhPolicyReport
   graph?: KhGraphValidationReport
   applied?: { applied: string[]; proposals: string[]; skipped: string[] }
+  /** count of findings from the VALIDATED body-content secret scan (PolicyGuard only sees evidence text). */
+  secretScanFindings?: number
 }
 
 const count = <T>(xs: T[], pred: (x: T) => boolean) => xs.filter(pred).length
@@ -48,7 +50,8 @@ export function buildEvalReport(inputs: EvalInputs): KhEvalReport {
       // Writers only touch the staging vault; PolicyGuard blocks any raw write before it runs.
       // So the real raw/ tree is never modified by a run — this is invariantly false in the MVP.
       raw_modified: false,
-      secret_warnings: count(policyViolations, v => v.rule === 'secret'),
+      // evidence-text hits (PolicyGuard) + body-content hits (VALIDATED secret scan)
+      secret_warnings: count(policyViolations, v => v.rule === 'secret') + (inputs.secretScanFindings ?? 0),
       canonical_direct_overwrite_attempts: count(policyViolations, v => v.rule === 'canonical_overwrite'),
       delete_attempts: count(policyViolations, v => v.rule === 'delete'),
     },

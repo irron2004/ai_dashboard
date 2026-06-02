@@ -56,4 +56,10 @@ describe('buildEvalReport', () => {
     // only sharedOk meets its threshold; the hardcoded >=1 would wrongly count all 3
     expect(r.evidence_quality.proposals_with_minimum_evidence).toBe(1)
   })
+
+  test('secret_warnings sums PolicyGuard evidence hits and VALIDATED body-scan findings', () => {
+    const policy = KhPolicyReportSchema.parse({ violations: [{ proposal_id: 'NP', rule: 'secret', severity: 'warn' }] })
+    const r = buildEvalReport({ policy, secretScanFindings: 2 })
+    expect(r.safety.secret_warnings).toBe(3)  // 1 evidence-text + 2 body-content
+  })
 })

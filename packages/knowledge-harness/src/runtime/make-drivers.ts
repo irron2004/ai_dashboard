@@ -145,6 +145,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const finalPolicy = policy.check(proposals, writePlan)
       const intents = artifactByName<{ documents: unknown[] }>(ctx, 'DOCUMENTS_CLASSIFIED', 'document-intent-report')
       const graphReport = artifactByName(ctx, 'VALIDATED', 'graph-validation-report')
+      const secretReport = artifactByName<{ findings: unknown[] }>(ctx, 'VALIDATED', 'secret-scan-report')
       const applied = artifactByName<{ applied: string[]; proposals: string[]; skipped: string[] }>(ctx, 'STAGING_WRITTEN', 'applied-write-report')
 
       const evalReport = buildEvalReport({
@@ -154,6 +155,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         policy: finalPolicy,
         graph: graphReport as never,
         applied,
+        secretScanFindings: secretReport?.findings.length ?? 0,
       })
       const finalReport = [
         `# Harness Run ${ctx.runId}`,
