@@ -54,7 +54,13 @@ export class HarnessService {
       const rs = await runner.advance(store)
       return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
     } catch (err) {
-      return { ok: false, runId, finalState: 'FAILED', reason: err instanceof Error ? err.message : String(err) }
+      let reason = err instanceof Error ? err.message : String(err)
+      // A crashed prior run can leave an orphaned project lockfile (no stale-lock TTL in the MVP);
+      // tell the operator how to recover manually rather than leaving the run permanently un-resumable.
+      if (/already in progress/.test(reason)) {
+        reason += ` — if a prior run crashed, delete the stale lock at ${join(this.deps.runsRoot, '.locks')}/<projectId>.lock and retry`
+      }
+      return { ok: false, runId, finalState: 'FAILED', reason }
     }
   }
 
@@ -72,6 +78,16 @@ export class HarnessService {
     const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
     if (!store.exists()) return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `run not found: ${input.runId}` }
     const prev = store.loadRunState()
+    // Terminal runs are no-ops at the runtime level — give a clear "nothing to resume" message instead of
+    // reusing the generic failure shape (MERGED has no rs.error, which would otherwise print "unknown").
+    if (prev.state === 'FAILED' || prev.state === 'MERGED') {
+      return { ok: false, runId: input.runId, finalState: prev.state, reason: `run ${input.runId} is already ${prev.state} — nothing to resume${prev.error ? ` (original error: ${prev.error})` : ''}` }
+    }
+    // Fail fast with a clear reason if the on-disk artifact index references files that are gone.
+    const missing = store.missingArtifacts(prev)
+    if (missing.length) {
+      return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `cannot resume ${input.runId}: missing artifacts ${missing.join(', ')}` }
+    }
     const runner = this.runnerFor(input.runId, prev.projectId)
     return this.advanceSafely(input.runId, runner, store)
   }
@@ -98,7 +114,8 @@ export class HarnessService {
   promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string }): CanonicalPromoteResult {
     return new HarnessPromoteService({
       runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot,
-      conflict: new ConflictManager(), stamp: this.now().slice(0, 10),
+      // full timestamp (not date-only) so two same-day conflicts on the same canonical don't clobber each other
+      conflict: new ConflictManager(), stamp: this.now().replace(/[:.]/g, '-'),
     }).promoteCanonical(input)
   }
 

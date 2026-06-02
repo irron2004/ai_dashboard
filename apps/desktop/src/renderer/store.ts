@@ -160,7 +160,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   async deleteProject(id: string) {
     try {
       await api.deleteProject(id)
-      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null })
+      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null, harnessCanonicalProposals: [] })
       await get().loadProjects()
     } catch (e) {
       set({ error: `Failed to delete project: ${e}` })
@@ -215,13 +215,15 @@ export const useStore = create<ApcStore>((set, get) => ({
       harnessRuns: runs,
       selectedHarnessRunId,
       harnessMessage: null,
+      harnessCanonicalProposals: [],  // hashes are run-specific; clear until the next refresh re-captures
     }))
   },
 
   selectHarnessRun(runId: string) {
     const projectId = get().selectedProjectId
     if (!projectId) return
-    set({ selectedHarnessRunId: runId })
+    // canonical hashes belong to the previously-selected run — clear so we never promote against the wrong run
+    set({ selectedHarnessRunId: runId, harnessCanonicalProposals: [] })
     saveHarnessSelectedRun(projectId, runId)
   },
 
@@ -229,7 +231,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [] })
     try {
       const started = await api.harnessRun({ projectId, engine: config.model.engine })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
@@ -316,8 +318,9 @@ export const useStore = create<ApcStore>((set, get) => ({
     if (!targetRunId) { set({ harnessCanonicalProposals: [] }); return }
     try {
       set({ harnessCanonicalProposals: await api.harnessCanonicalProposals({ runId: targetRunId }) })
-    } catch {
-      set({ harnessCanonicalProposals: [] })
+    } catch (e) {
+      // non-fatal: clear the stale list but surface the failure so it's not mistaken for "no proposals"
+      set({ harnessCanonicalProposals: [], harnessMessage: `Could not load canonical proposals: ${e}` })
     }
   },
 

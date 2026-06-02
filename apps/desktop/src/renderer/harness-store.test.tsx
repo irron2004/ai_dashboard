@@ -101,4 +101,17 @@ describe('harness store actions (api mocked)', () => {
     await useStore.getState().promoteHarnessRun()
     expect(useStore.getState().harnessMessage).toContain('secret finding')
   })
+
+  test('selectHarnessRun clears stale canonical proposals (no cross-run promotion)', () => {
+    useStore.setState({ harnessCanonicalProposals: [{ proposalRelPath: 'current.proposal.md', canonicalPath: 'current.md', currentHash: 'OLD' }] })
+    useStore.getState().selectHarnessRun('RUN-OTHER')
+    expect(useStore.getState().harnessCanonicalProposals).toEqual([])
+  })
+
+  test('loadCanonicalProposals surfaces an IPC error instead of silently showing empty', async () => {
+    mockApi.harnessCanonicalProposals.mockRejectedValue(new Error('ipc boom'))
+    await useStore.getState().loadCanonicalProposals('RUN-1')
+    expect(useStore.getState().harnessCanonicalProposals).toEqual([])
+    expect(useStore.getState().harnessMessage).toContain('Could not load canonical proposals')
+  })
 })

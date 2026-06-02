@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner } from '@apc/llm-wiki'
-import { RunLock } from '@apc/knowledge-harness'
+import { RunLock, RunArtifactStore } from '@apc/knowledge-harness'
 import { HarnessService } from './harness-service.js'
 
 // repo root from packages/app-services/src/
@@ -103,6 +103,19 @@ describe('HarnessService', () => {
     const r = await service().resume({ runId: 'NOPE' })
     expect(r.ok).toBe(false)
     expect(r.reason).toContain('run not found')
+  })
+
+  test('resume of an already-terminal run says "nothing to resume" (not a generic failure)', async () => {
+    const svc = service()
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })  // completes to HUMAN_REVIEW_REQUIRED
+    // simulate a human merge → terminal MERGED
+    const store = new RunArtifactStore(join(ws, 'runs', r.runId))
+    const rs = store.loadRunState()
+    store.saveRunState({ ...rs, state: 'MERGED', history: [...rs.history, { state: 'MERGED', at: '2026-06-02T00:00:00Z' }] })
+    const resumed = await svc.resume({ runId: r.runId })
+    expect(resumed.ok).toBe(false)
+    expect(resumed.finalState).toBe('MERGED')
+    expect(resumed.reason).toMatch(/already MERGED — nothing to resume/)
   })
 
   test('a concurrent run for the same project returns a structured failure, not an unhandled throw', async () => {
