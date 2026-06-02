@@ -118,6 +118,16 @@ export function App() {
 
   return (
     <div className="app-layout" style={{ gridTemplateColumns: `${sidebarW}px 1fr 240px` }}>
+      {/* Update button — fixed at the top-right of the window */}
+      <button
+        disabled={upd.running}
+        onClick={runUpdate}
+        title="git pull + pnpm install"
+        style={{ position: 'fixed', top: 6, right: 8, zIndex: 60 }}
+      >
+        {upd.running ? 'Updating…' : '⭳ Update'}
+      </button>
+
       <aside className="app-layout__sidebar">
         <ProjectSidebar
           projects={projects}
@@ -140,9 +150,6 @@ export function App() {
         <header className="app-layout__toolbar">
           <button disabled={ingesting} onClick={() => ingest()}>
             {ingesting ? 'Ingesting...' : 'Ingest now'}
-          </button>
-          <button disabled={upd.running} onClick={runUpdate} title="git pull + pnpm install">
-            {upd.running ? 'Updating…' : '⭳ Update'}
           </button>
           {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
