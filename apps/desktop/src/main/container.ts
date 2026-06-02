@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import type {
   GenerateProjectReq, GenerateProjectRes,
-  HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+  HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
 } from '../shared/ipc-contract.js'
 
 export type Container = {
@@ -33,6 +33,7 @@ export type Container = {
   generateProject: (req: GenerateProjectReq) => Promise<GenerateProjectRes>
   harness: HarnessService
   harnessRun: (req: HarnessRunReq) => Promise<HarnessRunRes>
+  harnessResume: (req: HarnessResumeReq) => Promise<HarnessRunRes>
   harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
   harnessPromote: (req: HarnessPromoteReq) => HarnessPromoteRes
   dashboard: typeof getProjectDashboard
@@ -90,12 +91,13 @@ export function buildContainer(opts: {
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => harness.run(req)
+  const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
   const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)
 
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generateProject,
-    harness, harnessRun, harnessGetRun, harnessPromote, dashboard: getProjectDashboard,
+    harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, dashboard: getProjectDashboard,
   }
 }

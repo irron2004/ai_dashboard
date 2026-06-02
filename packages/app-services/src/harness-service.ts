@@ -37,31 +37,55 @@ export class HarnessService {
 
   private stagingDir(runId: string): string { return join(this.deps.runsRoot, runId, 'vault-staging') }
 
-  async run(input: { projectId: string; engine: AgentType }): Promise<HarnessRunResult> {
-    const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
-    const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
+  /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock). */
+  private runnerFor(runId: string, projectId: string): HarnessRunner {
     const drivers = makeDrivers({
       runner: this.deps.runner, vaultRoot: this.deps.vaultRoot,
       stagingRoot: this.stagingDir(runId), preamble: this.preamble,
     })
-    // One run per project: the lock guards the advance() walk (in-process concurrency).
-    const lock = new RunLock(join(this.deps.runsRoot, '.locks'), input.projectId)
-    const runner = new HarnessRunner({ gates: FeatureGate.fromFile(this.gatesPath), drivers, now: this.now, lock })
-    runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
+    const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
+    return new HarnessRunner({ gates: FeatureGate.fromFile(this.gatesPath), drivers, now: this.now, lock })
+  }
+
+  /** advance() the run, mapping a thrown lock-contention error to a structured failure result. */
+  private async advanceSafely(runId: string, runner: HarnessRunner, store: RunArtifactStore): Promise<HarnessRunResult> {
     try {
       const rs = await runner.advance(store)
       return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
     } catch (err) {
-      // Lock contention (another run holds this project's lock) throws out of advance() — surface it as
-      // a structured result rather than an unhandled rejection across the CLI/IPC boundary.
       return { ok: false, runId, finalState: 'FAILED', reason: err instanceof Error ? err.message : String(err) }
     }
   }
 
-  show(input: { runId: string }): { ok: true; runState: RunState } | { ok: false; reason: string } {
+  async run(input: { projectId: string; engine: AgentType }): Promise<HarnessRunResult> {
+    const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
+    const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
+    const runner = this.runnerFor(runId, input.projectId)
+    runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
+    return this.advanceSafely(runId, runner, store)
+  }
+
+  /** Resume an existing run from its persisted state — e.g. after a paused gate is reopened. Re-reads
+   * the gates file, so a previously-closed gate that is now open lets the walk continue. (Acceptance #6.) */
+  async resume(input: { runId: string }): Promise<HarnessRunResult> {
+    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+    if (!store.exists()) return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `run not found: ${input.runId}` }
+    const prev = store.loadRunState()
+    const runner = this.runnerFor(input.runId, prev.projectId)
+    return this.advanceSafely(input.runId, runner, store)
+  }
+
+  show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {
     const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
     if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
-    return { ok: true, runState: store.loadRunState() }
+    const runState = store.loadRunState()
+    const artifacts = Object.entries(runState.artifacts).flatMap(([state, paths]) => paths.map((path) => ({
+      state: state as RunState['state'],
+      name: path.split('/').pop()?.replace(/\.json$/, '') ?? path,
+      path,
+      data: store.readArtifact(path),
+    })))
+    return { ok: true, runState, artifacts }
   }
 
   promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {

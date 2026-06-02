@@ -84,6 +84,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessRun(payload as HarnessRunReq)
     },
 
+    [CH.harnessResume]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.harnessResume(req)
+    },
+
     [CH.harnessGetRun]: async (payload: unknown) => {
       return container.harnessGetRun(payload as HarnessGetRunReq)
     },

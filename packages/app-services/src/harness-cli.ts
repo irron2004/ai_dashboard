@@ -2,6 +2,7 @@ import { AgentKind, type AgentType } from '@apc/shared'
 
 export type ParsedArgs =
   | { cmd: 'run'; projectId: string; engine: AgentType }
+  | { cmd: 'resume'; runId: string }
   | { cmd: 'show'; runId: string }
   | { cmd: 'promote'; runId: string; allowSecrets: boolean }
   | { cmd: 'help' }
@@ -9,6 +10,7 @@ export type ParsedArgs =
 
 const USAGE = `knowledge-harness — evidence-based wiki pipeline
   run --project <id> --engine <claude|codex|opencode>
+  resume <runId>
   show <runId>
   promote <runId> [--allow-secrets]`
 
@@ -28,6 +30,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
       if (!engine.success) return { cmd: 'error', message: `run requires --engine <${AgentKind.options.join('|')}>` }
       return { cmd: 'run', projectId, engine: engine.data }
     }
+    case 'resume':
+      return rest[0] ? { cmd: 'resume', runId: rest[0] } : { cmd: 'error', message: 'resume requires <runId>' }
     case 'show':
       return rest[0] ? { cmd: 'show', runId: rest[0] } : { cmd: 'error', message: 'show requires <runId>' }
     case 'promote': {
@@ -44,6 +48,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 /** A structural port over HarnessService — kept minimal so the dispatcher is testable with a fake. */
 export type HarnessCliPort = {
   run(input: { projectId: string; engine: AgentType }): Promise<{ ok: boolean; runId?: string; finalState?: string; reason?: string }>
+  resume(input: { runId: string }): Promise<{ ok: boolean; runId?: string; finalState?: string; reason?: string }>
   show(input: { runId: string }): { ok: boolean; runState?: unknown; reason?: string }
   promote(input: { runId: string; allowSecrets?: boolean }): { ok: boolean; promoted?: string[]; proposals?: string[]; reason?: string }
 }
@@ -59,6 +64,11 @@ export async function runCli(argv: string[], port: HarnessCliPort, out: (line: s
     case 'run': {
       const r = await port.run({ projectId: args.projectId, engine: args.engine })
       if (!r.ok) { out(`run failed: ${r.reason ?? 'unknown'}`); return 1 }
+      out(`run ${r.runId} → ${r.finalState}`); return 0
+    }
+    case 'resume': {
+      const r = await port.resume({ runId: args.runId })
+      if (!r.ok) { out(`resume failed: ${r.reason ?? 'unknown'}`); return 1 }
       out(`run ${r.runId} → ${r.finalState}`); return 0
     }
     case 'show': {

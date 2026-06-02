@@ -9,6 +9,10 @@ describe('parseArgs', () => {
     expect(parseArgs(['run', '--engine', 'claude']).cmd).toBe('error')
     expect(parseArgs(['run', '--project', 'p1', '--engine', 'gpt']).cmd).toBe('error')
   })
+  test('parses resume positional runId', () => {
+    expect(parseArgs(['resume', 'RUN-1'])).toEqual({ cmd: 'resume', runId: 'RUN-1' })
+    expect(parseArgs(['resume']).cmd).toBe('error')
+  })
   test('parses show / promote positional runId + --allow-secrets', () => {
     expect(parseArgs(['show', 'RUN-1'])).toEqual({ cmd: 'show', runId: 'RUN-1' })
     expect(parseArgs(['promote', 'RUN-1'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: false })
@@ -24,6 +28,7 @@ describe('parseArgs', () => {
 describe('runCli', () => {
   const port: HarnessCliPort = {
     async run() { return { ok: true, runId: 'RUN-9', finalState: 'HUMAN_REVIEW_REQUIRED' } },
+    async resume() { return { ok: true, runId: 'RUN-9', finalState: 'HUMAN_REVIEW_REQUIRED' } },
     show() { return { ok: true, runState: { state: 'HUMAN_REVIEW_REQUIRED' } } },
     promote() { return { ok: true, promoted: ['concepts/n1.md'], proposals: [] } },
   }

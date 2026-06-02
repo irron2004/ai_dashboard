@@ -65,6 +65,46 @@ describe('HarnessService', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
   })
 
+  test('resume continues a run paused by a closed gate after the gate is reopened (acceptance #6)', async () => {
+    const gatesFile = join(ws, 'gates.yml')
+    const writeGates = (proposalsGate: boolean) => writeFileSync(gatesFile, [
+      'features:',
+      '  enable_conversation_history_reader: true',
+      '  auto_classify_documents: true',
+      `  auto_create_node_proposals: ${proposalsGate}`,
+      '  auto_create_write_plan: true',
+      '  auto_write_to_staging: true',
+    ].join('\n'))
+    const mk = (runner: FakeAgentRunner) => new HarnessService({
+      runner, vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath: gatesFile, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+
+    // gate CLOSED → run stops at DOCUMENTS_CLASSIFIED (discovery/reader/classifier only = 3 LLM calls)
+    writeGates(false)
+    const first = await mk(new FakeAgentRunner([
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+    ])).run({ projectId: 'p1', engine: 'claude' })
+    expect(first.finalState).toBe('DOCUMENTS_CLASSIFIED')
+
+    // operator reopens the gate, then resumes — a FRESH runner seeded only with the states that re-run
+    writeGates(true)
+    const lead = { graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' }, write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# T\n' }] } }
+    const resumed = await mk(new FakeAgentRunner([
+      JSON.stringify({ proposals: [{ proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z', node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }], claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }] }] }),
+      JSON.stringify(lead),
+    ])).resume({ runId: first.runId })
+    expect(resumed.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+  })
+
+  test('resume reports an unknown run', async () => {
+    const r = await service().resume({ runId: 'NOPE' })
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('run not found')
+  })
+
   test('a concurrent run for the same project returns a structured failure, not an unhandled throw', async () => {
     // someone else already holds the project lock
     new RunLock(join(ws, 'runs', '.locks'), 'p1').acquire('OTHER')

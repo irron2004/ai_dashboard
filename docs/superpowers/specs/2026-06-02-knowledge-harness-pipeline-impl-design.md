@@ -347,5 +347,7 @@ artifact 저장 시 `run.json`의 history/artifacts 인덱스를 갱신해 resum
   hash-gated 경로는 기존 `CurrentPromotionService`(별도 `promoteCurrent` 채널) 소관 — harness promote에
   `lastReadHash`를 통합하는 것은 P1.
 - **RunLock는 `HarnessService.run`에 연결됨**(프로젝트당 in-process 1 run). 단 cross-process 배타성 +
-  stale-lock timeout(§6.3)은 P1. **Resume**는 runtime(`HarnessRunner.advance`)에서 동작하고 테스트되나,
-  CLI `--from <STATE>`/전용 IPC는 P1(현재 `HarnessService.run`은 항상 새 runId 생성).
+  stale-lock timeout(§6.3)은 P1.
+- **Resume 구현됨(수용 기준 #6)**: `HarnessService.resume({runId})` + CLI `resume <runId>` +
+  `c:harnessResume` IPC. gate를 다시 열고 resume하면 멈춘 state부터 walk를 이어간다(gates 파일 재독).
+  특정 state로 되감는 `--from <STATE>` rewind는 이후 artifact가 stale해지므로 여전히 P1.

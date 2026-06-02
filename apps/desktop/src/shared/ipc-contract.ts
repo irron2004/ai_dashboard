@@ -20,6 +20,7 @@ export const CH = {
   generateRun: 'c:generateRun',
   generateProject: 'c:generateProject',
   harnessRun: 'c:harnessRun',
+  harnessResume: 'c:harnessResume',
   harnessGetRun: 'c:harnessGetRun',
   harnessPromote: 'c:harnessPromote',
   submitReview: 'c:submitReview',
@@ -58,6 +59,7 @@ export type GenerateProjectRes = {
 // Knowledge Harness (evidence-based multi-agent pipeline) surface.
 export type HarnessRunReq = { projectId: string; engine: AgentType }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
+export type HarnessResumeReq = { runId: string }
 export type HarnessGetRunReq = { runId: string }
 export type HarnessArtifactRes = { state: KhState; name: string; path: string; data: unknown }
 export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }

@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   })
   const port: HarnessCliPort = {
     run: (i) => svc.run(i),
+    resume: (i) => svc.resume(i),
     show: (i) => svc.show(i),
     promote: (i) => svc.promote(i),
   }
