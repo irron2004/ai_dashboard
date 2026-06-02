@@ -90,11 +90,18 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
 **수렴 판정**: 라운드3 synthesis가 "secret_assignment 좁히고 + 2개 테스트 갭 메우면 수렴"이라고 명시했고
 정확히 그 3가지를 완료. confirmed 추세 27→13→1로 수렴. **이 지점이 깨끗한 수렴 체크포인트.**
 
-## 3. 다음에 할 일 / 미완 (수렴 후, non-blocking P1)
+## 2-e. 수렴 후 P1 진행
 
-- (선택) 라운드4로 재확인하거나 `/cancel-ralph`로 loop 종료.
-- P1: resume CLI `--from`, hash-gated current.md promote(CurrentPromotionService), per-flag gate wiring,
-  렌더러 UI, git-worktree staging, 실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
+- [x] **resume 구현**: `HarnessService.resume({runId})` + CLI `resume <runId>` + `c:harnessResume` IPC
+  (수용 기준 #6). 멈춘 state부터 이어감(gate 재독 → 다시 열린 gate면 계속). packages 223 + desktop 21 green.
+
+## 3. 다음에 할 일 / 미완 (제품 판단 필요 — 사용자 방향 요망)
+
+- **hash-gated current.md promote(수용 #7)**: vault 레이아웃 결정 필요 — harness는 generic 경로
+  (`current.proposal.md`)에 쓰는데 `CurrentPromotionService`는 `projects/<id>/current.*`를 기대. 브리지 설계 필요.
+- **per-flag gate wiring**: 가능하나 always-on 안전망을 약화 → 문서화(§14)로 갈음, skip 권장.
+- 그 외: `--from <STATE>` rewind, 렌더러 UI, git-worktree staging, 실 CliAgentRunner 통합 테스트, LLM secret 의미판정.
+- loop 종료: `/cancel-ralph`.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.
 - **P1 후보**: git-worktree staging, 실 LLM(CliAgentRunner) 통합 테스트, 선택적 LLM secret 의미판정,
