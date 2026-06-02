@@ -4,7 +4,8 @@ import type { AgentRunner } from '@apc/llm-wiki'
 import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, loadPreamble, DEFAULT_GATES_PATH,
 } from '@apc/knowledge-harness'
-import { HarnessPromoteService, type HarnessPromoteResult } from './harness-promote-service.js'
+import { ConflictManager } from '@apc/core'
+import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
@@ -91,5 +92,13 @@ export class HarnessService {
   promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {
     return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot })
       .promote(input)
+  }
+
+  /** Hash-gated promotion of one canonical proposal into the real vault (acceptance #7). */
+  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string }): CanonicalPromoteResult {
+    return new HarnessPromoteService({
+      runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot,
+      conflict: new ConflictManager(), stamp: this.now().slice(0, 10),
+    }).promoteCanonical(input)
   }
 }

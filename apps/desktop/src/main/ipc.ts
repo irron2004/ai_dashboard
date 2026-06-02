@@ -99,6 +99,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessPromote(req)
     },
 
+    [CH.harnessPromoteCanonical]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string(), proposalRelPath: z.string(), lastReadHash: z.string() }).strict().parse(payload)
+      return container.harnessPromoteCanonical(req)
+    },
+
     [CH.generateRun]: async (payload: unknown) => {
       const req = payload as GenerateRunReq
       const run = container.runs.get(req.runId)

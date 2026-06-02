@@ -23,6 +23,7 @@ export const CH = {
   harnessResume: 'c:harnessResume',
   harnessGetRun: 'c:harnessGetRun',
   harnessPromote: 'c:harnessPromote',
+  harnessPromoteCanonical: 'c:harnessPromoteCanonical',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -65,6 +66,8 @@ export type HarnessArtifactRes = { state: KhState; name: string; path: string; d
 export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }
 export type HarnessPromoteReq = { runId: string; allowSecrets?: boolean }
 export type HarnessPromoteRes = { ok: boolean; promoted?: string[]; proposals?: string[]; refusedCanonical?: string[]; reason?: string }
+export type HarnessPromoteCanonicalReq = { runId: string; proposalRelPath: string; lastReadHash: string }
+export type HarnessPromoteCanonicalRes = { ok: boolean; status?: 'promoted' | 'conflict'; canonicalPath?: string; newHash?: string; conflictPath?: string; reason?: string }
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {

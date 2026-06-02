@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunArtifactStore } from '@apc/knowledge-harness'
+import { ConflictManager } from '@apc/core'
 import { RunStateSchema } from '@apc/shared'
 import { HarnessPromoteService } from './harness-promote-service.js'
 
@@ -80,5 +81,44 @@ describe('HarnessPromoteService', () => {
   test('reports a missing run', () => {
     const res = new HarnessPromoteService({ runsRoot: join(root, 'runs'), vaultRoot: join(root, 'vault') }).promote({ runId: 'NOPE' })
     expect(res).toEqual({ ok: false, reason: 'run not found: NOPE' })
+  })
+
+  describe('promoteCanonical (hash-gated, acceptance #7)', () => {
+    const cm = new ConflictManager()
+    function make() {
+      const { runsRoot } = seedRun('HUMAN_REVIEW_REQUIRED')
+      const vaultRoot = join(root, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+      writeFileSync(join(runsRoot, 'RUN-1', 'vault-staging', 'current.proposal.md'), '# proposed current\n')
+      return { svc: new HarnessPromoteService({ runsRoot, vaultRoot, conflict: cm, stamp: '2026-06-03' }), vaultRoot }
+    }
+
+    test('first promotion (no existing canonical) writes current.md', () => {
+      const { svc, vaultRoot } = make()
+      const r = svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'current.proposal.md', lastReadHash: '' })
+      expect(r.ok && r.status).toBe('promoted')
+      expect(readFileSync(join(vaultRoot, 'current.md'), 'utf8')).toContain('proposed current')
+    })
+
+    test('matching lastReadHash overwrites the canonical', () => {
+      const { svc, vaultRoot } = make()
+      writeFileSync(join(vaultRoot, 'current.md'), '# old\n')
+      const r = svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'current.proposal.md', lastReadHash: cm.hash('# old\n') })
+      expect(r.ok && r.status).toBe('promoted')
+      expect(readFileSync(join(vaultRoot, 'current.md'), 'utf8')).toContain('proposed current')
+    })
+
+    test('stale lastReadHash writes a conflict doc and does NOT overwrite the canonical', () => {
+      const { svc, vaultRoot } = make()
+      writeFileSync(join(vaultRoot, 'current.md'), '# edited in obsidian\n')
+      const r = svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'current.proposal.md', lastReadHash: 'STALE' })
+      expect(r.ok && r.status).toBe('conflict')
+      expect(readFileSync(join(vaultRoot, 'current.md'), 'utf8')).toContain('edited in obsidian')  // untouched
+      if (r.ok && r.status === 'conflict') expect(existsSync(join(vaultRoot, r.conflictPath))).toBe(true)
+    })
+
+    test('rejects a non-canonical proposal path', () => {
+      const { svc } = make()
+      expect(svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'concepts/n1.proposal.md', lastReadHash: '' }).ok).toBe(false)
+    })
   })
 })
