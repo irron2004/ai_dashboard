@@ -1,6 +1,6 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  RegisterProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
+  RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   StartPtyReq, PtyInputReq, PtyKillReq,
 } from '../shared/ipc-contract.js'
@@ -31,6 +31,12 @@ export const api = {
   },
   registerProject(req: RegisterProjectReq): Promise<Project> {
     return window.apc.invoke(CH.registerProject, req) as Promise<Project>
+  },
+  updateProject(req: UpdateProjectReq): Promise<Project> {
+    return window.apc.invoke(CH.updateProject, req) as Promise<Project>
+  },
+  deleteProject(id: string): Promise<{ ok: boolean }> {
+    return window.apc.invoke(CH.deleteProject, { id }) as Promise<{ ok: boolean }>
   },
   projectDashboard(req: ProjectDashboardReq): Promise<ProjectDashboardRes> {
     return window.apc.invoke(CH.projectDashboard, req) as Promise<ProjectDashboardRes>

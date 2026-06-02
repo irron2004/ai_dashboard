@@ -1,6 +1,6 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  RegisterProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
+  RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -29,6 +29,25 @@ export function handlers(container: Container): Record<string, (payload: unknown
         sourcePaths: [],
       })
       return container.registry.get(id)
+    },
+
+    [CH.updateProject]: async (payload: unknown) => {
+      const req = payload as UpdateProjectReq
+      const existing = container.registry.get(req.id)
+      if (!existing) throw new Error(`Project not found: ${req.id}`)
+      container.registry.update({
+        ...existing,
+        name: req.name,
+        projectType: req.projectType as 'git' | 'obsidian' | 'hybrid',
+        repoPaths: req.repoPath ? [req.repoPath] : [],
+      })
+      return container.registry.get(req.id)
+    },
+
+    [CH.deleteProject]: async (payload: unknown) => {
+      const req = payload as DeleteProjectReq
+      container.registry.remove(req.id)
+      return { ok: true }
     },
 
     [CH.projectDashboard]: async (payload: unknown) => {

@@ -11,6 +11,8 @@ export const CH = {
   testSsh: 'd:testSsh',
   // commands
   registerProject: 'c:registerProject',
+  updateProject: 'c:updateProject',
+  deleteProject: 'c:deleteProject',
   ingestAll: 'c:ingestAll',
   generateRun: 'c:generateRun',
   submitReview: 'c:submitReview',
@@ -26,6 +28,8 @@ export const CH = {
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
 export type RegisterProjectReq = { name: string; projectType: string; repoPath: string }
+export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string }
+export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[] }
 export type SearchReq = { query: string; projectId?: string }

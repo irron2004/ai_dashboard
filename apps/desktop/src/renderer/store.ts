@@ -1,7 +1,9 @@
 import { create } from 'zustand'
-import type { Project, AgentProfile } from '@apc/shared'
+import type { Project, AgentProfile, AgentType } from '@apc/shared'
 import type { ProjectDashboardRes } from '../shared/ipc-contract.js'
 import { api } from './api.js'
+
+export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
 
 type ApcStore = {
   projects: Project[]
@@ -11,9 +13,13 @@ type ApcStore = {
   ingesting: boolean
   lastIngest: { sources: number; sessions: number } | null
   error: string | null
+  agentStatus: Record<AgentType, AgentRunStatus>
 
+  setAgentStatus(agent: AgentType, status: AgentRunStatus): void
   loadProjects(): Promise<void>
   addProject(name: string, projectType: string, repoPath: string): Promise<void>
+  updateProject(id: string, name: string, projectType: string, repoPath: string): Promise<void>
+  deleteProject(id: string): Promise<void>
   selectProject(projectId: string): Promise<void>
   loadProfiles(projectPath: string): Promise<void>
   ingest(): Promise<void>
@@ -28,6 +34,11 @@ export const useStore = create<ApcStore>((set, get) => ({
   ingesting: false,
   lastIngest: null,
   error: null,
+  agentStatus: { claude: 'idle', codex: 'idle', opencode: 'idle' },
+
+  setAgentStatus(agent, status) {
+    set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
+  },
 
   async loadProjects() {
     try {
@@ -44,6 +55,26 @@ export const useStore = create<ApcStore>((set, get) => ({
       await get().loadProjects()
     } catch (e) {
       set({ error: `Failed to add project: ${e}` })
+    }
+  },
+
+  async updateProject(id: string, name: string, projectType: string, repoPath: string) {
+    try {
+      await api.updateProject({ id, name, projectType, repoPath })
+      await get().loadProjects()
+      if (get().selectedProjectId === id) await get().selectProject(id)
+    } catch (e) {
+      set({ error: `Failed to update project: ${e}` })
+    }
+  },
+
+  async deleteProject(id: string) {
+    try {
+      await api.deleteProject(id)
+      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [] })
+      await get().loadProjects()
+    } catch (e) {
+      set({ error: `Failed to delete project: ${e}` })
     }
   },
 

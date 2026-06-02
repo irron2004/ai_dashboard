@@ -46,4 +46,21 @@ describe('ProjectRegistry', () => {
     expect(registry.resolveProjectId('claude', '-mnt-c-work-apc')).toBe('apc')
     expect(registry.resolveProjectId('codex', 'unknown')).toBeUndefined()
   })
+
+  test('update changes fields in place (same id)', () => {
+    registry.register(sample)
+    registry.update({ ...sample, name: 'Renamed', repoPaths: ['/new/path'] })
+    expect(registry.get('apc')?.name).toBe('Renamed')
+    expect(registry.findByRepoPath('/new/path')?.id).toBe('apc')
+    expect(registry.list()).toHaveLength(1) // updated, not duplicated
+  })
+
+  test('remove deletes the project and cascades its source map', () => {
+    registry.register(sample)
+    registry.mapNativeKey('claude', '-mnt-c-work-apc', 'apc')
+    registry.remove('apc')
+    expect(registry.get('apc')).toBeUndefined()
+    expect(registry.list()).toHaveLength(0)
+    expect(registry.resolveProjectId('claude', '-mnt-c-work-apc')).toBeUndefined() // cascaded
+  })
 })

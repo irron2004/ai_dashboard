@@ -69,6 +69,16 @@ export class ProjectRegistry {
     return rows.map(rowToProject)
   }
 
+  /** Update an existing project in place (same id). Equivalent to register for a known id. */
+  update(input: Project): void {
+    this.register(input)
+  }
+
+  /** Delete a project; its project_source_map rows cascade (FK ON DELETE CASCADE). */
+  remove(id: string): void {
+    this.db.prepare('DELETE FROM projects WHERE id = ?').run(id)
+  }
+
   findByRepoPath(repoPath: string): Project | undefined {
     // canonical project key = a repo path in repo_paths (spec §7)
     const rows = this.db.prepare('SELECT * FROM projects').all() as Row[]
