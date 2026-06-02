@@ -108,6 +108,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', 'write-plan'))
       const applied = writer.apply(plan, staging)
       const patch = staging.diff()
+      ctx.store.writeFile('diff.patch', patch)  // top-level deliverable (design §6.2)
       return { artifacts: [
         { name: 'applied-write-report', data: applied },
         { name: 'git-diff-report', data: { patch } },
@@ -165,6 +166,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         `- staging applied: ${applied?.applied.length ?? 0}, proposed: ${applied?.proposals.length ?? 0}`,
         `- awaiting human promotion (real vault unchanged).`,
       ].join('\n')
+      ctx.store.writeFile('final-report.md', finalReport)  // top-level deliverable (design §6.2)
       return { artifacts: [
         { name: 'final-policy-report', data: finalPolicy },
         { name: 'eval-report', data: evalReport },

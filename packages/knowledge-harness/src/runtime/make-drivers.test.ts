@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FakeAgentRunner } from '@apc/llm-wiki'
@@ -72,6 +72,10 @@ describe('makeDrivers (real agents, faked LLM)', () => {
       rs.artifacts['STAGING_WRITTEN'].find(p => p.endsWith('git-diff-report.json'))!,
     )
     expect(diff.patch).toContain('n1.md')
+
+    // top-level run deliverables exist (design §6.2)
+    expect(existsSync(join(ws, 'runs', 'RUN-1', 'diff.patch'))).toBe(true)
+    expect(existsSync(join(ws, 'runs', 'RUN-1', 'final-report.md'))).toBe(true)
   })
 
   test('VALIDATED secret scan catches a secret in a NON-.md authored file and ignores pre-existing vault secrets', async () => {

@@ -43,6 +43,14 @@ export class RunArtifactStore {
     return JSON.parse(readFileSync(join(this.runDir, rel), 'utf8')) as T
   }
 
+  /** Write a top-level run deliverable verbatim (e.g. diff.patch, final-report.md — design §6.2). */
+  writeFile(rel: string, text: string): string {
+    const abs = join(this.runDir, rel)
+    mkdirSync(join(abs, '..'), { recursive: true })
+    this.writeAtomic(abs, text)
+    return rel
+  }
+
   exists(): boolean {
     return existsSync(join(this.runDir, 'run.json'))
   }
