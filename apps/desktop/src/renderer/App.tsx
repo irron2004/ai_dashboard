@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { AgentType } from '@apc/shared'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
@@ -23,6 +23,29 @@ export function App() {
     loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
+  const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // vertical pane flex per agent; drag to resize
+  const termRef = useRef<HTMLDivElement | null>(null)
+
+  const startDrag = (i: number) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const start = [...sizes]
+    const h = termRef.current?.clientHeight ?? 1
+    const total = start.reduce((x, y) => x + y, 0)
+    const onMove = (ev: MouseEvent) => {
+      const d = ((ev.clientY - startY) / h) * total
+      const next = [...start]
+      next[i] = Math.max(0.15, start[i] + d)
+      next[i + 1] = Math.max(0.15, start[i + 1] - d)
+      setSizes(next)
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   useEffect(() => { loadProjects() }, [loadProjects])
 
@@ -95,48 +118,50 @@ export function App() {
         <HarnessPanel profiles={profiles} onSelect={handleSelectProfile} />
       </aside>
 
-      {/* Agent Work Execution Panel — 3-pane split; active pane is larger */}
-      <div className="app-layout__terminal" style={{ display: 'flex', gap: 4, minHeight: 0 }}>
+      {/* Agent Work Execution Panel — vertical split; drag dividers to resize, Ctrl+Shift+N to focus */}
+      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {selectedProjectId ? (
-          AGENTS.map((a) => (
-            <div
-              key={a}
-              style={{
-                flex: a === agent ? 3 : 1,
-                display: 'flex',
-                flexDirection: 'column',
-                minWidth: 0,
-                border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
-                borderRadius: 4,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                onClick={() => setAgent(a)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                  padding: '3px 8px', fontSize: '0.8rem',
-                  background: a === agent ? '#23311f' : '#161616',
-                }}
-                title={`Ctrl+Shift+${AGENTS.indexOf(a) + 1}`}
-              >
-                <span style={{ color: STATUS_COLOR[agentStatus[a]], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
-                <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>
-                  ⌃⇧{AGENTS.indexOf(a) + 1}
-                </span>
-              </div>
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <AgentTerminal
-                  key={`${selectedProjectId}:${a}`}
-                  sessionId={`${selectedProjectId}:${a}`}
-                  command={a}
-                  args={[]}
-                  cwd={cwd}
-                  onStatus={(s) => setAgentStatus(a, s)}
+          AGENTS.map((a, i) => (
+            <Fragment key={a}>
+              {i > 0 && (
+                <div
+                  onMouseDown={startDrag(i - 1)}
+                  title="드래그하여 크기 조정"
+                  style={{ height: 6, cursor: 'row-resize', background: '#333', flex: '0 0 auto' }}
                 />
+              )}
+              <div
+                style={{
+                  flex: sizes[i], display: 'flex', flexDirection: 'column', minHeight: 0,
+                  border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
+                  borderRadius: 4, overflow: 'hidden',
+                }}
+              >
+                <div
+                  onClick={() => setAgent(a)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                    padding: '3px 8px', fontSize: '0.8rem',
+                    background: a === agent ? '#23311f' : '#161616', flex: '0 0 auto',
+                  }}
+                  title={`Ctrl+Shift+${i + 1}`}
+                >
+                  <span style={{ color: STATUS_COLOR[agentStatus[a]], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
+                  <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⌃⇧{i + 1}</span>
+                </div>
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <AgentTerminal
+                    key={`${selectedProjectId}:${a}`}
+                    sessionId={`${selectedProjectId}:${a}`}
+                    command={a}
+                    args={[]}
+                    cwd={cwd}
+                    onStatus={(s) => setAgentStatus(a, s)}
+                  />
+                </div>
               </div>
-            </div>
+            </Fragment>
           ))
         ) : (
           <div className="app-layout__placeholder">Select a project to open agent terminals</div>
