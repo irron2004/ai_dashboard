@@ -22,8 +22,7 @@ export class CliAgentRunner implements AgentRunner {
 
     return new Promise<RunResult>((resolve) => {
       // shell:true on Windows so .cmd/PATHEXT shims (claude.cmd, etc.) resolve.
-      // env:process.env ensures PATH (e.g. nvm bins) is inherited in Electron.
-      const child = spawn(tpl.command, tpl.args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32', env: process.env })
+      const child = spawn(tpl.command, tpl.args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32' })
       let stdout = '', stderr = ''
       const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, output: '', raw: stderr || 'timeout' }) }, input.timeoutMs)
       child.stdout.on('data', (d) => (stdout += d))
