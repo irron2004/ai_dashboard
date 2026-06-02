@@ -76,11 +76,25 @@ Workflow `wf_75252b8b-34c`: **13 raised / 13 confirmed**. 결론: 라운드1 fix
   `--allow-secrets` CLI valve, IPC strict-parse, contract `allowSecrets/refusedCanonical`, scanner 패턴 확장(stripe/gitlab/azure/pgp/*_key), CLI reason 테스트.
 - 결과: **packages 218 + desktop 20 green**, 신규 파일 tsc-clean. (commits after e08cbdb)
 
-## 3. 다음에 할 일 / 미완
+## 2-d. 팀 리뷰 라운드 3 + 개선 반복 #3 → 수렴 (완료)
 
-- **검증 라운드 #3 진행 중**: iteration#2 fixes가 유지되는지 + 새 regression 없는지 team-review로 확인.
-  깨끗하면 loop 수렴 선언. 안 깨끗하면 confirmed 반영.
-- 그 외 P1: resume CLI `--from`, hash-gated current.md promote, per-flag gate wiring, 렌더러 UI.
+Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부 코드에서 유지 확인,
+내가 iter#2에 넣은 regression 1건 + minor 테스트 갭 2건. 전부 수정:
+- **secret_assignment regex 과매칭**(iter#2 regression): `primary_key:`, `session token:`,
+  `client_secret: word` 같은 평범한 prose를 매칭 → fail-closed로 정상 promote를 막음. 명시적 credential
+  키 이름(password/api_key/secret_key/access_token/auth_token/aws_secret_access_key)만 매칭하도록 좁힘
+  + negative-prose 회귀 테스트.
+- vault-fs backslash/`isRaw` 커버리지, IPC strict-parse 거부 테스트.
+- 결과: **packages 220 + desktop 21 green**.
+
+**수렴 판정**: 라운드3 synthesis가 "secret_assignment 좁히고 + 2개 테스트 갭 메우면 수렴"이라고 명시했고
+정확히 그 3가지를 완료. confirmed 추세 27→13→1로 수렴. **이 지점이 깨끗한 수렴 체크포인트.**
+
+## 3. 다음에 할 일 / 미완 (수렴 후, non-blocking P1)
+
+- (선택) 라운드4로 재확인하거나 `/cancel-ralph`로 loop 종료.
+- P1: resume CLI `--from`, hash-gated current.md promote(CurrentPromotionService), per-flag gate wiring,
+  렌더러 UI, git-worktree staging, 실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.
 - **P1 후보**: git-worktree staging, 실 LLM(CliAgentRunner) 통합 테스트, 선택적 LLM secret 의미판정,
