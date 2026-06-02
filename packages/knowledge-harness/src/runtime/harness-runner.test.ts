@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { KhState } from '@apc/shared'
 import { RunArtifactStore } from './run-artifact-store.js'
 import { FeatureGate } from './feature-gate.js'
+import { RunLock } from './run-lock.js'
 import { HarnessRunner, type Driver } from './harness-runner.js'
 
 const ALL_OPEN = {
@@ -72,5 +73,53 @@ describe('HarnessRunner', () => {
     const rs = await runner.advance(store)
     expect(rs.state).toBe('FAILED')
     expect(rs.error).toContain('boom')
+  })
+
+  test('advance is idempotent on terminal states — a FAILED run is not restarted', async () => {
+    const drivers = fakeDrivers()
+    drivers['LEAD_MERGED'] = async () => { throw new Error('boom') }
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    await runner.advance(store)
+    // Re-advancing must NOT re-run the pipeline from the top.
+    const healthy = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers: fakeDrivers(), now })
+    const rs = await healthy.advance(store)
+    expect(rs.state).toBe('FAILED')
+    expect(rs.history.filter(h => h.state === 'PROJECT_SCANNED')).toHaveLength(1)  // not re-walked
+  })
+
+  test('advance is idempotent on MERGED and HUMAN_REVIEW_REQUIRED', async () => {
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers: fakeDrivers(), now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    await runner.advance(store)
+    const before = store.loadRunState()
+    expect(before.state).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(await runner.advance(store)).toEqual(before)  // re-advance is a no-op
+    // simulate a human MERGED then re-advance
+    store.saveRunState({ ...before, state: 'MERGED', history: [...before.history, { state: 'MERGED', at: now() }] })
+    const merged = await runner.advance(store)
+    expect(merged.state).toBe('MERGED')
+  })
+
+  test('advance acquires and releases the project lock, even when the run FAILs', async () => {
+    const drivers = fakeDrivers()
+    drivers['LEAD_MERGED'] = async () => { throw new Error('boom') }
+    const lock = new RunLock(dir, 'p1')
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now, lock })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('FAILED')
+    // lock was released in finally → a fresh holder can acquire
+    expect(() => new RunLock(dir, 'p1').acquire('RUN-2')).not.toThrow()
+  })
+
+  test('advance refuses to run when another holder already owns the project lock', async () => {
+    const lock = new RunLock(dir, 'p1')
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers: fakeDrivers(), now, lock })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    new RunLock(dir, 'p1').acquire('OTHER')  // someone else holds it
+    await expect(runner.advance(store)).rejects.toThrow(/already in progress/)
+    // the foreign lock must survive — advance must not release a lock it did not acquire
+    expect(() => new RunLock(dir, 'p1').acquire('RUN-3')).toThrow(/already in progress/)
   })
 })

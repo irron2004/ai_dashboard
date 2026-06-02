@@ -1,7 +1,8 @@
-import { RunStateSchema, type RunState } from '@apc/shared'
+import { RunStateSchema, type RunState, type KhState } from '@apc/shared'
 import { PIPELINE, assertTransition } from './run-state-machine.js'
 import type { FeatureGate } from './feature-gate.js'
 import type { RunArtifactStore } from './run-artifact-store.js'
+import type { RunLock } from './run-lock.js'
 
 export type DriverArtifact = { name: string; data: unknown }
 export type DriverResult = { artifacts: DriverArtifact[] }
@@ -12,7 +13,12 @@ export type HarnessRunnerDeps = {
   gates: FeatureGate
   drivers: Partial<Record<RunState['state'], Driver>>
   now: () => string
+  /** Optional: when present, advance() holds the project lock for the duration of the walk. */
+  lock?: RunLock
 }
+
+/** Runs that are finished — advance() must never re-walk these. */
+const TERMINAL: KhState[] = ['FAILED', 'MERGED']
 
 export class HarnessRunner {
   constructor(private readonly deps: HarnessRunnerDeps) {}
@@ -31,38 +37,53 @@ export class HarnessRunner {
   /** Walk PIPELINE from the run's current state to HUMAN_REVIEW_REQUIRED, a closed gate, or FAILED. Resumable. */
   async advance(store: RunArtifactStore): Promise<RunState> {
     let runState = store.loadRunState()
-    const ctx: RunnerContext = {
-      runId: runState.runId, projectId: runState.projectId, engine: runState.engine, store, runState,
-    }
 
-    // runState.state is the last COMPLETED state; resume from the next pipeline step.
-    const startIdx = PIPELINE.findIndex(s => s.to === runState.state)
-    for (let i = startIdx + 1; i < PIPELINE.length; i++) {
-      const step = PIPELINE[i]
-      if (step.gate && !this.deps.gates.gate(step.gate)) return runState  // gate closed → stop here
-      try {
-        const result = (await this.deps.drivers[step.to]?.(ctx)) ?? { artifacts: [] }
-        assertTransition(runState.state, step.to)
-        const paths = result.artifacts.map(a => store.writeArtifact(step.to, a.name, a.data))
-        runState = {
-          ...runState,
-          state: step.to,
-          history: [...runState.history, { state: step.to, at: this.deps.now() }],
-          artifacts: { ...runState.artifacts, [step.to]: paths },
-        }
-        store.saveRunState(runState)
-        ctx.runState = runState
-      } catch (err) {
-        runState = {
-          ...runState,
-          state: 'FAILED',
-          history: [...runState.history, { state: 'FAILED', at: this.deps.now() }],
-          error: err instanceof Error ? err.message : String(err),
-        }
-        store.saveRunState(runState)
-        return runState
+    // Idempotent on terminal states: a finished/failed run is never re-walked.
+    // (FAILED/MERGED are not pipeline `to` states, so without this guard findIndex returns -1
+    //  and the loop would restart from the top.)
+    if (TERMINAL.includes(runState.state)) return runState
+
+    // Hold the project lock for the duration of this advance (in-process concurrency guard).
+    // `acquired` ensures finally never releases a lock a *different* holder owns.
+    // (Cross-process exclusivity + stale-lock timeout are Phase-1-excluded; see plan.)
+    let acquired = false
+    if (this.deps.lock) { this.deps.lock.acquire(runState.runId); acquired = true }
+    try {
+      const ctx: RunnerContext = {
+        runId: runState.runId, projectId: runState.projectId, engine: runState.engine, store, runState,
       }
+
+      // runState.state is the last COMPLETED state; resume from the next pipeline step.
+      const startIdx = PIPELINE.findIndex(s => s.to === runState.state)
+      for (let i = startIdx + 1; i < PIPELINE.length; i++) {
+        const step = PIPELINE[i]
+        if (step.gate && !this.deps.gates.gate(step.gate)) return runState  // gate closed → stop here
+        try {
+          const result = (await this.deps.drivers[step.to]?.(ctx)) ?? { artifacts: [] }
+          assertTransition(runState.state, step.to)
+          const paths = result.artifacts.map(a => store.writeArtifact(step.to, a.name, a.data))
+          runState = {
+            ...runState,
+            state: step.to,
+            history: [...runState.history, { state: step.to, at: this.deps.now() }],
+            artifacts: { ...runState.artifacts, [step.to]: paths },
+          }
+          store.saveRunState(runState)
+          ctx.runState = runState
+        } catch (err) {
+          runState = {
+            ...runState,
+            state: 'FAILED',
+            history: [...runState.history, { state: 'FAILED', at: this.deps.now() }],
+            error: err instanceof Error ? err.message : String(err),
+          }
+          store.saveRunState(runState)
+          return runState
+        }
+      }
+      return runState
+    } finally {
+      if (acquired) this.deps.lock?.release()
     }
-    return runState
   }
 }
