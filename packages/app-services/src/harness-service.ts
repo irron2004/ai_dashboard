@@ -2,12 +2,13 @@ import { join } from 'node:path'
 import type { AgentType, RunState } from '@apc/shared'
 import type { AgentRunner } from '@apc/llm-wiki'
 import {
-  RunArtifactStore, FeatureGate, HarnessRunner, makeDrivers, loadPreamble, DEFAULT_GATES_PATH,
+  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, loadPreamble, DEFAULT_GATES_PATH,
 } from '@apc/knowledge-harness'
 import { HarnessPromoteService, type HarnessPromoteResult } from './harness-promote-service.js'
 
-/** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`. */
-export type HarnessRunResult = { ok: boolean; runId: string; finalState: RunState['state']; error?: string }
+/** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
+ * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
+export type HarnessRunResult = { ok: boolean; runId: string; finalState: RunState['state']; reason?: string }
 
 export type HarnessServiceDeps = {
   runner: AgentRunner
@@ -43,10 +44,12 @@ export class HarnessService {
       runner: this.deps.runner, vaultRoot: this.deps.vaultRoot,
       stagingRoot: this.stagingDir(runId), preamble: this.preamble,
     })
-    const runner = new HarnessRunner({ gates: FeatureGate.fromFile(this.gatesPath), drivers, now: this.now })
+    // One run per project: the lock guards the advance() walk (in-process concurrency).
+    const lock = new RunLock(join(this.deps.runsRoot, '.locks'), input.projectId)
+    const runner = new HarnessRunner({ gates: FeatureGate.fromFile(this.gatesPath), drivers, now: this.now, lock })
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const rs = await runner.advance(store)
-    return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, error: rs.error }
+    return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState } | { ok: false; reason: string } {
@@ -55,7 +58,7 @@ export class HarnessService {
     return { ok: true, runState: store.loadRunState() }
   }
 
-  promote(input: { runId: string }): HarnessPromoteResult {
+  promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {
     return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot })
       .promote(input)
   }

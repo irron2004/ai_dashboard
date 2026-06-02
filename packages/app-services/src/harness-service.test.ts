@@ -63,4 +63,26 @@ describe('HarnessService', () => {
   test('show reports an unknown run', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
   })
+
+  test('a PolicyGuard block surfaces as FAILED with a reason (not dropped)', async () => {
+    // evidence-less proposal → PolicyGuard blocks → run FAILED
+    const proposals = { proposals: [{
+      proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
+      node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [], claims: [],
+    }] }
+    const outs = [
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+      JSON.stringify(proposals),
+    ]
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok).toBe(false)
+    expect(r.finalState).toBe('FAILED')
+    expect(r.reason).toContain('PolicyGuard blocked')  // error message preserved end-to-end
+  })
 })
