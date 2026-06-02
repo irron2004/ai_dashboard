@@ -1,1 +1,6 @@
 export const HARNESS_VERSION = '0.0.0'
+export * from './runtime/run-state-machine.js'
+export * from './runtime/feature-gate.js'
+export * from './runtime/run-artifact-store.js'
+export * from './runtime/run-lock.js'
+export * from './runtime/harness-runner.js'
