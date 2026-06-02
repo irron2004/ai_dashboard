@@ -1,4 +1,4 @@
-import type { AgentType } from '@apc/shared'
+import { AgentKind, type AgentType } from '@apc/shared'
 
 export type ParsedArgs =
   | { cmd: 'run'; projectId: string; engine: AgentType }
@@ -23,12 +23,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
   switch (cmd) {
     case 'run': {
       const projectId = flag(rest, 'project')
-      const engine = flag(rest, 'engine')
       if (!projectId) return { cmd: 'error', message: 'run requires --project <id>' }
-      if (engine !== 'claude' && engine !== 'codex' && engine !== 'opencode') {
-        return { cmd: 'error', message: 'run requires --engine <claude|codex|opencode>' }
-      }
-      return { cmd: 'run', projectId, engine }
+      const engine = AgentKind.safeParse(flag(rest, 'engine'))
+      if (!engine.success) return { cmd: 'error', message: `run requires --engine <${AgentKind.options.join('|')}>` }
+      return { cmd: 'run', projectId, engine: engine.data }
     }
     case 'show':
       return rest[0] ? { cmd: 'show', runId: rest[0] } : { cmd: 'error', message: 'show requires <runId>' }

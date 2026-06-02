@@ -14,16 +14,26 @@ describe('SecretScanner', () => {
       ['AKIAIOSFODNN7EXAMPLE', 'aws_access_key_id'],
       ['AIzaSyD-1234567890123456789012345678901', 'google_api_key'],
       ['sk-abcdefghij0123456789ABCDEFGHIJ', 'openai_key'],
+      ['sk-proj-abcdefghij0123456789ABCDEFGHIJ', 'openai_key'],
+      ['ghp_0123456789abcdefghijklmnopqrstuvwxyz', 'github_token'],
+      ['github_pat_0123456789abcdefghij_KLMNOPQRST', 'github_pat'],
+      ["xoxb-" + "1234567890" + "-" + "abcdefghijklmnop", 'slack_token'],
+      ['eyJhbGc.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4', 'jwt'],
+      ['postgres://user:p4ssw0rd@db.example.com:5432/x', 'connection_string_credentials'],
       ['Authorization: Bearer abcdefghij0123456789xyz', 'bearer_token'],
       ['-----BEGIN RSA PRIVATE KEY-----', 'private_key'],
       ['password=hunter2secret', 'password_assignment'],
     ]
     for (const [text, rule] of cases) {
       const f = scanner.scan(text, 'src')
-      expect(f.map(x => x.rule)).toContain(rule)
-      // preview is masked: never contains the full secret body
+      expect(f.map(x => x.rule), `expected ${rule} in "${text}"`).toContain(rule)
       const finding = f.find(x => x.rule === rule)!
-      expect(finding.match_preview).toContain('*')
+      expect(finding.match_preview).toContain('*')  // masked, never the full secret
     }
+  })
+
+  test('reports every occurrence per rule (global), not just the first', () => {
+    const f = scanner.scan('AKIAIOSFODNN7EXAMPL1 and AKIAIOSFODNN7EXAMPL2', 'src')
+    expect(f.filter(x => x.rule === 'aws_access_key_id')).toHaveLength(2)
   })
 })

@@ -181,18 +181,12 @@ importers:
 
   packages/knowledge-harness:
     dependencies:
-      '@apc/agents':
-        specifier: workspace:*
-        version: link:../agents
       '@apc/llm-wiki':
         specifier: workspace:*
         version: link:../llm-wiki
       '@apc/shared':
         specifier: workspace:*
         version: link:../shared
-      '@apc/vault':
-        specifier: workspace:*
-        version: link:../vault
       zod:
         specifier: ^3.23.8
         version: 3.25.76

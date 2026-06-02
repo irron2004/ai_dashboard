@@ -30,7 +30,9 @@ export function buildEvalReport(inputs: EvalInputs): KhEvalReport {
     evidence_quality: {
       node_proposals_total: proposals.length,
       proposals_without_evidence: count(proposals, p => p.evidence.length === 0),
-      proposals_with_minimum_evidence: count(proposals, p => p.evidence.length >= 1),
+      // honor each proposal's own minimum plus the shared_candidate floor (≥2), not a hardcoded ≥1
+      proposals_with_minimum_evidence: count(proposals, p =>
+        p.evidence.length >= Math.max(p.claim_policy.minimum_evidence_count, p.node.scope === 'shared_candidate' ? 2 : 1)),
       inference_without_note: count(
         proposals.flatMap(p => p.claims),
         c => c.inference && !c.inference_note,
