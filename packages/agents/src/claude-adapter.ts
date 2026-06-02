@@ -7,6 +7,54 @@ import type { AgentIngestAdapter } from './types.js'
 
 const FILE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
+/** Parse Claude `.jsonl` transcript content (string) into a NormalizedSession. Reused for
+ *  local files (ClaudeAdapter) and remote transcripts read over SSH. */
+export function parseClaudeJsonl(raw: string, opts: { id?: string; transcriptPath?: string } = {}): NormalizedSession {
+  const lines = raw.split('\n').filter((l) => l.trim().length > 0)
+  const turns: NormalizedTurn[] = []
+  const filesTouched = new Set<string>()
+  let sessionId: string | undefined
+  let repoPath: string | undefined
+  let branch: string | undefined
+  let startedAt: string | undefined
+  let endedAt: string | undefined
+
+  for (const line of lines) {
+    let obj: any
+    try { obj = JSON.parse(line) } catch { continue }
+    if (obj.sessionId && !sessionId) sessionId = obj.sessionId
+    if (obj.cwd && !repoPath) repoPath = obj.cwd
+    if (obj.gitBranch && !branch && obj.gitBranch !== 'HEAD') branch = obj.gitBranch
+    if (obj.timestamp) { if (!startedAt) startedAt = obj.timestamp; endedAt = obj.timestamp }
+
+    if ((obj.type === 'user' || obj.type === 'assistant') && obj.message?.content) {
+      const role = obj.message.role === 'assistant' ? 'assistant' : 'user'
+      const texts: string[] = []
+      const toolCalls: NormalizedTurn['toolCalls'] = []
+      for (const block of obj.message.content) {
+        if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text)
+        else if (block.type === 'tool_use') {
+          toolCalls.push({ id: block.id, name: block.name, input: block.input })
+          const fp = block.input?.file_path
+          if (FILE_EDIT_TOOLS.has(block.name) && typeof fp === 'string') filesTouched.add(fp)
+        } else if (block.type === 'tool_result') {
+          const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '')
+          toolCalls.push({ id: block.tool_use_id, name: 'tool_result', resultText: redact(content).slice(0, 4000), isError: !!block.is_error })
+        }
+      }
+      turns.push({ uuid: obj.uuid, role, text: redact(texts.join('\n')), timestamp: obj.timestamp, toolCalls })
+    }
+  }
+
+  return NormalizedSessionSchema.parse({
+    id: sessionId ?? opts.id ?? 'claude-session',
+    agentType: 'claude',
+    repoPath, branch, startedAt, endedAt,
+    transcriptPath: opts.transcriptPath,
+    turns, filesTouched: [...filesTouched],
+  })
+}
+
 export class ClaudeAdapter implements AgentIngestAdapter {
   readonly agentKind = 'claude' as const
   constructor(private readonly projectsDir: string = join(homedir(), '.claude', 'projects')) {}
@@ -40,49 +88,7 @@ export class ClaudeAdapter implements AgentIngestAdapter {
 
   async parseSource(source: AgentSource): Promise<{ session: NormalizedSession; position: string }> {
     const raw = readFileSync(source.locator, 'utf8')
-    const lines = raw.split('\n').filter((l) => l.trim().length > 0)
-    const turns: NormalizedTurn[] = []
-    const filesTouched = new Set<string>()
-    let sessionId: string | undefined
-    let repoPath: string | undefined
-    let branch: string | undefined
-    let startedAt: string | undefined
-    let endedAt: string | undefined
-
-    for (const line of lines) {
-      let obj: any
-      try { obj = JSON.parse(line) } catch { continue }
-      if (obj.sessionId && !sessionId) sessionId = obj.sessionId
-      if (obj.cwd && !repoPath) repoPath = obj.cwd
-      if (obj.gitBranch && !branch && obj.gitBranch !== 'HEAD') branch = obj.gitBranch
-      if (obj.timestamp) { if (!startedAt) startedAt = obj.timestamp; endedAt = obj.timestamp }
-
-      if ((obj.type === 'user' || obj.type === 'assistant') && obj.message?.content) {
-        const role = obj.message.role === 'assistant' ? 'assistant' : 'user'
-        const texts: string[] = []
-        const toolCalls: NormalizedTurn['toolCalls'] = []
-        for (const block of obj.message.content) {
-          if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text)
-          else if (block.type === 'tool_use') {
-            toolCalls.push({ id: block.id, name: block.name, input: block.input })
-            const fp = block.input?.file_path
-            if (FILE_EDIT_TOOLS.has(block.name) && typeof fp === 'string') filesTouched.add(fp)
-          } else if (block.type === 'tool_result') {
-            const content = typeof block.content === 'string' ? block.content : JSON.stringify(block.content ?? '')
-            toolCalls.push({ id: block.tool_use_id, name: 'tool_result', resultText: redact(content).slice(0, 4000), isError: !!block.is_error })
-          }
-        }
-        turns.push({ uuid: obj.uuid, role, text: redact(texts.join('\n')), timestamp: obj.timestamp, toolCalls })
-      }
-    }
-
-    const session = NormalizedSessionSchema.parse({
-      id: sessionId ?? source.locator,
-      agentType: 'claude',
-      repoPath, branch, startedAt, endedAt,
-      transcriptPath: source.locator,
-      turns, filesTouched: [...filesTouched],
-    })
+    const session = parseClaudeJsonl(raw, { id: source.locator, transcriptPath: source.locator })
     const position = JSON.stringify({ sizeBytes: source.sizeBytes, mtimeMs: source.mtimeMs })
     return { session, position }
   }

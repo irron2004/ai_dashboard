@@ -8,6 +8,8 @@ import { getProjectDashboard } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService } from '@apc/app-services'
 import { WikiEngine, CliAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
+import { generateRemote } from './remote-generate.js'
+import type { GenerateProjectReq, GenerateProjectRes } from '../shared/ipc-contract.js'
 
 export type Container = {
   db: ReturnType<typeof openDb>
@@ -23,6 +25,8 @@ export type Container = {
   ingestAdapters: AgentIngestAdapter[]
   runService: RunService
   generate: GenerateService
+  /** Branches on project kind: ssh:// → run the engine on the remote; local → GenerateService. */
+  generateProject: (req: GenerateProjectReq) => Promise<GenerateProjectRes>
   dashboard: typeof getProjectDashboard
 }
 
@@ -59,9 +63,16 @@ export function buildContainer(opts: {
   const wiki = new WikiEngine(opts.agentRunner ?? new CliAgentRunner())
   const runService = new RunService({ wiki, vaultWriter, tasks, runs })
   const generate = new GenerateService({ adapters: ingestAdapters, registry, vault, vaultWriter, wiki })
+  const generateProject = (req: GenerateProjectReq): Promise<GenerateProjectRes> => {
+    const project = registry.get(req.projectId)
+    if (project?.repoPaths[0]?.startsWith('ssh://')) {
+      return generateRemote({ registry, vault, vaultWriter }, req)
+    }
+    return generate.generateForProject(req)
+  }
 
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
-    ingest, ingestAdapters, runService, generate, dashboard: getProjectDashboard,
+    ingest, ingestAdapters, runService, generate, generateProject, dashboard: getProjectDashboard,
   }
 }

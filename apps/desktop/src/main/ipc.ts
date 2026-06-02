@@ -75,7 +75,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.generateProject]: async (payload: unknown) => {
       const req = payload as GenerateProjectReq
-      return container.generate.generateForProject(req)
+      return container.generateProject(req)
     },
 
     [CH.generateRun]: async (payload: unknown) => {
