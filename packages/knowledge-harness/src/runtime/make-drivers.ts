@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { relative } from 'node:path'
-import { listMarkdown } from './vault-fs.js'
+import { readFileSync, existsSync } from 'node:fs'
+import { resolveInside } from './vault-fs.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
   type KhState, type AgentType, type KhNodeProposal,
@@ -115,13 +114,20 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       ] }
     },
 
-    VALIDATED: async () => {
+    VALIDATED: async (ctx) => {
       // Deterministic verification over the staging vault (design §7.3-7.4).
       const graphReport = graph.validate(deps.stagingRoot)
       const mdReport = mdYaml.validate(deps.stagingRoot)
       const linkReport = links.validate(deps.stagingRoot)
-      const findings = listMarkdown(deps.stagingRoot).flatMap(abs =>
-        secrets.scan(readFileSync(abs, 'utf8'), relative(deps.stagingRoot, abs)))
+      // Secret scan is scoped to THIS RUN's authored files (applied + proposals), not the whole
+      // staging copy — otherwise a pre-existing vault secret would permanently block all promotions.
+      // Scans every authored file regardless of extension (a secret in config/app.env must be caught).
+      const applied = artifactByName<{ applied: string[]; proposals: string[] }>(ctx, 'STAGING_WRITTEN', 'applied-write-report')
+      const authored = [...(applied?.applied ?? []), ...(applied?.proposals ?? [])]
+      const findings = authored.flatMap(rel => {
+        const abs = resolveInside(deps.stagingRoot, rel)
+        return existsSync(abs) ? secrets.scan(readFileSync(abs, 'utf8'), rel) : []
+      })
       const secretReport = KhSecretScanReportSchema.parse({ ok: findings.length === 0, findings })
       return { artifacts: [
         { name: 'graph-validation-report', data: graphReport },

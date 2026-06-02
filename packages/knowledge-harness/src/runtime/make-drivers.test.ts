@@ -73,4 +73,31 @@ describe('makeDrivers (real agents, faked LLM)', () => {
     )
     expect(diff.patch).toContain('n1.md')
   })
+
+  test('VALIDATED secret scan catches a secret in a NON-.md authored file and ignores pre-existing vault secrets', async () => {
+    // pre-existing vault file with a secret-shaped string must NOT trip the gate (only run-authored files are scanned)
+    writeFileSync(join(ws, 'vault', 'legacy.txt'), 'password=oldlegacysecret\n')
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'config/app.env', content: 'AWS_KEY=AKIAIOSFODNN7EXAMPLE\n' }] },
+    }
+    const outs = [
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+      JSON.stringify({ proposals: [{ proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z', node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }], claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }] }] }),
+      JSON.stringify(lead),
+    ]
+    const store = new RunArtifactStore(join(ws, 'runs', 'RUN-2'))
+    const drivers = makeDrivers({ runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'vault'), stagingRoot: join(ws, 'vault-staging2'), preamble: 'RULES' })
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now: () => '2026-06-02T00:00:00Z' })
+    runner.createRun(store, { runId: 'RUN-2', projectId: 'p1', engine: 'claude' })
+    const rs = await runner.advance(store)
+
+    const secret = store.readArtifact<{ ok: boolean; findings: { source: string }[] }>(
+      rs.artifacts['VALIDATED'].find(p => p.endsWith('secret-scan-report.json'))!)
+    expect(secret.ok).toBe(false)  // the .env secret is caught despite not being .md
+    expect(secret.findings.map(f => f.source)).toContain('config/app.env')
+    expect(secret.findings.some(f => f.source.includes('legacy'))).toBe(false)  // pre-existing vault secret NOT scanned
+  })
 })
