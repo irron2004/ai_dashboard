@@ -2,8 +2,9 @@ import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
-  GenerateProjectReq, GenerateProjectRes,
-  StartPtyReq, PtyInputReq, PtyKillReq,
+  GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+  HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
+  StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile } from '@apc/shared'
 
@@ -63,6 +64,21 @@ export const api = {
   },
   generateProject(req: GenerateProjectReq): Promise<GenerateProjectRes> {
     return window.apc.invoke(CH.generateProject, req) as Promise<GenerateProjectRes>
+  },
+  harnessRun(req: HarnessRunReq): Promise<HarnessRunRes> {
+    return window.apc.invoke(CH.harnessRun, req) as Promise<HarnessRunRes>
+  },
+  harnessResume(req: HarnessResumeReq): Promise<HarnessRunRes> {
+    return window.apc.invoke(CH.harnessResume, req) as Promise<HarnessRunRes>
+  },
+  harnessGetRun(req: HarnessGetRunReq): Promise<HarnessGetRunRes> {
+    return window.apc.invoke(CH.harnessGetRun, req) as Promise<HarnessGetRunRes>
+  },
+  harnessPromote(req: HarnessPromoteReq): Promise<HarnessPromoteRes> {
+    return window.apc.invoke(CH.harnessPromote, req) as Promise<HarnessPromoteRes>
+  },
+  harnessPromoteCanonical(req: HarnessPromoteCanonicalReq): Promise<HarnessPromoteCanonicalRes> {
+    return window.apc.invoke(CH.harnessPromoteCanonical, req) as Promise<HarnessPromoteCanonicalRes>
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)
