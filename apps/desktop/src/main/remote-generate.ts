@@ -36,12 +36,17 @@ function sshExec(ssh: SshTarget, remoteCmd: string, opts: { stdin?: string; time
   })
 }
 
-// Run a command through the remote user's LOGIN shell so their PATH (nvm, ~/.local/bin, etc.)
-// is loaded — a bare `ssh host "codex …"` runs non-login and won't find the CLI.
-// We explicitly source the common rc files because some setups only configure PATH in
-// .bashrc (not .bash_profile), and a plain -l shell won't read .bashrc.
+// Run a command through the remote user's INTERACTIVE LOGIN shell so their full PATH
+// (npm global prefix, nvm, ~/.local/bin, etc.) is loaded — exactly what the user gets when
+// they type the command themselves. The `-i` is essential: distro .bashrc files guard their
+// PATH exports behind `case $- in *i*) ;; *) return;; esac`, so a non-interactive `-lc` shell
+// returns early and never reaches lines like `export PATH=$HOME/.npm-global/bin:$PATH`
+// (that's why codex/opencode resolved interactively but were "not found" from the app).
+// We still source the rc files explicitly for setups where the login files don't chain to
+// .bashrc. The prompt arrives on the engine's stdin; -c runs the command string, so stdin
+// passes straight through to the engine. -i emits a harmless "no job control" line on stderr.
 function loginShell(cmd: string): string {
-  return `bash -lc 'source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; source ~/.profile 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; ${cmd.replace(/'/g, `'\\''`)}'`
+  return `bash -lic 'source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; source ~/.profile 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null; ${cmd.replace(/'/g, `'\\''`)}'`
 }
 
 // Headless engine command run on the remote (prompt arrives via stdin).
