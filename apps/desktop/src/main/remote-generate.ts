@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { parseClaudeJsonl } from '@apc/agents'
-import { buildWikiPrompt, parseStructured } from '@apc/llm-wiki'
+import { buildWikiPrompt, parseStructured, unwrapAgentJson } from '@apc/llm-wiki'
 import { WikiGenerationSchema, type AgentType, type WikiGeneration } from '@apc/shared'
 import type { ProjectRegistry } from '@apc/core'
 import type { VaultAdapter } from '@apc/vault'
@@ -88,7 +88,7 @@ export async function generateRemote(deps: RemoteGenerateDeps, input: { projectI
   if (!run.ok) return { ok: false, reason: `remote ${input.engine} failed: ${run.stderr.trim().slice(0, 300) || 'non-zero exit'}` }
 
   let generation: WikiGeneration
-  try { generation = parseStructured(run.stdout, WikiGenerationSchema) as WikiGeneration }
+  try { generation = parseStructured(unwrapAgentJson(run.stdout, input.engine), WikiGenerationSchema) as WikiGeneration }
   catch (e) { return { ok: false, reason: `could not parse ${input.engine} output: ${e}` } }
 
   // 4. Write into the local vault.

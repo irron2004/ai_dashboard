@@ -1,4 +1,23 @@
 import type { ZodType } from 'zod'
+import type { AgentType } from '@apc/shared'
+
+/**
+ * `claude -p --output-format json` wraps the model's answer in an envelope
+ * (`{ type:'result', result:'<text>', ... }`) — the wiki JSON we want lives
+ * INSIDE the `result` string. codex/opencode emit the model text directly.
+ * Unwrap claude so downstream JSON extraction sees the model's actual output
+ * and not the envelope (whose keys never match WikiGenerationSchema).
+ */
+export function unwrapAgentJson(raw: string, agent: AgentType): string {
+  if (agent !== 'claude') return raw
+  try {
+    const env = JSON.parse(raw.trim()) as { result?: unknown }
+    if (env && typeof env === 'object' && typeof env.result === 'string') return env.result
+  } catch {
+    // Not a JSON envelope (older/plain output) — fall through and parse as-is.
+  }
+  return raw
+}
 
 /** Find the first balanced {...} region in text (handles strings/escapes). */
 function extractJsonRegion(text: string): string | undefined {
