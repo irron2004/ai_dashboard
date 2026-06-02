@@ -97,6 +97,11 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [projects, selectProject])
 
+  // The active agent pane grows; the others shrink. Focus/typing in a pane makes it active.
+  useEffect(() => {
+    setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
+  }, [agent])
+
   const project = projects.find((p) => p.id === selectedProjectId)
   const cwd = project?.repoPaths[0] ?? '.'
 
@@ -209,6 +214,7 @@ export function App() {
                     args={[]}
                     cwd={cwd}
                     onStatus={(s) => setAgentStatus(a, s)}
+                    onActivate={() => setAgent(a)}
                   />
                 </div>
               </div>

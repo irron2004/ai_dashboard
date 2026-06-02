@@ -92,11 +92,13 @@ export class PtyManager {
         this.send('pty:exit', id, exitCode)
         this.sessions.delete(id)
       })
-      // Local: auto-run the agent. SSH: don't auto-type (could land in a password prompt) —
-      // the user runs the agent once connected.
-      if (!ssh) {
-        const line = [command, ...args].filter(Boolean).join(' ').trim()
-        if (line) setTimeout(() => { try { p.write(line + '\r') } catch { /* shell closed */ } }, 500)
+      // Prefill the agent command in each pane. Local: run it (with Enter). SSH: type it
+      // WITHOUT Enter after the connection settles, so it isn't submitted into an auth prompt —
+      // the user presses Enter once the remote shell is ready.
+      const line = [command, ...args].filter(Boolean).join(' ').trim()
+      if (line) {
+        const data = ssh ? line : line + '\r'
+        setTimeout(() => { try { p.write(data) } catch { /* shell closed */ } }, ssh ? 1500 : 500)
       }
     } catch (e) {
       this.send('pty:data', id, `[PTY spawn failed: ${e}]\r\n`)
