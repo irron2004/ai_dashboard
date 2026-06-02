@@ -39,6 +39,19 @@ describe('ObsidianWikiWriter', () => {
     expect(existsSync(join(root, 'vault', 'concepts', 'n1.md'))).toBe(false)
   })
 
+  test('append_section preserves existing staged content instead of truncating it', () => {
+    // pre-seed an existing non-canonical doc in staging (as if copied from the real vault)
+    staging.writeDoc('notes/log.md', '# Log\n- entry 1\n')
+    const plan = KhWritePlanSchema.parse({
+      write_plan_id: 'WP-3', created_by: 'lead',
+      operations: [{ op: 'append_section', path: 'notes/log.md', content: '- entry 2\n', mode: 'apply' }],
+    })
+    new ObsidianWikiWriter().apply(plan, staging)
+    const body = readFileSync(join(root, 'vault-staging', 'notes', 'log.md'), 'utf8')
+    expect(body).toContain('entry 1')  // original preserved
+    expect(body).toContain('entry 2')  // appended
+  })
+
   test('a canonical op with mode:apply is FORCED to a proposal (LLM cannot opt out)', () => {
     const plan = KhWritePlanSchema.parse({
       write_plan_id: 'WP-2', created_by: 'lead',
