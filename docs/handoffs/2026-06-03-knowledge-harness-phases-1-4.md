@@ -64,9 +64,23 @@ Workflow `wf_82e87259-8ac` (34 agents): **28 raised / 27 confirmed → 12 distin
   canonical proposal-only, 수용기준 #7/resume-CLI는 P1).
 - 결과: **packages 214 + desktop 20 green**, 신규 파일 tsc-clean. 커밋 ~10개 추가.
 
+## 2-c. 팀 리뷰 라운드 2 + 개선 반복 #2 (완료)
+
+Workflow `wf_75252b8b-34c`: **13 raised / 13 confirmed**. 결론: 라운드1 fixes의 canonical 백스톱은
+**수렴(triple-enforced, regression 없음)**, 그러나 1 block + 4 major 발견(내가 만든 regression 2건 포함).
+8개 distinct 이슈 전부 수정:
+- **secret scan 재스코핑**(block+major): `.md`만/전체 vault 복사본 스캔 → **이번 run이 쓴 파일(applied+proposals)만, 확장자 무관** 스캔. (비-.md 비밀 탐지 + 기존 vault 비밀 오탐 lockout 해소)
+- **lock regression**(major, 내 iteration#1): 동시 run이 advance에서 uncaught throw → `HarnessService.run`이 catch해 `{ok:false,reason}`.
+- **append_section truncate**(major): 기존 staged 내용 읽어 append.
+- **eval min-evidence 테스트**(major), backslash 경로 정규화 + `isRaw` 공유(vault-fs), policy-guard/writer 중복 제거,
+  `--allow-secrets` CLI valve, IPC strict-parse, contract `allowSecrets/refusedCanonical`, scanner 패턴 확장(stripe/gitlab/azure/pgp/*_key), CLI reason 테스트.
+- 결과: **packages 218 + desktop 20 green**, 신규 파일 tsc-clean. (commits after e08cbdb)
+
 ## 3. 다음에 할 일 / 미완
 
-- **(선택) 검증 라운드**: 수정분에 대해 team-review를 한 번 더 돌려 loop-until-clean. 또는 아래 P1.
+- **검증 라운드 #3 진행 중**: iteration#2 fixes가 유지되는지 + 새 regression 없는지 team-review로 확인.
+  깨끗하면 loop 수렴 선언. 안 깨끗하면 confirmed 반영.
+- 그 외 P1: resume CLI `--from`, hash-gated current.md promote, per-flag gate wiring, 렌더러 UI.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.
 - **P1 후보**: git-worktree staging, 실 LLM(CliAgentRunner) 통합 테스트, 선택적 LLM secret 의미판정,
