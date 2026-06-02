@@ -1,4 +1,9 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+
+// repo root = up from packages/knowledge-harness/src/runtime/
+export const DEFAULT_GATES_PATH = join(fileURLToPath(new URL('../../../../', import.meta.url)), 'harness', 'feature-gates.yml')
 
 /**
  * Parse the feature-gates file. This is NOT a general YAML parser — it understands exactly one

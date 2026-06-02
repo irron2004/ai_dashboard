@@ -2,6 +2,7 @@ import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GenerateProjectReq,
+  HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
@@ -76,6 +77,18 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.generateProject]: async (payload: unknown) => {
       const req = payload as GenerateProjectReq
       return container.generateProject(req)
+    },
+
+    [CH.harnessRun]: async (payload: unknown) => {
+      return container.harnessRun(payload as HarnessRunReq)
+    },
+
+    [CH.harnessGetRun]: async (payload: unknown) => {
+      return container.harnessGetRun(payload as HarnessGetRunReq)
+    },
+
+    [CH.harnessPromote]: async (payload: unknown) => {
+      return container.harnessPromote(payload as HarnessPromoteReq)
     },
 
     [CH.generateRun]: async (payload: unknown) => {

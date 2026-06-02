@@ -139,4 +139,43 @@ describe('IPC handlers (no Electron)', () => {
     expect(res.ok).toBe(true)
     expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
   })
+
+  test('c:harnessRun → c:harnessGetRun → c:harnessPromote drive the pipeline (faked LLM)', async () => {
+    const { FakeAgentRunner } = await import('@apc/llm-wiki')
+    const proposals = { proposals: [{
+      proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
+      node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }],
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
+    }] }
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# T\n' }] },
+    }
+    const runner = new FakeAgentRunner([
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [{ path: 'current.md', intent: 'canonical' }] }),
+      JSON.stringify(proposals),
+      JSON.stringify(lead),
+    ])
+    // vault/ and runs/ are siblings so the staging copy never nests inside the vault
+    const harnessRoot = mkdtempSync(join(tmpdir(), 'apc-harness-'))
+    const harnessVault = join(harnessRoot, 'vault')
+    mkdirSync(harnessVault, { recursive: true })
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: harnessVault, agentRunner: runner, harnessRunsRoot: join(harnessRoot, 'runs') })
+    const h = handlers(c2)
+
+    const ran = (await h[CH.harnessRun]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; runId: string; finalState: string; reason?: string }
+    expect(ran, JSON.stringify(ran)).toMatchObject({ ok: true })
+    expect(ran.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+
+    const shown = (await h[CH.harnessGetRun]({ runId: ran.runId })) as { ok: boolean; runState: { state: string } }
+    expect(shown.runState.state).toBe('HUMAN_REVIEW_REQUIRED')
+
+    const promoted = (await h[CH.harnessPromote]({ runId: ran.runId })) as { ok: boolean; promoted: string[] }
+    expect(promoted.ok).toBe(true)
+    expect(promoted.promoted).toContain('concepts/n1.md')
+    rmSync(harnessRoot, { recursive: true, force: true })
+  })
 })

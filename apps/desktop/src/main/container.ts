@@ -5,11 +5,15 @@ import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService } from '@apc/app-services'
 import { WikiEngine, CliAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
+import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
-import type { GenerateProjectReq, GenerateProjectRes } from '../shared/ipc-contract.js'
+import type {
+  GenerateProjectReq, GenerateProjectRes,
+  HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+} from '../shared/ipc-contract.js'
 
 export type Container = {
   db: ReturnType<typeof openDb>
@@ -27,6 +31,10 @@ export type Container = {
   generate: GenerateService
   /** Branches on project kind: ssh:// → run the engine on the remote; local → GenerateService. */
   generateProject: (req: GenerateProjectReq) => Promise<GenerateProjectRes>
+  harness: HarnessService
+  harnessRun: (req: HarnessRunReq) => Promise<HarnessRunRes>
+  harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
+  harnessPromote: (req: HarnessPromoteReq) => HarnessPromoteRes
   dashboard: typeof getProjectDashboard
 }
 
@@ -40,6 +48,8 @@ export function buildContainer(opts: {
   vaultRoot: string
   ingestAdapters?: AgentIngestAdapter[]
   agentRunner?: AgentRunner
+  /** runs/ root for harness artifacts; defaults to <vaultRoot>/.harness-runs. */
+  harnessRunsRoot?: string
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -71,8 +81,21 @@ export function buildContainer(opts: {
     return generate.generateForProject(req)
   }
 
+  // Knowledge Harness — shares the injected AgentRunner (FakeAgentRunner in tests, CliAgentRunner in prod).
+  // runsRoot MUST live OUTSIDE the vault: StagingVault copies the whole vault into <runsRoot>/<id>/vault-staging,
+  // so a runs dir nested inside the vault would make cpSync copy a directory into a subdirectory of itself.
+  const harness = new HarnessService({
+    runner: opts.agentRunner ?? new CliAgentRunner(),
+    vaultRoot: opts.vaultRoot,
+    runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+  })
+  const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => harness.run(req)
+  const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
+  const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)
+
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
-    ingest, ingestAdapters, runService, generate, generateProject, dashboard: getProjectDashboard,
+    ingest, ingestAdapters, runService, generate, generateProject,
+    harness, harnessRun, harnessGetRun, harnessPromote, dashboard: getProjectDashboard,
   }
 }

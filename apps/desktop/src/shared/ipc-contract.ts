@@ -19,6 +19,9 @@ export const CH = {
   ingestAll: 'c:ingestAll',
   generateRun: 'c:generateRun',
   generateProject: 'c:generateProject',
+  harnessRun: 'c:harnessRun',
+  harnessGetRun: 'c:harnessGetRun',
+  harnessPromote: 'c:harnessPromote',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -51,6 +54,14 @@ export type GenerateProjectRes = {
   proposalPath?: string
   generation?: WikiGeneration
 }
+
+// Knowledge Harness (evidence-based multi-agent pipeline) surface.
+export type HarnessRunReq = { projectId: string; engine: AgentType }
+export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
+export type HarnessGetRunReq = { runId: string }
+export type HarnessGetRunRes = { ok: boolean; runState?: unknown; reason?: string }
+export type HarnessPromoteReq = { runId: string }
+export type HarnessPromoteRes = { ok: boolean; promoted?: string[]; proposals?: string[]; reason?: string }
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {
