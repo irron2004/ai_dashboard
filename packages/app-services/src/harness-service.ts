@@ -6,9 +6,8 @@ import {
 } from '@apc/knowledge-harness'
 import { HarnessPromoteService, type HarnessPromoteResult } from './harness-promote-service.js'
 
-export type HarnessRunResult =
-  | { ok: true; runId: string; finalState: RunState['state']; error?: string }
-  | { ok: false; reason: string }
+/** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`. */
+export type HarnessRunResult = { ok: boolean; runId: string; finalState: RunState['state']; error?: string }
 
 export type HarnessServiceDeps = {
   runner: AgentRunner

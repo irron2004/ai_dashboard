@@ -1,8 +1,11 @@
-import type { ZodType } from 'zod'
+import type { ZodType, ZodTypeDef } from 'zod'
 import type { AgentType } from '@apc/shared'
 import { type AgentRunner, unwrapAgentJson, parseStructured } from '@apc/llm-wiki'
 
-export type LlmAgentConfig<O> = { name: string; role: string; schema: ZodType<O>; preamble: string }
+// Leave the Zod Input param unconstrained: with `.default()` fields a schema's input type differs
+// from its output type, so `ZodType<O>` (which ties Input===Output===O) would mis-infer O as the
+// input. `ZodType<O, ZodTypeDef, unknown>` binds O cleanly to the OUTPUT (post-parse) type.
+export type LlmAgentConfig<O> = { name: string; role: string; schema: ZodType<O, ZodTypeDef, unknown>; preamble: string }
 export type LlmRunArgs = { runner: AgentRunner; engine: AgentType; input: unknown; timeoutMs?: number }
 
 /** Base for the LLM agents: preamble + role + input JSON → runner → unwrap → parseStructured. */
@@ -27,6 +30,8 @@ export class LlmAgent<O> {
   async run(args: LlmRunArgs): Promise<O> {
     const res = await args.runner.run({ agent: args.engine, prompt: this.buildPrompt(args.input), timeoutMs: args.timeoutMs ?? 180000 })
     if (!res.ok) throw new Error(`${this.cfg.name} failed: agent runner returned not-ok`)
-    return parseStructured(unwrapAgentJson(res.output, args.engine), this.cfg.schema)
+    // parseStructured's generic ties input===output; our schema's input is `unknown`, so cast to the
+    // output-typed view. Sound: parseStructured validates against the schema at runtime.
+    return parseStructured(unwrapAgentJson(res.output, args.engine), this.cfg.schema as ZodType<O>)
   }
 }
