@@ -182,3 +182,10 @@ pnpm exec tsc --noEmit --strict --module ESNext --moduleResolution Bundler --tar
 **핵심 불변식(테스트로 보증됨)**: Writer는 staging에만 write, 실 vault는 promote 전까지 불변;
 evidence 없는 proposal은 PolicyGuard가 차단(run FAILED); canonical은 직접 덮어쓰지 않고 `.proposal.md`;
 raw/delete는 차단; gate 닫히면 해당 state에서 멈추고 resume 가능.
+
+## 2-l. 팀 리뷰 라운드 4 (post-convergence 새 surface) + 개선 #4
+`wf_26af3325-4b3`: 8 raised / 7 confirmed (1 MAJOR + 5 minor). resume/canonical-promote backend+UI/store/
+새 IPC 채널 대상(이전 3라운드 미검토). **MAJOR**: canonical proposals 목록이 run/project 전환 시 stale →
+잘못된 run에 promote 위험 → 전환 지점들에서 clear. minors: 풀 타임스탬프 conflict 파일명, terminal resume
+"nothing to resume" 메시지, resume missing-artifacts fail-fast(missingArtifacts 연결), loadCanonicalProposals
+에러 표면화, lock-contention 복구 힌트. hash-gate/resume core는 SOUND 확인. packages 231 + desktop 33 green.
