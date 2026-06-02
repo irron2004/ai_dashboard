@@ -121,6 +121,25 @@ describe('HarnessPromoteService', () => {
       expect(svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'concepts/n1.proposal.md', lastReadHash: '' }).ok).toBe(false)
     })
 
+    test('refuses when the secret scan flagged something (unless allowSecrets) — same gate as promote()', () => {
+      const { runsRoot } = seedRun('HUMAN_REVIEW_REQUIRED', { secretOk: false })
+      const vaultRoot = join(root, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+      writeFileSync(join(runsRoot, 'RUN-1', 'vault-staging', 'current.proposal.md'), '# proposed\n')
+      const svc = new HarnessPromoteService({ runsRoot, vaultRoot, conflict: cm, stamp: '2026-06-03' })
+      expect(svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'current.proposal.md', lastReadHash: '' }).ok).toBe(false)
+      expect(svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'current.proposal.md', lastReadHash: '', allowSecrets: true }).ok).toBe(true)
+    })
+
+    test('refuses + hides proposals for a non-HUMAN_REVIEW_REQUIRED run (e.g. FAILED)', () => {
+      const { runsRoot } = seedRun('FAILED')
+      const vaultRoot = join(root, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+      writeFileSync(join(runsRoot, 'RUN-1', 'vault-staging', 'current.proposal.md'), '# proposed\n')
+      const svc = new HarnessPromoteService({ runsRoot, vaultRoot, conflict: cm, stamp: '2026-06-03' })
+      expect(svc.canonicalProposals('RUN-1')).toEqual([])  // UI offers no button
+      expect(svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'current.proposal.md', lastReadHash: '' }).ok).toBe(false)  // backstop
+      expect(existsSync(join(vaultRoot, 'current.md'))).toBe(false)  // nothing written
+    })
+
     test('canonicalProposals lists canonical proposals with the current vault hash (null if absent)', () => {
       const { svc, vaultRoot } = make()
       writeFileSync(join(vaultRoot, 'current.md'), '# existing\n')

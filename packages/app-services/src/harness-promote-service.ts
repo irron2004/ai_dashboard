@@ -1,5 +1,6 @@
 import { cpSync, mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { RunState } from '@apc/shared'
 import { ConflictManager } from '@apc/core'
 import { RunArtifactStore, isCanonical, resolveInside } from '@apc/knowledge-harness'
 
@@ -41,24 +42,28 @@ export class HarnessPromoteService {
     return this.deps.stagingDirFor?.(runId) ?? resolveInside(this.deps.runsRoot, `${runId}/vault-staging`)
   }
 
+  /** Shared promotion gates (both promote() and promoteCanonical() must apply these): the run must be at
+   * HUMAN_REVIEW_REQUIRED, and (unless allowSecrets) the VALIDATED secret scan must be clean. The secret
+   * report `ok` is global, so a leak in ANY authored file blocks all promotion. Returns a refusal reason
+   * or null if promotion may proceed. */
+  private gate(store: RunArtifactStore, rs: RunState, allowSecrets?: boolean): string | null {
+    if (rs.state !== 'HUMAN_REVIEW_REQUIRED') return `run is ${rs.state}, expected HUMAN_REVIEW_REQUIRED`
+    if (!allowSecrets) {
+      const secretRel = (rs.artifacts['VALIDATED'] ?? []).find(p => p.endsWith('secret-scan-report.json'))
+      if (secretRel) {
+        const secret = store.readArtifact<{ ok: boolean; findings: unknown[] }>(secretRel)
+        if (!secret.ok) return `${secret.findings.length} secret finding(s) in staging; promotion blocked (pass allowSecrets to override)`
+      }
+    }
+    return null
+  }
+
   promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {
     const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, input.runId))
     if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
     const rs = store.loadRunState()
-    if (rs.state !== 'HUMAN_REVIEW_REQUIRED') {
-      return { ok: false, reason: `run is ${rs.state}, expected HUMAN_REVIEW_REQUIRED` }
-    }
-
-    // Secret gate: a leaked secret in staged content must not reach the real vault.
-    if (!input.allowSecrets) {
-      const secretRel = (rs.artifacts['VALIDATED'] ?? []).find(p => p.endsWith('secret-scan-report.json'))
-      if (secretRel) {
-        const secret = store.readArtifact<{ ok: boolean; findings: unknown[] }>(secretRel)
-        if (!secret.ok) {
-          return { ok: false, reason: `${secret.findings.length} secret finding(s) in staging; promotion blocked (pass allowSecrets to override)` }
-        }
-      }
-    }
+    const blocked = this.gate(store, rs, input.allowSecrets)
+    if (blocked) return { ok: false, reason: blocked }
 
     const appliedPaths = rs.artifacts['STAGING_WRITTEN'] ?? []
     const rel = appliedPaths.find(p => p.endsWith('applied-write-report.json'))
@@ -91,6 +96,8 @@ export class HarnessPromoteService {
     const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, runId))
     if (!store.exists()) return []
     const rs = store.loadRunState()
+    // Only a run awaiting human review may surface promotable proposals — never a FAILED/in-progress run.
+    if (rs.state !== 'HUMAN_REVIEW_REQUIRED') return []
     const rel = (rs.artifacts['STAGING_WRITTEN'] ?? []).find(p => p.endsWith('applied-write-report.json'))
     if (!rel) return []
     const report = store.readArtifact<{ proposals: string[] }>(rel)
@@ -111,10 +118,16 @@ export class HarnessPromoteService {
    * overwrite — never clobbers an out-of-band edit. Reuses ConflictManager (same primitive as
    * CurrentPromotionService) so this is layout-agnostic (any canonical path, not just projects/<id>).
    */
-  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string }): CanonicalPromoteResult {
+  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean }): CanonicalPromoteResult {
     if (!input.proposalRelPath.endsWith('.proposal.md')) {
       return { ok: false, reason: `not a canonical proposal: ${input.proposalRelPath}` }
     }
+    // Same gates as promote(): the run must be at HUMAN_REVIEW_REQUIRED and the secret scan must be clean.
+    const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, input.runId))
+    if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
+    const blocked = this.gate(store, store.loadRunState(), input.allowSecrets)
+    if (blocked) return { ok: false, reason: blocked }
+
     const conflict = this.deps.conflict ?? new ConflictManager()
     const canonicalRel = input.proposalRelPath.replace(/\.proposal\.md$/i, '.md')
     if (!isCanonical(canonicalRel)) return { ok: false, reason: `target is not a canonical doc: ${canonicalRel}` }

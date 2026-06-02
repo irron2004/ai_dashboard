@@ -100,7 +100,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.harnessPromoteCanonical]: async (payload: unknown) => {
-      const req = z.object({ runId: z.string(), proposalRelPath: z.string(), lastReadHash: z.string() }).strict().parse(payload)
+      const req = z.object({ runId: z.string(), proposalRelPath: z.string(), lastReadHash: z.string(), allowSecrets: z.boolean().optional() }).strict().parse(payload)
       return container.harnessPromoteCanonical(req)
     },
 

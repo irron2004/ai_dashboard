@@ -111,7 +111,7 @@ export class HarnessService {
   }
 
   /** Hash-gated promotion of one canonical proposal into the real vault (acceptance #7). */
-  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string }): CanonicalPromoteResult {
+  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean }): CanonicalPromoteResult {
     return new HarnessPromoteService({
       runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot,
       // full timestamp (not date-only) so two same-day conflicts on the same canonical don't clobber each other
@@ -119,6 +119,7 @@ export class HarnessService {
     }).promoteCanonical(input)
   }
 
+  // (promoteCanonical input type widened to accept allowSecrets — see below)
   /** Canonical proposals + current vault hashes, for the UI to drive hash-gated promotion. */
   canonicalProposals(input: { runId: string }): Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }> {
     return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot, conflict: new ConflictManager() })
