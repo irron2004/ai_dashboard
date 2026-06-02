@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunStateSchema } from '@apc/shared'
@@ -34,5 +34,21 @@ describe('RunArtifactStore', () => {
     expect(store.exists()).toBe(false)
     store.saveRunState(RunStateSchema.parse({ runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'CREATED' }))
     expect(store.exists()).toBe(true)
+  })
+
+  test('writes leave no .tmp residue (atomic temp+rename)', () => {
+    store.saveRunState(RunStateSchema.parse({ runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'CREATED' }))
+    store.writeArtifact('PROJECT_SCANNED', 'report', { hello: 'world' })
+    const stray = readdirSync(dir, { recursive: true }) as string[]
+    expect(stray.filter(f => f.endsWith('.tmp'))).toEqual([])
+  })
+
+  test('missingArtifacts flags indexed artifact paths absent on disk (resume validation)', () => {
+    const rel = store.writeArtifact('PROJECT_SCANNED', 'report', { a: 1 })
+    const rs = RunStateSchema.parse({
+      runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'PROJECT_SCANNED',
+      artifacts: { PROJECT_SCANNED: [rel, join('artifacts', 'PROJECT_SCANNED', 'ghost.json')] },
+    })
+    expect(store.missingArtifacts(rs)).toEqual([join('artifacts', 'PROJECT_SCANNED', 'ghost.json')])
   })
 })
