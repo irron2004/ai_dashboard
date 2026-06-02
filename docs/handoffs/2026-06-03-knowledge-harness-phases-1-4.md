@@ -48,11 +48,25 @@ input 형태로 추론되던 문제.
   `docs/superpowers/specs/2026-06-02-llm-wiki-agent-spec.md`. **건드리지 않았으니 그대로 둘 것.**
 - **로컬 전용**: `.claude/ralph-progress.md`(gitignored) — loop 상태 추적기.
 
+## 2-b. 팀 리뷰 + 개선 반복 #1 (완료)
+
+Workflow `wf_82e87259-8ac` (34 agents): **28 raised / 27 confirmed → 12 distinct issues**. 핵심 결론:
+"아키텍처는 건전하나 하드 불변식이 LLM 프롬프트 + non-blocking warn에만 의존". **12개 전부 수정 완료**
+(결정론 백스톱으로 전환). 주요 커밋:
+- **canonical 결정론 강제**: Writer가 mode 무관 `.proposal.md` 라우팅 + promote가 applied[]의 canonical 거부.
+- **secret promote 차단**: VALIDATED secret-scan !ok면 promote 거부(`allowSecrets` override).
+- **경로 탈출 차단**: `resolveInside`(separator 경계) — staging writeDoc + promote from/to.
+- **RunLock 연결**: `HarnessService.run`에 프로젝트당 in-process lock.
+- **FAILED reason 전달**(error→reason), **eval min-evidence**, **SecretScanner 패턴 확장+matchAll(/g)**.
+- **hygiene**: `listMarkdown`→`runtime/vault-fs.ts`, 미사용 deps 제거, CLI `AgentKind` 재사용.
+- **테스트 추가**: resume-with-real-drivers e2e, secret-blocks-promotion e2e.
+- **문서 정합**: feature-gates.yml 정직 주석 + impl-design **§14 MVP narrowing**(honored 5 gates,
+  canonical proposal-only, 수용기준 #7/resume-CLI는 P1).
+- 결과: **packages 214 + desktop 20 green**, 신규 파일 tsc-clean. 커밋 ~10개 추가.
+
 ## 3. 다음에 할 일 / 미완
 
-- **팀 리뷰 결과 반영(개선 반복)**: 백그라운드 Workflow `wf_82e87259-8ac` 실행 중 — 5개 리뷰어
-  (correctness/spec/safety/tests/simplicity) → adversarial verify → synthesis. **완료되면 confirmed
-  findings를 우선순위대로 수정**하는 것이 다음 단계. (Ralph loop의 "개선 반복" 단계.)
+- **(선택) 검증 라운드**: 수정분에 대해 team-review를 한 번 더 돌려 loop-until-clean. 또는 아래 P1.
 - **렌더러 UI(미구현, 의도적 후속)**: 데스크톱 Harness 패널(타임라인/diff 뷰/Promote/Discard)은 IPC
   경계까지만 됨. 픽셀 UI는 수동 후속.
 - **P1 후보**: git-worktree staging, 실 LLM(CliAgentRunner) 통합 테스트, 선택적 LLM secret 의미판정,
