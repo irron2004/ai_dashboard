@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { dirname } from 'node:path'
+import { resolveInside } from '../runtime/vault-fs.js'
 
 /**
  * A copy-on-prepare staging vault. The Writer writes ONLY here; the real vault is never touched
@@ -16,10 +17,10 @@ export class StagingVault {
     if (existsSync(this.vaultDir)) cpSync(this.vaultDir, this.stagingDir, { recursive: true })
   }
 
-  /** Write a doc into the staging tree only. Rejects paths that escape the staging dir. */
+  /** Write a doc into the staging tree only. Rejects paths that escape the staging dir
+   * (including sibling-prefix dirs — resolveInside enforces a path-separator boundary). */
   writeDoc(relPath: string, body: string): string {
-    const abs = resolve(this.stagingDir, relPath)
-    if (!abs.startsWith(resolve(this.stagingDir))) throw new Error(`path escapes staging vault: ${relPath}`)
+    const abs = resolveInside(this.stagingDir, relPath)
     mkdirSync(dirname(abs), { recursive: true })
     writeFileSync(abs, body)
     return abs

@@ -1,17 +1,9 @@
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
-import { join, relative, basename } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { relative, basename } from 'node:path'
 import { KhGraphValidationReportSchema, type KhGraphValidationReport } from '@apc/shared'
+import { listMarkdown } from '../runtime/vault-fs.js'
 
 type Doc = { path: string; stem: string; nodeId: string; links: string[] }
-
-function listMarkdown(dir: string): string[] {
-  if (!existsSync(dir)) return []
-  const out: string[] = []
-  for (const ent of readdirSync(dir, { withFileTypes: true, recursive: true }) as Array<{ name: string; parentPath?: string; path?: string; isFile(): boolean }>) {
-    if (ent.isFile() && ent.name.endsWith('.md')) out.push(join(ent.parentPath ?? ent.path ?? dir, ent.name))
-  }
-  return out
-}
 
 function frontmatterNodeId(text: string): string {
   const m = text.match(/^---\n([\s\S]*?)\n---/)

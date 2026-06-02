@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { relative } from 'node:path'
+import { listMarkdown } from './vault-fs.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
   type KhState, type AgentType, type KhNodeProposal,
@@ -34,15 +35,6 @@ function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: s
   const paths = ctx.runState.artifacts[state] ?? []
   const rel = paths.find(p => p.endsWith(`${name}.json`))
   return rel ? ctx.store.readArtifact<T>(rel) : undefined
-}
-
-function listMarkdown(dir: string): string[] {
-  if (!existsSync(dir)) return []
-  const out: string[] = []
-  for (const ent of readdirSync(dir, { withFileTypes: true, recursive: true }) as Array<{ name: string; parentPath?: string; path?: string; isFile(): boolean }>) {
-    if (ent.isFile() && ent.name.endsWith('.md')) out.push(join(ent.parentPath ?? ent.path ?? dir, ent.name))
-  }
-  return out
 }
 
 /**

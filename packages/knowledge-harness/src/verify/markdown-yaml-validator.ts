@@ -1,17 +1,9 @@
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { relative } from 'node:path'
 import { KhMarkdownYamlValidationReportSchema, type KhMarkdownYamlValidationReport } from '@apc/shared'
+import { listMarkdown } from '../runtime/vault-fs.js'
 
 type Problem = { path: string; kind: string; detail: string }
-
-function listMarkdown(dir: string): string[] {
-  if (!existsSync(dir)) return []
-  const out: string[] = []
-  for (const ent of readdirSync(dir, { withFileTypes: true, recursive: true }) as Array<{ name: string; parentPath?: string; path?: string; isFile(): boolean }>) {
-    if (ent.isFile() && ent.name.endsWith('.md')) out.push(join(ent.parentPath ?? ent.path ?? dir, ent.name))
-  }
-  return out
-}
 
 /** Validate a doc's frontmatter (parseable key: value subset) and code-fence balance. No LLM. */
 export function validateMarkdownYaml(text: string, path = ''): Problem[] {

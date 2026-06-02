@@ -33,4 +33,11 @@ describe('StagingVault', () => {
     sv.prepare()
     expect(() => sv.writeDoc('../escape.md', 'x')).toThrow(/escapes/)
   })
+
+  test('writeDoc rejects a sibling-directory escape that shares the staging prefix', () => {
+    // vault-staging vs ../vault-staging-evil — a plain startsWith(prefix) check would wrongly pass this
+    const sv = new StagingVault(join(root, 'vault'), join(root, 'vault-staging'))
+    sv.prepare()
+    expect(() => sv.writeDoc('../vault-staging-evil/x.md', 'x')).toThrow(/escapes/)
+  })
 })
