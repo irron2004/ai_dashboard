@@ -83,6 +83,28 @@ export class HarnessPromoteService {
   }
 
   /**
+   * List this run's canonical proposals with the CURRENT hash of each real-vault canonical (or null if
+   * the canonical doesn't exist yet). The renderer captures this hash when it displays the proposal and
+   * passes it back to promoteCanonical as `lastReadHash`, so an Obsidian edit made afterward is detected.
+   */
+  canonicalProposals(runId: string): Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }> {
+    const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, runId))
+    if (!store.exists()) return []
+    const rs = store.loadRunState()
+    const rel = (rs.artifacts['STAGING_WRITTEN'] ?? []).find(p => p.endsWith('applied-write-report.json'))
+    if (!rel) return []
+    const report = store.readArtifact<{ proposals: string[] }>(rel)
+    const conflict = this.deps.conflict ?? new ConflictManager()
+    return report.proposals
+      .map(proposalRelPath => ({ proposalRelPath, canonicalPath: proposalRelPath.replace(/\.proposal\.md$/i, '.md') }))
+      .filter(p => isCanonical(p.canonicalPath))
+      .map(p => {
+        const abs = resolveInside(this.deps.vaultRoot, p.canonicalPath)
+        return { ...p, currentHash: existsSync(abs) ? conflict.hash(readFileSync(abs, 'utf8')) : null }
+      })
+  }
+
+  /**
    * Hash-gated promotion of ONE canonical proposal into the real vault (design §8 / acceptance #7).
    * `proposalRelPath` is a staged `<x>.proposal.md`; its target is `<x>.md`. If the vault canonical
    * changed since the app last read it (lastReadHash mismatch), writes a conflict doc and refuses to

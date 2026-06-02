@@ -13,7 +13,7 @@ import { generateRemote } from './remote-generate.js'
 import type {
   GenerateProjectReq, GenerateProjectRes,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
-  HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
+  HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
 } from '../shared/ipc-contract.js'
 
 export type Container = {
@@ -38,6 +38,7 @@ export type Container = {
   harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
   harnessPromote: (req: HarnessPromoteReq) => HarnessPromoteRes
   harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => HarnessPromoteCanonicalRes
+  harnessCanonicalProposals: (req: HarnessCanonicalProposalsReq) => HarnessCanonicalProposalsRes
   dashboard: typeof getProjectDashboard
 }
 
@@ -97,10 +98,12 @@ export function buildContainer(opts: {
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
   const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)
   const harnessPromoteCanonical = (req: HarnessPromoteCanonicalReq): HarnessPromoteCanonicalRes => harness.promoteCanonical(req)
+  const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
 
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generateProject,
-    harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, dashboard: getProjectDashboard,
+    harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
+    dashboard: getProjectDashboard,
   }
 }

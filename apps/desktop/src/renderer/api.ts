@@ -4,6 +4,7 @@ import type {
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
+  HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile } from '@apc/shared'
@@ -79,6 +80,9 @@ export const api = {
   },
   harnessPromoteCanonical(req: HarnessPromoteCanonicalReq): Promise<HarnessPromoteCanonicalRes> {
     return window.apc.invoke(CH.harnessPromoteCanonical, req) as Promise<HarnessPromoteCanonicalRes>
+  },
+  harnessCanonicalProposals(req: HarnessCanonicalProposalsReq): Promise<HarnessCanonicalProposalsRes> {
+    return window.apc.invoke(CH.harnessCanonicalProposals, req) as Promise<HarnessCanonicalProposalsRes>
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

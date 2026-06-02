@@ -104,6 +104,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessPromoteCanonical(req)
     },
 
+    [CH.harnessCanonicalProposals]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.harnessCanonicalProposals(req)
+    },
+
     [CH.generateRun]: async (payload: unknown) => {
       const req = payload as GenerateRunReq
       const run = container.runs.get(req.runId)

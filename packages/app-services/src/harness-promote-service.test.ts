@@ -120,5 +120,20 @@ describe('HarnessPromoteService', () => {
       const { svc } = make()
       expect(svc.promoteCanonical({ runId: 'RUN-1', proposalRelPath: 'concepts/n1.proposal.md', lastReadHash: '' }).ok).toBe(false)
     })
+
+    test('canonicalProposals lists canonical proposals with the current vault hash (null if absent)', () => {
+      const { svc, vaultRoot } = make()
+      writeFileSync(join(vaultRoot, 'current.md'), '# existing\n')
+      const list = svc.canonicalProposals('RUN-1')
+      const cur = list.find(p => p.proposalRelPath === 'current.proposal.md')
+      expect(cur?.canonicalPath).toBe('current.md')
+      expect(cur?.currentHash).toBe(cm.hash('# existing\n'))  // matches the round-trip hash the UI would pass back
+    })
+
+    test('canonicalProposals reports a null hash when the canonical does not exist yet', () => {
+      const { svc } = make()  // no current.md written to the vault
+      const cur = svc.canonicalProposals('RUN-1').find(p => p.proposalRelPath === 'current.proposal.md')
+      expect(cur?.currentHash).toBeNull()
+    })
   })
 })

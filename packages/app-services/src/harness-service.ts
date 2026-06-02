@@ -101,4 +101,10 @@ export class HarnessService {
       conflict: new ConflictManager(), stamp: this.now().slice(0, 10),
     }).promoteCanonical(input)
   }
+
+  /** Canonical proposals + current vault hashes, for the UI to drive hash-gated promotion. */
+  canonicalProposals(input: { runId: string }): Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }> {
+    return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot, conflict: new ConflictManager() })
+      .canonicalProposals(input.runId)
+  }
 }
