@@ -127,11 +127,17 @@ Workflow `wf_96661c77-2a0`: **7 raised / 6 confirmed**. iteration#2 fixes 전부
   렌더러는 이제 canonical proposal 목록 + 각 vault canonical의 현재 hash를 받아 promoteCanonical에
   lastReadHash로 넘길 수 있음 — hash-gate에 필요한 모든 primitive 준비됨. packages 230 + desktop 21 green.
 
-## 3. 남은 것: canonical-promote UX **조합**만 (primitive는 전부 있음)
+## 2-i. canonical-promote UI 완료 (acceptance #7 데스크톱 UX)
 
-- 올바른 UX = (a) canonicalProposals를 표시할 때 currentHash를 캡처 → (b) 사용자가 **나중에** promote 클릭 시
-  그 hash를 lastReadHash로 전달. 표시-then-즉시-promote(fetch+promote 한 tick)는 hash-gate를 무력화하므로
-  **하면 안 됨**. 따라서 per-proposal 버튼/conflict 표시 등 UX 조합은 design 방향 필요(primitive는 준비됨).
+- store: `harnessCanonicalProposals` state + `loadCanonicalProposals`(refresh 시 hash 캡처) +
+  `promoteCanonicalDoc(path, lastReadHash)`. HarnessDashboard에 "Canonical proposals (hash-gated)" 섹션 +
+  per-proposal Promote 버튼. **hash는 view 시점에 캡처**되고 promote는 **나중 클릭** → view~click 사이의
+  Obsidian 편집이 conflict로 감지됨(올바른 gate semantics). typecheck-clean + desktop 21 green.
+  (렌더러 store 동작 단위테스트 하네스는 없음 → wiring+typecheck 검증.)
+
+## 상태: acceptance §12 1~8 전부 데스크톱 UX까지 완료. packages 230 + desktop 21 green, 67 commits.
+
+## 3. 남은 backlog (전부 저가치 또는 비권장 — spec 미구현 항목 없음)
 - per-flag gate wiring(안전망 약화, skip 권장), `--from <STATE>` rewind, git-worktree staging,
   실 CliAgentRunner 통합 테스트, 선택적 LLM secret 의미판정.
 - loop 종료: `/cancel-ralph`.
