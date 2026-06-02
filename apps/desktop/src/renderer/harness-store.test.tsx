@@ -114,4 +114,17 @@ describe('harness store actions (api mocked)', () => {
     expect(useStore.getState().harnessCanonicalProposals).toEqual([])
     expect(useStore.getState().harnessMessage).toContain('Could not load canonical proposals')
   })
+
+  test('loadCanonicalProposals drops a stale result when the selected run changed during the await (async race)', async () => {
+    // run A's IPC is in-flight when the user switches to run B
+    let resolveA: (v: unknown) => void = () => {}
+    mockApi.harnessCanonicalProposals.mockReturnValue(new Promise((r) => { resolveA = r }))
+    const inflight = useStore.getState().loadCanonicalProposals('RUN-A')
+    useStore.getState().selectHarnessRun('RUN-B')  // sync: selects B, clears list
+    resolveA([{ proposalRelPath: 'current.proposal.md', canonicalPath: 'current.md', currentHash: 'A_HASH' }])
+    await inflight
+    // A's late result must NOT repopulate B's list (no cross-run proposals)
+    expect(useStore.getState().selectedHarnessRunId).toBe('RUN-B')
+    expect(useStore.getState().harnessCanonicalProposals).toEqual([])
+  })
 })

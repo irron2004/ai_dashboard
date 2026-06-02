@@ -317,8 +317,13 @@ export const useStore = create<ApcStore>((set, get) => ({
     const targetRunId = runId ?? get().selectedHarnessRunId
     if (!targetRunId) { set({ harnessCanonicalProposals: [] }); return }
     try {
-      set({ harnessCanonicalProposals: await api.harnessCanonicalProposals({ runId: targetRunId }) })
+      const list = await api.harnessCanonicalProposals({ runId: targetRunId })
+      // staleness guard: if the selected run changed during the await, this result is for the OLD run —
+      // dropping it prevents a late IPC from re-populating B's list with A's proposals (cross-run promote).
+      if (get().selectedHarnessRunId !== targetRunId) return
+      set({ harnessCanonicalProposals: list })
     } catch (e) {
+      if (get().selectedHarnessRunId !== targetRunId) return  // same guard for a late rejection
       // non-fatal: clear the stale list but surface the failure so it's not mistaken for "no proposals"
       set({ harnessCanonicalProposals: [], harnessMessage: `Could not load canonical proposals: ${e}` })
     }
