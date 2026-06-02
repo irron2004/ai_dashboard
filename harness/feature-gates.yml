@@ -1,0 +1,23 @@
+features:
+  auto_classify_documents: true
+  auto_create_node_proposals: true
+  auto_create_write_plan: true
+  auto_write_to_staging: true
+  auto_write_to_real_vault: false
+  auto_shared_promotion: false
+  auto_deprecate: false
+  auto_delete: false
+  auto_graph_update: false
+  auto_update_current: false
+  auto_update_adr: false
+  enable_conversation_history_reader: true
+  enable_claude_history_reader: false
+  enable_codex_history_reader: false
+  enable_opencode_history_reader: false
+  enable_policy_guard: true
+  enable_secret_scan: true
+  enable_evidence_required: true
+  enable_human_review_for_shared: true
+  enable_human_review_for_canonical: true
+  use_staging_vault: true
+  require_git_diff_before_merge: true
