@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import type { KhWritePlan, KhWriteOp } from '@apc/shared'
 import type { StagingVault } from '../staging/staging-vault.js'
-import { isCanonical, resolveInside } from '../runtime/vault-fs.js'
+import { isCanonical, isRaw, resolveInside } from '../runtime/vault-fs.js'
 
 export type AppliedWriteReport = { applied: string[]; proposals: string[]; skipped: string[] }
 
@@ -39,7 +39,7 @@ export class ObsidianWikiWriter {
   apply(plan: KhWritePlan, staging: StagingVault): AppliedWriteReport {
     const report: AppliedWriteReport = { applied: [], proposals: [], skipped: [] }
     for (const op of plan.operations) {
-      if (op.path.startsWith('raw/') || op.path.includes('/raw/')) { report.skipped.push(op.path); continue }
+      if (isRaw(op.path)) { report.skipped.push(op.path); continue }
       if (op.op !== 'create_file' && op.op !== 'append_section') { report.skipped.push(op.path); continue }
       // Force proposal routing for canonical paths even if the LLM set mode: 'apply'.
       if (op.mode === 'proposal_only' || isCanonical(op.path)) {

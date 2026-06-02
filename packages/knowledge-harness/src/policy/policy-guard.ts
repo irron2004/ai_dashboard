@@ -1,12 +1,8 @@
 import { KhPolicyReportSchema, type KhNodeProposal, type KhWritePlan, type KhPolicyReport } from '@apc/shared'
 import { SecretScanner } from './secret-scanner.js'
+import { isCanonical, isRaw } from '../runtime/vault-fs.js'
 
 type Violation = KhPolicyReport['violations'][number]
-
-const CANONICAL = /(^|\/)(current\.md|PRD\.md|ADR-[^/]*\.md)$/i
-
-function isCanonical(path: string): boolean { return CANONICAL.test(path) }
-function isRaw(path: string): boolean { return path.startsWith('raw/') || path.includes('/raw/') }
 
 /**
  * Deterministic policy gate (design §7.1). Runs after proposals are created and before the Lead

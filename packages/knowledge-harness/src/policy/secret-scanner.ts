@@ -15,11 +15,14 @@ const RULES: { rule: string; re: RegExp }[] = [
   { rule: 'github_token', re: /gh[pousr]_[A-Za-z0-9]{36}/g },
   { rule: 'github_pat', re: /github_pat_[A-Za-z0-9_]{22,}/g },
   { rule: 'slack_token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
+  { rule: 'stripe_key', re: /sk_(?:live|test)_[A-Za-z0-9]{20,}/g },
+  { rule: 'gitlab_pat', re: /glpat-[A-Za-z0-9_-]{20}/g },
+  { rule: 'azure_account_key', re: /AccountKey=[A-Za-z0-9+/=]{40,}/g },
   { rule: 'jwt', re: /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g },
   { rule: 'connection_string_credentials', re: /\w+:\/\/[^/\s:@]+:[^/\s:@]+@/g },
   { rule: 'bearer_token', re: /bearer\s+[A-Za-z0-9._\-]{20,}/gi },
-  { rule: 'private_key', re: /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/g },
-  { rule: 'password_assignment', re: /password\s*[:=]\s*\S{6,}/gi },
+  { rule: 'private_key', re: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY(?: BLOCK)?-----/g },
+  { rule: 'secret_assignment', re: /(?:password|secret|api[_-]?key|access[_-]?token|token|[a-z0-9]+_key|[a-z0-9]+_token|[a-z0-9]+_secret)\s*[:=]\s*\S{6,}/gi },
 ]
 
 /**

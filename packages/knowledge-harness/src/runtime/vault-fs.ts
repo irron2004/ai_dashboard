@@ -16,11 +16,20 @@ export function listMarkdown(dir: string): string[] {
   return out
 }
 
+/** Normalize Windows back-slashes so path predicates are separator-independent (this app ships on Windows). */
+const norm = (p: string): string => p.replace(/\\/g, '/')
+
 /** Canonical docs that must never be auto-overwritten: current.md, PRD.md, ADR-*.md. */
 export const CANONICAL_RE = /(^|\/)(current\.md|PRD\.md|ADR-[^/]*\.md)$/i
 
 export function isCanonical(path: string): boolean {
-  return CANONICAL_RE.test(path)
+  return CANONICAL_RE.test(norm(path))
+}
+
+/** Immutable raw sources — never written or overwritten. */
+export function isRaw(path: string): boolean {
+  const p = norm(path)
+  return p.startsWith('raw/') || p.includes('/raw/')
 }
 
 /**

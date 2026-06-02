@@ -22,7 +22,13 @@ describe('SecretScanner', () => {
       ['postgres://user:p4ssw0rd@db.example.com:5432/x', 'connection_string_credentials'],
       ['Authorization: Bearer abcdefghij0123456789xyz', 'bearer_token'],
       ['-----BEGIN RSA PRIVATE KEY-----', 'private_key'],
-      ['password=hunter2secret', 'password_assignment'],
+      ['-----BEGIN PGP PRIVATE KEY BLOCK-----', 'private_key'],
+      ['password=hunter2secret', 'secret_assignment'],
+      ['api_key = abcdef123456', 'secret_assignment'],
+      ['SECRET_KEY=supersecretvalue', 'secret_assignment'],
+      ["sk_live_" + "abcdefghij0123456789ABCD", 'stripe_key'],
+      ['glpat-abcdefghij0123456789', 'gitlab_pat'],
+      ['AccountKey=' + 'a'.repeat(44), 'azure_account_key'],
     ]
     for (const [text, rule] of cases) {
       const f = scanner.scan(text, 'src')

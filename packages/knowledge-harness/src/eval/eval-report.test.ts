@@ -47,4 +47,13 @@ describe('buildEvalReport', () => {
     expect(r.safety.delete_attempts).toBe(1)
     expect(r.usefulness.current_update_proposals).toBe(1)
   })
+
+  test('proposals_with_minimum_evidence honors the shared_candidate floor (≥2) and per-proposal minimum', () => {
+    const sharedOk = proposal({ node: { id: 's2', type: 'ConceptNode', title: 'T', scope: 'shared_candidate' }, evidence: [{ evidence_id: 'A', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }, { evidence_id: 'B', source_id: 's', source_path: 'raw/b', evidence_type: 'd' }] })
+    const sharedShort = proposal({ node: { id: 's1', type: 'ConceptNode', title: 'T', scope: 'shared_candidate' } })  // 1 evidence → below floor 2
+    const strict = proposal({ claim_policy: { minimum_evidence_count: 3 } })  // 1 evidence < 3
+    const r = buildEvalReport({ proposals: [sharedOk, sharedShort, strict] })
+    // only sharedOk meets its threshold; the hardcoded >=1 would wrongly count all 3
+    expect(r.evidence_quality.proposals_with_minimum_evidence).toBe(1)
+  })
 })
