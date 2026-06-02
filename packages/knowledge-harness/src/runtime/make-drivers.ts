@@ -1,8 +1,19 @@
-import { KhWritePlanSchema, type KhState, type AgentType } from '@apc/shared'
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import {
+  KhWritePlanSchema, KhSecretScanReportSchema,
+  type KhState, type AgentType, type KhNodeProposal,
+} from '@apc/shared'
 import type { AgentRunner } from '@apc/llm-wiki'
 import type { Driver, RunnerContext } from './harness-runner.js'
 import { StagingVault } from '../staging/staging-vault.js'
 import { ObsidianWikiWriter } from '../agents/obsidian-wiki-writer.js'
+import { PolicyGuard } from '../policy/policy-guard.js'
+import { SecretScanner } from '../policy/secret-scanner.js'
+import { GraphIntegrity } from '../verify/graph-integrity.js'
+import { MarkdownYamlValidator } from '../verify/markdown-yaml-validator.js'
+import { ObsidianLinkValidator } from '../verify/obsidian-link-validator.js'
+import { buildEvalReport } from '../eval/eval-report.js'
 import {
   makeProjectDiscovery, makeConversationHistoryReader, makeDocumentIntentClassifier,
   makeKnowledgeNodeExtractor, makeWikiGraphLead,
@@ -25,6 +36,15 @@ function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: s
   return rel ? ctx.store.readArtifact<T>(rel) : undefined
 }
 
+function listMarkdown(dir: string): string[] {
+  if (!existsSync(dir)) return []
+  const out: string[] = []
+  for (const ent of readdirSync(dir, { withFileTypes: true, recursive: true }) as Array<{ name: string; parentPath?: string; path?: string; isFile(): boolean }>) {
+    if (ent.isFile() && ent.name.endsWith('.md')) out.push(join(ent.parentPath ?? ent.path ?? dir, ent.name))
+  }
+  return out
+}
+
 /**
  * Wire the 5 LLM agents + StagingVault + Writer into a `Driver` map for HarnessRunner.
  * The runner contract is unchanged — drivers are closures over the richer deps.
@@ -38,6 +58,11 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const extractor = makeKnowledgeNodeExtractor(deps.preamble)
   const lead = makeWikiGraphLead(deps.preamble)
   const writer = new ObsidianWikiWriter()
+  const policy = new PolicyGuard()
+  const secrets = new SecretScanner()
+  const graph = new GraphIntegrity()
+  const mdYaml = new MarkdownYamlValidator()
+  const links = new ObsidianLinkValidator()
   const run = { runner: deps.runner }
 
   return {
@@ -61,7 +86,14 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         history: artifactByName(ctx, 'SOURCES_EXTRACTED', 'conversation-history-report'),
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', 'document-intent-report'),
       } })
-      return { artifacts: [{ name: 'node-proposals', data }] }
+      // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
+      // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
+      const report = policy.check(data.proposals)
+      if (!report.ok) {
+        throw new Error(`PolicyGuard blocked ${report.blocked_proposal_ids.length} proposal(s): ` +
+          report.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id}:${v.rule}`).join(', '))
+      }
+      return { artifacts: [{ name: 'node-proposals', data }, { name: 'policy-report', data: report }] }
     },
 
     LEAD_MERGED: async (ctx) => {
@@ -88,6 +120,55 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       return { artifacts: [
         { name: 'applied-write-report', data: applied },
         { name: 'git-diff-report', data: { patch } },
+      ] }
+    },
+
+    VALIDATED: async () => {
+      // Deterministic verification over the staging vault (design §7.3-7.4).
+      const graphReport = graph.validate(deps.stagingRoot)
+      const mdReport = mdYaml.validate(deps.stagingRoot)
+      const linkReport = links.validate(deps.stagingRoot)
+      const findings = listMarkdown(deps.stagingRoot).flatMap(abs =>
+        secrets.scan(readFileSync(abs, 'utf8'), relative(deps.stagingRoot, abs)))
+      const secretReport = KhSecretScanReportSchema.parse({ ok: findings.length === 0, findings })
+      return { artifacts: [
+        { name: 'graph-validation-report', data: graphReport },
+        { name: 'markdown-yaml-validation-report', data: mdReport },
+        { name: 'link-validation-report', data: linkReport },
+        { name: 'secret-scan-report', data: secretReport },
+      ] }
+    },
+
+    HUMAN_REVIEW_REQUIRED: async (ctx) => {
+      // Final policy pass (now with the write plan) feeds the eval safety metrics; non-blocking here.
+      const proposals = (artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', 'node-proposals')?.proposals) ?? []
+      const writePlanRaw = artifactByName(ctx, 'WRITE_PLAN_CREATED', 'write-plan')
+      const writePlan = writePlanRaw ? KhWritePlanSchema.parse(writePlanRaw) : undefined
+      const finalPolicy = policy.check(proposals, writePlan)
+      const intents = artifactByName<{ documents: unknown[] }>(ctx, 'DOCUMENTS_CLASSIFIED', 'document-intent-report')
+      const graphReport = artifactByName(ctx, 'VALIDATED', 'graph-validation-report')
+      const applied = artifactByName<{ applied: string[]; proposals: string[]; skipped: string[] }>(ctx, 'STAGING_WRITTEN', 'applied-write-report')
+
+      const evalReport = buildEvalReport({
+        sourcesTotal: intents?.documents.length ?? 0,
+        sourcesClassified: intents?.documents.length ?? 0,
+        proposals,
+        policy: finalPolicy,
+        graph: graphReport as never,
+        applied,
+      })
+      const finalReport = [
+        `# Harness Run ${ctx.runId}`,
+        ``,
+        `- proposals: ${proposals.length}`,
+        `- policy ok: ${finalPolicy.ok} (violations: ${finalPolicy.violations.length})`,
+        `- staging applied: ${applied?.applied.length ?? 0}, proposed: ${applied?.proposals.length ?? 0}`,
+        `- awaiting human promotion (real vault unchanged).`,
+      ].join('\n')
+      return { artifacts: [
+        { name: 'final-policy-report', data: finalPolicy },
+        { name: 'eval-report', data: evalReport },
+        { name: 'final-report', data: { markdown: finalReport } },
       ] }
     },
   }
