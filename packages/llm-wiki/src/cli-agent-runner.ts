@@ -5,11 +5,12 @@ import type { AgentRunner, RunInput, RunResult } from './agent-runner.js'
 export type CommandTemplate = { command: string; args: string[] }
 export type EngineTemplates = Partial<Record<AgentType, CommandTemplate>>
 
-/** Default headless templates. Flags are version-dependent — validate at runtime (Plan 6 detect step). */
+// Prompt is sent on stdin (not argv), so there are no quoting/length limits.
+// Flags are version-dependent — these are the documented defaults and are overridable.
 export const DEFAULT_TEMPLATES: EngineTemplates = {
-  claude: { command: 'claude', args: ['-p', '{{PROMPT}}', '--output-format', 'json'] },
-  codex: { command: 'codex', args: ['exec', '{{PROMPT}}'] },
-  opencode: { command: 'opencode', args: ['run', '{{PROMPT}}'] },
+  claude: { command: 'claude', args: ['-p', '--output-format', 'json'] },
+  codex: { command: 'codex', args: ['exec'] },
+  opencode: { command: 'opencode', args: ['run'] },
 }
 
 export class CliAgentRunner implements AgentRunner {
@@ -18,19 +19,17 @@ export class CliAgentRunner implements AgentRunner {
   run(input: RunInput): Promise<RunResult> {
     const tpl = this.templates[input.agent]
     if (!tpl) return Promise.reject(new Error(`No command template for engine: ${input.agent}`))
-    const args = tpl.args.map((a) => a.replace('{{PROMPT}}', input.prompt))
 
     return new Promise<RunResult>((resolve) => {
-      const child = spawn(tpl.command, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+      // shell:true on Windows so .cmd/PATHEXT shims (claude.cmd, etc.) resolve.
+      const child = spawn(tpl.command, tpl.args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32' })
       let stdout = '', stderr = ''
-      const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, output: '', raw: stderr }) }, input.timeoutMs)
+      const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, output: '', raw: stderr || 'timeout' }) }, input.timeoutMs)
       child.stdout.on('data', (d) => (stdout += d))
       child.stderr.on('data', (d) => (stderr += d))
-      child.on('error', () => { clearTimeout(timer); resolve({ ok: false, output: '', raw: stderr }) })
-      child.on('close', (code) => {
-        clearTimeout(timer)
-        resolve({ ok: code === 0, output: stdout, raw: stdout || stderr })
-      })
+      child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, output: '', raw: String(e) }) })
+      child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, output: stdout, raw: stdout || stderr }) })
+      try { child.stdin?.write(input.prompt); child.stdin?.end() } catch { /* child already gone */ }
     })
   }
 }
