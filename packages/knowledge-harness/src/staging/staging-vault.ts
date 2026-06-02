@@ -1,0 +1,36 @@
+import { cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { dirname, join, resolve } from 'node:path'
+
+/**
+ * A copy-on-prepare staging vault. The Writer writes ONLY here; the real vault is never touched
+ * until a human promotes. `diff()` produces a `git diff --no-index` patch between the two trees.
+ * (MVP: fs copy. P1 will replace with a git worktree.)
+ */
+export class StagingVault {
+  constructor(private readonly vaultDir: string, private readonly stagingDir: string) {}
+
+  /** Copy vault/ → vault-staging/ (recursive). Idempotent: overwrites staging contents. */
+  prepare(): void {
+    mkdirSync(this.stagingDir, { recursive: true })
+    if (existsSync(this.vaultDir)) cpSync(this.vaultDir, this.stagingDir, { recursive: true })
+  }
+
+  /** Write a doc into the staging tree only. Rejects paths that escape the staging dir. */
+  writeDoc(relPath: string, body: string): string {
+    const abs = resolve(this.stagingDir, relPath)
+    if (!abs.startsWith(resolve(this.stagingDir))) throw new Error(`path escapes staging vault: ${relPath}`)
+    mkdirSync(dirname(abs), { recursive: true })
+    writeFileSync(abs, body)
+    return abs
+  }
+
+  get stagingPath(): string { return this.stagingDir }
+
+  /** git diff --no-index between the real vault and staging. git exits 1 when diffs exist — that's success. */
+  diff(): string {
+    const r = spawnSync('git', ['diff', '--no-index', '--', this.vaultDir, this.stagingDir], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    if (r.status !== 0 && r.status !== 1) throw new Error(`git diff failed: ${r.stderr || r.error?.message || 'unknown'}`)
+    return r.stdout
+  }
+}
