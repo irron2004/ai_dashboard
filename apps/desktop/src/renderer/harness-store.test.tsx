@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { createDefaultHarnessConfig } from './harness-utils.js'
 
 // Mock the IPC api layer so the store can be exercised without window.apc / Electron.
 vi.mock('./api.js', () => ({
@@ -67,10 +68,13 @@ describe('harness store actions (api mocked)', () => {
   })
 
   test('startHarnessRun runs then loads the run; selects it and reports final state', async () => {
+    const cfg = createDefaultHarnessConfig()
+    cfg.model.engine = 'opencode'
+    useStore.setState({ harnessConfigs: { p1: cfg } })
     mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-2', finalState: 'HUMAN_REVIEW_REQUIRED' })
     mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-2' }, artifacts: [] })
     await useStore.getState().startHarnessRun()
-    expect(mockApi.harnessRun).toHaveBeenCalledWith({ projectId: 'p1', engine: expect.any(String) })
+    expect(mockApi.harnessRun).toHaveBeenCalledWith({ projectId: 'p1', engine: 'opencode' })
     expect(useStore.getState().selectedHarnessRunId).toBe('RUN-2')
     expect(useStore.getState().harnessMessage).toContain('RUN-2')
   })

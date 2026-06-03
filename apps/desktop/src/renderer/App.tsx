@@ -1,10 +1,9 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentType } from '@apc/shared'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
-import { PmHome } from './components/PmHome.js'
-import { HarnessPanel } from './components/HarnessPanel.js'
+import { HarnessDashboard } from './components/HarnessDashboard.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { ModelPicker } from './components/ModelPicker.js'
 import './app.css'
@@ -34,10 +33,25 @@ export function App() {
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
     { open: false, running: false, log: '', ok: false },
   )
+  const dragRef = useRef<{ onMove: (e: MouseEvent) => void; onUp: (e: MouseEvent) => void } | null>(null)
+  const appLayoutStyle: CSSProperties & Record<'--sidebar-width', string> = { '--sidebar-width': `${sidebarW}px` }
+
+  useEffect(() => {
+    return () => {
+      if (dragRef.current) {
+        window.removeEventListener('mousemove', dragRef.current.onMove)
+        window.removeEventListener('mouseup', dragRef.current.onUp)
+      }
+    }
+  }, [])
 
   // Drag a divider between terminal column i and i+1 (horizontal resize).
-  const startColDrag = (i: number) => (e: React.MouseEvent) => {
+  const startColDrag = (i: number) => (e: ReactMouseEvent) => {
     e.preventDefault()
+    if (dragRef.current) {
+      window.removeEventListener('mousemove', dragRef.current.onMove)
+      window.removeEventListener('mouseup', dragRef.current.onUp)
+    }
     const startX = e.clientX
     const start = [...sizes]
     const w = termRef.current?.clientWidth ?? 1
@@ -52,21 +66,29 @@ export function App() {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      dragRef.current = null
     }
+    dragRef.current = { onMove, onUp }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
 
   // Drag the sidebar/main divider to resize the projects bar.
-  const startSidebarDrag = (e: React.MouseEvent) => {
+  const startSidebarDrag = (e: ReactMouseEvent) => {
     e.preventDefault()
+    if (dragRef.current) {
+      window.removeEventListener('mousemove', dragRef.current.onMove)
+      window.removeEventListener('mouseup', dragRef.current.onUp)
+    }
     const startX = e.clientX
     const startW = sidebarW
     const onMove = (ev: MouseEvent) => setSidebarW(Math.min(480, Math.max(150, startW + (ev.clientX - startX))))
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      dragRef.current = null
     }
+    dragRef.current = { onMove, onUp }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
@@ -138,7 +160,7 @@ export function App() {
   }
 
   return (
-    <div className="app-layout" style={{ gridTemplateColumns: `${sidebarW}px 1fr 240px` }}>
+    <div className="app-layout" style={appLayoutStyle}>
       {/* Update button — fixed at the top-right of the window */}
       <button
         disabled={upd.running}
@@ -181,17 +203,13 @@ export function App() {
           </span>
         </header>
         {dashboard ? (
-          <PmHome dashboard={dashboard} />
+          <HarnessDashboard profiles={profiles} onSelectProfile={handleSelectProfile} />
         ) : (
           <div className="app-layout__placeholder">
             {selectedProjectId ? 'Loading...' : 'Select a project or add one'}
           </div>
         )}
       </main>
-
-      <aside className="app-layout__harness">
-        <HarnessPanel profiles={profiles} onSelect={handleSelectProfile} />
-      </aside>
 
       {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
       <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'row', minHeight: 0 }}>

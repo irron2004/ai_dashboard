@@ -171,18 +171,23 @@ export const useStore = create<ApcStore>((set, get) => ({
     try {
       set({ selectedProjectId: projectId, dashboard: null })
       const dashboard = await api.projectDashboard({ projectId })
+      if (get().selectedProjectId !== projectId) return // stale response guard
       set({ dashboard })
       get().hydrateHarnessProject(projectId)
     } catch (e) {
+      if (get().selectedProjectId !== projectId) return
       set({ error: `Failed to load dashboard: ${e}` })
     }
   },
 
   async loadProfiles(projectPath: string) {
+    const projectId = get().selectedProjectId
     try {
       const profiles = await api.listProfiles(projectPath)
+      if (get().selectedProjectId !== projectId) return // stale response guard
       set({ profiles })
     } catch (e) {
+      if (get().selectedProjectId !== projectId) return
       set({ profiles: [], error: `Failed to load profiles: ${e}` })
     }
   },
@@ -265,6 +270,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     set({ harnessLoading: true })
     try {
       const shown = await api.harnessGetRun({ runId: targetRunId })
+      if (get().selectedProjectId !== projectId || get().selectedHarnessRunId !== targetRunId) return // stale guard
       if (!shown.ok || !shown.runState) throw new Error(shown.reason ?? 'Run not found')
       const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
       const runs = upsertRun(get().harnessRuns, bundle)
@@ -272,6 +278,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       persistProjectRuns(projectId, runs, targetRunId)
       await get().loadCanonicalProposals(targetRunId)  // capture canonical hashes as of this view
     } catch (e) {
+      if (get().selectedProjectId !== projectId || get().selectedHarnessRunId !== targetRunId) return
       set({ error: `Failed to refresh harness run: ${e}` })
     } finally {
       set({ harnessLoading: false })
