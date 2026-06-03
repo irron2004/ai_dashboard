@@ -52,6 +52,23 @@ describe('ObsidianWikiWriter', () => {
     expect(body).toContain('entry 2')  // appended
   })
 
+  // #35: recognized-but-unimplemented verbs (update_frontmatter / add_backlink) parse (valid enum) but are
+  // skipped by the MVP writer and surfaced in skipped[] — not silently lost. (Typo'd verbs fail at schema
+  // parse, step 3, so they never reach the writer.)
+  test('update_frontmatter / add_backlink are skipped and surfaced (not silently dropped)', () => {
+    const plan = KhWritePlanSchema.parse({
+      write_plan_id: 'WP-4', created_by: 'lead',
+      operations: [
+        { op: 'create_file', path: 'concepts/n1.md', content: '# N1\n' },
+        { op: 'update_frontmatter', path: 'concepts/n1.md', changes: { status: 'draft' } },
+        { op: 'add_backlink', path: 'concepts/n1.md', link: 'concepts/n2.md' },
+      ],
+    })
+    const report = new ObsidianWikiWriter().apply(plan, staging)
+    expect(report.applied).toEqual(['concepts/n1.md'])
+    expect(report.skipped).toEqual(['concepts/n1.md', 'concepts/n1.md'])  // both unimplemented ops surfaced
+  })
+
   test('a canonical op with mode:apply is FORCED to a proposal (LLM cannot opt out)', () => {
     const plan = KhWritePlanSchema.parse({
       write_plan_id: 'WP-2', created_by: 'lead',

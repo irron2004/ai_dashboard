@@ -7,6 +7,10 @@ import { FeatureGate } from './feature-gate.js'
 const root = fileURLToPath(new URL('../../../../', import.meta.url))
 const gatesPath = join(root, 'harness', 'feature-gates.yml')
 
+// #33: these assert the SHIPPED policy VALUES in feature-gates.yml — what the harness ships, not proof that
+// every flag is enforced by code. Only the HONORED flags drive the pipeline; the STRUCTURAL safety checks
+// are always-on regardless of flag; the rest are forward-declared/inert. See the desktop GATE_WIRING
+// classification (harness-utils) and the feature-gates.yml header for which is which.
 describe('shipped feature-gates.yml (MVP policy)', () => {
   const g = FeatureGate.fromFile(gatesPath)
 
