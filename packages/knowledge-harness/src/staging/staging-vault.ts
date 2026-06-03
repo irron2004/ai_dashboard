@@ -28,9 +28,14 @@ export class StagingVault {
 
   get stagingPath(): string { return this.stagingDir }
 
-  /** git diff --no-index between the real vault and staging. git exits 1 when diffs exist — that's success. */
+  /** git diff --no-index between the real vault and staging. git exits 1 when diffs exist — that's success.
+   *  A diff larger than the buffer is degraded-but-non-fatal (the run still has the staging tree and the
+   *  applied-write report): return a marker rather than throwing and failing the whole run on diff size. */
   diff(): string {
-    const r = spawnSync('git', ['diff', '--no-index', '--', this.vaultDir, this.stagingDir], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const r = spawnSync('git', ['diff', '--no-index', '--', this.vaultDir, this.stagingDir], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+    if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
+      return '# diff omitted: staging diff exceeds the 256MB buffer (staging tree + applied-write report are authoritative)\n'
+    }
     if (r.status !== 0 && r.status !== 1) throw new Error(`git diff failed: ${r.stderr || r.error?.message || 'unknown'}`)
     return r.stdout
   }

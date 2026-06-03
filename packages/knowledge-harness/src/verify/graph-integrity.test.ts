@@ -24,6 +24,14 @@ describe('GraphIntegrity', () => {
     expect(gi.validate(dir).ok).toBe(true)
   })
 
+  test('wiki-links with Obsidian heading/block/alias suffixes resolve to the page (#12)', () => {
+    write('a.md', '---\nnode_id: a\n---\nsee [[b#Some Heading]] and [[b^blk]] and [[b|alias]]\n')
+    write('b.md', '---\nnode_id: b\n---\nlinks [[a]]\n')
+    const r = gi.validate(dir)
+    expect(r.broken_links).toEqual([])
+    expect(r.ok).toBe(true)
+  })
+
   // ---- hard-fail integrity (affects ok) ----
 
   test('broken links are a hard failure', () => {

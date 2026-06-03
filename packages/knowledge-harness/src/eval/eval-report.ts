@@ -2,6 +2,7 @@ import {
   KhEvalReportSchema,
   type KhEvalReport, type KhNodeProposal, type KhPolicyReport, type KhGraphValidationReport,
 } from '@apc/shared'
+import { isRaw } from '../runtime/vault-fs.js'
 
 export type EvalInputs = {
   sourcesTotal?: number
@@ -47,9 +48,10 @@ export function buildEvalReport(inputs: EvalInputs): KhEvalReport {
       missing_backlinks: graph?.missing_backlinks.length ?? 0,
     },
     safety: {
-      // Writers only touch the staging vault; PolicyGuard blocks any raw write before it runs.
-      // So the real raw/ tree is never modified by a run — this is invariantly false in the MVP.
-      raw_modified: false,
+      // The Writer skips any op under raw/ (pushed to AppliedWriteReport.skipped), so raw/ should
+      // never appear in `applied`. Compute the invariant from the observed signal instead of
+      // hardcoding it: if a raw path ever lands in `applied`, that is a real breach and flips true.
+      raw_modified: (inputs.applied?.applied ?? []).some(p => isRaw(p)),
       // evidence-text hits (PolicyGuard) + body-content hits (VALIDATED secret scan)
       secret_warnings: count(policyViolations, v => v.rule === 'secret') + (inputs.secretScanFindings ?? 0),
       canonical_direct_overwrite_attempts: count(policyViolations, v => v.rule === 'canonical_overwrite'),

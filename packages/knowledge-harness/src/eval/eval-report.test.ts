@@ -48,6 +48,15 @@ describe('buildEvalReport', () => {
     expect(r.usefulness.current_update_proposals).toBe(1)
   })
 
+  test('raw_modified is true only when an applied write actually resolved under raw/ (#27)', () => {
+    // a raw op that the writer skipped (never applied) does NOT count as a modification
+    const clean = buildEvalReport({ applied: { applied: ['concepts/n.md'], proposals: [], skipped: ['raw/x.md'] } })
+    expect(clean.safety.raw_modified).toBe(false)
+    // a raw path that actually landed in the applied set IS a breach
+    const breached = buildEvalReport({ applied: { applied: ['raw/leak.md'], proposals: [], skipped: [] } })
+    expect(breached.safety.raw_modified).toBe(true)
+  })
+
   test('proposals_with_minimum_evidence honors the shared_candidate floor (≥2) and per-proposal minimum', () => {
     const sharedOk = proposal({ node: { id: 's2', type: 'ConceptNode', title: 'T', scope: 'shared_candidate' }, evidence: [{ evidence_id: 'A', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }, { evidence_id: 'B', source_id: 's', source_path: 'raw/b', evidence_type: 'd' }] })
     const sharedShort = proposal({ node: { id: 's1', type: 'ConceptNode', title: 'T', scope: 'shared_candidate' } })  // 1 evidence → below floor 2

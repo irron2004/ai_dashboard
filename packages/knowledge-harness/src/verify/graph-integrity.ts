@@ -14,7 +14,12 @@ function frontmatterNodeId(text: string): string {
 
 function wikiLinks(text: string): string[] {
   const links: string[] = []
-  for (const m of text.matchAll(/\[\[([^\]]+)\]\]/g)) links.push(m[1].split('|')[0].trim())
+  for (const m of text.matchAll(/\[\[([^\]]+)\]\]/g)) {
+    // [[Page#Heading^block|Alias]] → "Page": drop the alias (|...), then the
+    // Obsidian heading/block suffixes (#... / ^...) which are not part of the node identity.
+    const target = m[1].split('|')[0].split(/[#^]/)[0].trim()
+    if (target) links.push(target)
+  }
   return links
 }
 

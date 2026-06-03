@@ -108,7 +108,8 @@ export class HarnessService {
     const runState = store.loadRunState()
     const artifacts = Object.entries(runState.artifacts).flatMap(([state, paths]) => paths.map((path) => ({
       state: state as RunState['state'],
-      name: path.split('/').pop()?.replace(/\.json$/, '') ?? path,
+      // Split on both separators so a Windows-authored rel path (back-slashes) displays correctly.
+      name: path.split(/[\\/]/).pop()?.replace(/\.json$/, '') ?? path,
       path,
       data: store.readArtifact(path),
     })))
