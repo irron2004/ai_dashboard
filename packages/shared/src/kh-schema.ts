@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentKind } from './schema.js'
 
 export const KhStateSchema = z.enum([
   'CREATED', 'PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED',
@@ -11,18 +12,18 @@ const Confidence = z.enum(['low', 'medium', 'high'])
 const Risk = z.enum(['low', 'medium', 'high'])
 
 export const KhEvidenceSchema = z.object({
-  evidence_id: z.string(),
-  source_id: z.string(),
-  source_path: z.string(),
-  evidence_type: z.string(),
+  evidence_id: z.string().min(1),
+  source_id: z.string().min(1),
+  source_path: z.string().min(1),
+  evidence_type: z.string().min(1),
   quote_or_summary: z.string().default(''),
   confidence: Confidence.default('medium'),
 })
 export type KhEvidence = z.infer<typeof KhEvidenceSchema>
 
 export const KhClaimSchema = z.object({
-  claim_id: z.string(),
-  text: z.string(),
+  claim_id: z.string().min(1),
+  text: z.string().min(1),
   claim_type: z.string().default('observation'),
   confidence: Confidence.default('medium'),
   inference: z.boolean().default(false),
@@ -31,17 +32,20 @@ export const KhClaimSchema = z.object({
 })
 export type KhClaim = z.infer<typeof KhClaimSchema>
 
+export const KhNodeScope = z.enum(['project', 'shared_candidate', 'shared'])
+export type KhNodeScope = z.infer<typeof KhNodeScope>
+
 export const KhNodeProposalSchema = z.object({
-  proposal_id: z.string(),
+  proposal_id: z.string().min(1),
   proposal_type: z.string().default('create_or_update_node'),
-  proposed_by: z.string(),
+  proposed_by: z.string().min(1),
   source_type: z.string().default('agent_session'),
-  created_at: z.string(),
+  created_at: z.string().min(1),
   node: z.object({
-    id: z.string(),
-    type: z.string(),                 // ConceptNode | DecisionNode | ExperimentNode | ...
-    scope: z.string().default('project'),  // project | shared_candidate | shared
-    title: z.string(),
+    id: z.string().min(1),
+    type: z.string().min(1),          // ConceptNode | DecisionNode | ExperimentNode | ...
+    scope: KhNodeScope.default('project'),
+    title: z.string().min(1),
     summary: z.string().default(''),
     project_ids: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
@@ -64,9 +68,14 @@ export const KhNodeProposalSchema = z.object({
 })
 export type KhNodeProposal = z.infer<typeof KhNodeProposalSchema>
 
+// Recognized write verbs. delete_file is recognized-but-forbidden: it parses so PolicyGuard can block it
+// with a clean message; an unknown/typo'd verb fails at parse instead of being silently dropped.
+export const KhWriteOpKind = z.enum(['create_file', 'update_frontmatter', 'add_backlink', 'append_section', 'delete_file'])
+export type KhWriteOpKind = z.infer<typeof KhWriteOpKind>
+
 export const KhWriteOpSchema = z.object({
-  op: z.string(),                     // create_file | update_frontmatter | add_backlink | append_section
-  path: z.string(),
+  op: KhWriteOpKind,
+  path: z.string().min(1),
   source_proposal: z.string().optional(),
   content_template: z.string().optional(),
   content: z.string().optional(),
@@ -128,9 +137,9 @@ export const KhEvalReportSchema = z.object({
 export type KhEvalReport = z.infer<typeof KhEvalReportSchema>
 
 export const RunStateSchema = z.object({
-  runId: z.string(),
-  projectId: z.string(),
-  engine: z.string(),
+  runId: z.string().min(1),
+  projectId: z.string().min(1),
+  engine: AgentKind,
   state: KhStateSchema,
   history: z.array(z.object({ state: KhStateSchema, at: z.string() })).default([]),
   artifacts: z.record(z.array(z.string())).default({}),  // state -> relative artifact paths under the run dir
@@ -183,8 +192,8 @@ export type KhDocumentIntentReport = z.infer<typeof KhDocumentIntentReportSchema
 export const KhGraphUpdatePlanSchema = z.object({
   created_by: z.string(),
   node_ops: z.array(z.object({
-    op: z.string(),                     // create | update | merge | link
-    node_id: z.string(),
+    op: z.enum(['create', 'update', 'merge', 'link']),
+    node_id: z.string().min(1),
     based_on_proposals: z.array(z.string()).default([]),
     note: z.string().default(''),
   })).default([]),

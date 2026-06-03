@@ -37,6 +37,11 @@ describe('PolicyGuard', () => {
     expect(r.violations.find(v => v.rule === 'shared_evidence_min')?.severity).toBe('block')
   })
 
+  test('a self-declared shared scope with <2 evidence is ALSO blocked (#28)', () => {
+    const r = guard.check([proposal({ node: { id: 'n1', type: 'ConceptNode', title: 'T', scope: 'shared' } })])
+    expect(r.violations.find(v => v.rule === 'shared_evidence_min')?.severity).toBe('block')
+  })
+
   test('raw write and delete ops are blocked; canonical overwrite warns', () => {
     const wp = KhWritePlanSchema.parse({
       write_plan_id: 'WP-1', created_by: 'lead',

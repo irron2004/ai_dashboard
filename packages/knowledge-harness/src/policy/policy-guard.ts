@@ -28,9 +28,10 @@ export class PolicyGuard {
       if (p.evidence.length === 0 || p.claims.length === 0) {
         block(p.proposal_id, 'no_evidence', 'proposal has no evidence or no claims')
       }
-      // shared promotion needs >= 2 evidence
-      if (p.node.scope === 'shared_candidate' && p.evidence.length < 2) {
-        block(p.proposal_id, 'shared_evidence_min', 'shared_candidate requires >= 2 evidence')
+      // shared promotion needs >= 2 evidence — applies to ANY non-project scope (shared_candidate AND
+      // shared), so a self-declared 'shared' can't bypass the floor (#28).
+      if (p.node.scope !== 'project' && p.evidence.length < 2) {
+        block(p.proposal_id, 'shared_evidence_min', `${p.node.scope} requires >= 2 evidence`)
       }
       // secrets in evidence text
       for (const ev of p.evidence) {

@@ -87,4 +87,48 @@ describe('kh-schema', () => {
     expect(KhLinkValidationReportSchema.parse({}).broken).toEqual([])
     expect(KhMarkdownYamlValidationReportSchema.parse({}).problems).toEqual([])
   })
+
+  // ---- Step 3: structural hardening (reject empty/typo/hallucinated shapes) ----
+
+  const validProposal = {
+    proposal_id: 'NP-1', proposed_by: 'reader', created_at: '2026-06-02T00:00:00Z',
+    node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+    claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
+    evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a.jsonl', evidence_type: 'decision' }],
+  }
+
+  test('rejects an empty proposal_id / node.id / node.title (#11/#20)', () => {
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal, proposal_id: '' })).toThrow()
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal, node: { id: '', type: 'C', title: 'T' } })).toThrow()
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal, node: { id: 'n', type: 'C', title: '' } })).toThrow()
+  })
+
+  test('rejects empty evidence identity fields (#11/#36)', () => {
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal,
+      evidence: [{ evidence_id: '', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }] })).toThrow()
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal,
+      evidence: [{ evidence_id: 'E', source_id: 's', source_path: '', evidence_type: 'd' }] })).toThrow()
+  })
+
+  test('node.scope is an enum: rejects an unknown scope (#28)', () => {
+    expect(KhNodeProposalSchema.parse({ ...validProposal, node: { id: 'n', type: 'C', title: 'T', scope: 'shared' } }).node.scope).toBe('shared')
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal, node: { id: 'n', type: 'C', title: 'T', scope: 'global' } })).toThrow()
+  })
+
+  test('WriteOp.op is an enum: accepts known verbs (incl. delete_file), rejects typos (#31)', () => {
+    const ok = (op: string) => KhWritePlanSchema.parse({ write_plan_id: 'WP', created_by: 'lead', operations: [{ op, path: 'x.md' }] })
+    expect(ok('create_file').operations[0].op).toBe('create_file')
+    expect(ok('delete_file').operations[0].op).toBe('delete_file')  // recognized-but-forbidden → PolicyGuard blocks
+    expect(() => ok('crate_file')).toThrow()
+    expect(() => ok('rm')).toThrow()
+  })
+
+  test('WriteOp.path must be non-empty (#11)', () => {
+    expect(() => KhWritePlanSchema.parse({ write_plan_id: 'WP', created_by: 'lead', operations: [{ op: 'create_file', path: '' }] })).toThrow()
+  })
+
+  test('RunState.engine is AgentKind: rejects an unknown engine (#19)', () => {
+    expect(() => RunStateSchema.parse({ runId: 'R', projectId: 'p', engine: 'gpt', state: 'CREATED' })).toThrow()
+    expect(RunStateSchema.parse({ runId: 'R', projectId: 'p', engine: 'codex', state: 'CREATED' }).engine).toBe('codex')
+  })
 })
