@@ -5,6 +5,7 @@ import type { NormalizedSession } from '@apc/shared'
 
 const session: NormalizedSession = {
   id: 's1', agentType: 'claude', repoPath: '/work/apc',
+  sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
   turns: [{ role: 'user', text: 'do the thing', toolCalls: [] }], filesTouched: [],
 }
 
