@@ -24,6 +24,7 @@ describe('IPC handlers (no Electron)', () => {
     container.tasks.create({
       id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress',
       assigneeType: 'agent', priority: 'high', reviewStatus: 'none',
+      acceptanceCriteria: [], linkedWikiPages: [],
     })
     container.runs.create({
       id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/work/apc',
@@ -90,6 +91,7 @@ describe('IPC handlers (no Electron)', () => {
   test('c:ingestAll runs the configured adapters and indexes a resolved session', async () => {
     const session: NormalizedSession = {
       id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x/s1.jsonl', sessionHeader: {} },
       turns: [{ role: 'user', text: 'design the control tower', toolCalls: [] }], filesTouched: [],
     }
     const fake: AgentIngestAdapter = {
@@ -113,6 +115,7 @@ describe('IPC handlers (no Electron)', () => {
   test('c:generateProject summarizes the latest session into a proposal', async () => {
     const session: NormalizedSession = {
       id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x.jsonl', sessionHeader: {} },
       turns: [{ role: 'user', text: 'go', toolCalls: [] }], filesTouched: [],
     }
     const fake: AgentIngestAdapter = {
