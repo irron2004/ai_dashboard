@@ -43,26 +43,42 @@ export class HarnessPromoteService {
   }
 
   /** Shared promotion gates (both promote() and promoteCanonical() must apply these): the run must be at
-   * HUMAN_REVIEW_REQUIRED, and (unless allowSecrets) the VALIDATED secret scan must be clean. The secret
-   * report `ok` is global, so a leak in ANY authored file blocks all promotion. Returns a refusal reason
-   * or null if promotion may proceed. */
-  private gate(store: RunArtifactStore, rs: RunState, allowSecrets?: boolean): string | null {
+   * HUMAN_REVIEW_REQUIRED; (unless allowSecrets) the VALIDATED secret scan must be clean; and (unless
+   * allowInvalid) the deterministic graph/markdown/link validators must all be `ok`. The run still
+   * COMPLETES to HUMAN_REVIEW_REQUIRED so the human can read every report — these gates block PROMOTION,
+   * not the run. Returns a refusal reason or null if promotion may proceed. */
+  private gate(store: RunArtifactStore, rs: RunState, opts: { allowSecrets?: boolean; allowInvalid?: boolean } = {}): string | null {
     if (rs.state !== 'HUMAN_REVIEW_REQUIRED') return `run is ${rs.state}, expected HUMAN_REVIEW_REQUIRED`
-    if (!allowSecrets) {
-      const secretRel = (rs.artifacts['VALIDATED'] ?? []).find(p => p.endsWith('secret-scan-report.json'))
+    const validated = rs.artifacts['VALIDATED'] ?? []
+    if (!opts.allowSecrets) {
+      const secretRel = validated.find(p => p.endsWith('secret-scan-report.json'))
       if (secretRel) {
         const secret = store.readArtifact<{ ok: boolean; findings: unknown[] }>(secretRel)
         if (!secret.ok) return `${secret.findings.length} secret finding(s) in staging; promotion blocked (pass allowSecrets to override)`
       }
     }
+    if (!opts.allowInvalid) {
+      // B1 (#6/#25): broken-graph / invalid-markdown / broken-link output is NOT silently promotable.
+      const reports: Array<[string, string]> = [
+        ['graph-validation-report.json', 'graph integrity'],
+        ['markdown-yaml-validation-report.json', 'markdown/YAML'],
+        ['link-validation-report.json', 'wiki-link'],
+      ]
+      for (const [suffix, label] of reports) {
+        const relPath = validated.find(p => p.endsWith(suffix))
+        if (!relPath) continue
+        const report = store.readArtifact<{ ok: boolean }>(relPath)
+        if (!report.ok) return `${label} validation failed; promotion blocked (pass allowInvalid to override)`
+      }
+    }
     return null
   }
 
-  promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {
+  promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {
     const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, input.runId))
     if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
     const rs = store.loadRunState()
-    const blocked = this.gate(store, rs, input.allowSecrets)
+    const blocked = this.gate(store, rs, input)
     if (blocked) return { ok: false, reason: blocked }
 
     const appliedPaths = rs.artifacts['STAGING_WRITTEN'] ?? []
@@ -118,14 +134,14 @@ export class HarnessPromoteService {
    * overwrite — never clobbers an out-of-band edit. Reuses ConflictManager (same primitive as
    * CurrentPromotionService) so this is layout-agnostic (any canonical path, not just projects/<id>).
    */
-  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean }): CanonicalPromoteResult {
+  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean; allowInvalid?: boolean }): CanonicalPromoteResult {
     if (!input.proposalRelPath.endsWith('.proposal.md')) {
       return { ok: false, reason: `not a canonical proposal: ${input.proposalRelPath}` }
     }
-    // Same gates as promote(): the run must be at HUMAN_REVIEW_REQUIRED and the secret scan must be clean.
+    // Same gates as promote(): HUMAN_REVIEW_REQUIRED + clean secret scan + valid graph/markdown/link.
     const store = new RunArtifactStore(resolveInside(this.deps.runsRoot, input.runId))
     if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
-    const blocked = this.gate(store, store.loadRunState(), input.allowSecrets)
+    const blocked = this.gate(store, store.loadRunState(), input)
     if (blocked) return { ok: false, reason: blocked }
 
     const conflict = this.deps.conflict ?? new ConflictManager()

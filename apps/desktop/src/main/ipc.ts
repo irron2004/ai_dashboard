@@ -95,12 +95,12 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.harnessPromote]: async (payload: unknown) => {
       // strict parse: only the declared fields reach the service (no arbitrary flag injection)
-      const req = z.object({ runId: z.string(), allowSecrets: z.boolean().optional() }).strict().parse(payload)
+      const req = z.object({ runId: z.string(), allowSecrets: z.boolean().optional(), allowInvalid: z.boolean().optional() }).strict().parse(payload)
       return container.harnessPromote(req)
     },
 
     [CH.harnessPromoteCanonical]: async (payload: unknown) => {
-      const req = z.object({ runId: z.string(), proposalRelPath: z.string(), lastReadHash: z.string(), allowSecrets: z.boolean().optional() }).strict().parse(payload)
+      const req = z.object({ runId: z.string(), proposalRelPath: z.string(), lastReadHash: z.string(), allowSecrets: z.boolean().optional(), allowInvalid: z.boolean().optional() }).strict().parse(payload)
       return container.harnessPromoteCanonical(req)
     },
 

@@ -4,7 +4,7 @@ export type ParsedArgs =
   | { cmd: 'run'; projectId: string; engine: AgentType }
   | { cmd: 'resume'; runId: string }
   | { cmd: 'show'; runId: string }
-  | { cmd: 'promote'; runId: string; allowSecrets: boolean }
+  | { cmd: 'promote'; runId: string; allowSecrets: boolean; allowInvalid: boolean }
   | { cmd: 'help' }
   | { cmd: 'error'; message: string }
 
@@ -12,7 +12,7 @@ const USAGE = `knowledge-harness — evidence-based wiki pipeline
   run --project <id> --engine <claude|codex|opencode>
   resume <runId>
   show <runId>
-  promote <runId> [--allow-secrets]`
+  promote <runId> [--allow-secrets] [--allow-invalid]`
 
 function flag(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(`--${name}`)
@@ -36,7 +36,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
       return rest[0] ? { cmd: 'show', runId: rest[0] } : { cmd: 'error', message: 'show requires <runId>' }
     case 'promote': {
       const runId = rest.find(a => !a.startsWith('--'))
-      return runId ? { cmd: 'promote', runId, allowSecrets: rest.includes('--allow-secrets') } : { cmd: 'error', message: 'promote requires <runId>' }
+      return runId
+        ? { cmd: 'promote', runId, allowSecrets: rest.includes('--allow-secrets'), allowInvalid: rest.includes('--allow-invalid') }
+        : { cmd: 'error', message: 'promote requires <runId>' }
     }
     case 'help': case '--help': case '-h': case undefined:
       return { cmd: 'help' }
@@ -50,7 +52,7 @@ export type HarnessCliPort = {
   run(input: { projectId: string; engine: AgentType }): Promise<{ ok: boolean; runId?: string; finalState?: string; reason?: string }>
   resume(input: { runId: string }): Promise<{ ok: boolean; runId?: string; finalState?: string; reason?: string }>
   show(input: { runId: string }): { ok: boolean; runState?: unknown; reason?: string }
-  promote(input: { runId: string; allowSecrets?: boolean }): { ok: boolean; promoted?: string[]; proposals?: string[]; reason?: string }
+  promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): { ok: boolean; promoted?: string[]; proposals?: string[]; reason?: string }
 }
 
 /** Dispatch a parsed command to the port, printing via `out`. Returns a process exit code. */
@@ -77,7 +79,7 @@ export async function runCli(argv: string[], port: HarnessCliPort, out: (line: s
       out(JSON.stringify(r.runState, null, 2)); return 0
     }
     case 'promote': {
-      const r = port.promote({ runId: args.runId, allowSecrets: args.allowSecrets })
+      const r = port.promote({ runId: args.runId, allowSecrets: args.allowSecrets, allowInvalid: args.allowInvalid })
       if (!r.ok) { out(`promote failed: ${r.reason}`); return 1 }
       out(`promoted ${r.promoted?.length ?? 0} file(s), ${r.proposals?.length ?? 0} proposal(s)`); return 0
     }

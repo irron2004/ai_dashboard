@@ -13,10 +13,11 @@ describe('parseArgs', () => {
     expect(parseArgs(['resume', 'RUN-1'])).toEqual({ cmd: 'resume', runId: 'RUN-1' })
     expect(parseArgs(['resume']).cmd).toBe('error')
   })
-  test('parses show / promote positional runId + --allow-secrets', () => {
+  test('parses show / promote positional runId + --allow-secrets / --allow-invalid', () => {
     expect(parseArgs(['show', 'RUN-1'])).toEqual({ cmd: 'show', runId: 'RUN-1' })
-    expect(parseArgs(['promote', 'RUN-1'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: false })
-    expect(parseArgs(['promote', 'RUN-1', '--allow-secrets'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: true })
+    expect(parseArgs(['promote', 'RUN-1'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: false, allowInvalid: false })
+    expect(parseArgs(['promote', 'RUN-1', '--allow-secrets'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: true, allowInvalid: false })
+    expect(parseArgs(['promote', 'RUN-1', '--allow-invalid'])).toEqual({ cmd: 'promote', runId: 'RUN-1', allowSecrets: false, allowInvalid: true })
   })
   test('no args / help → help; unknown → error', () => {
     expect(parseArgs([]).cmd).toBe('help')

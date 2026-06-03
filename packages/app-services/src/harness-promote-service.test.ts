@@ -12,7 +12,7 @@ describe('HarnessPromoteService', () => {
   beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'kh-promote-')) })
   afterEach(() => { rmSync(root, { recursive: true, force: true }) })
 
-  function seedRun(state: string, opts: { applied?: string[]; secretOk?: boolean } = {}) {
+  function seedRun(state: string, opts: { applied?: string[]; secretOk?: boolean; graphOk?: boolean } = {}) {
     const applied = opts.applied ?? ['concepts/n1.md']
     const runsRoot = join(root, 'runs')
     const store = new RunArtifactStore(join(runsRoot, 'RUN-1'))
@@ -23,9 +23,16 @@ describe('HarnessPromoteService', () => {
     const secretRel = store.writeArtifact('VALIDATED', 'secret-scan-report', {
       ok: opts.secretOk ?? true, findings: (opts.secretOk ?? true) ? [] : [{ rule: 'aws_access_key_id' }],
     })
+    const validated = [secretRel]
+    // Only seed a graph report when the test cares (mirrors a real VALIDATED step); a !ok report must block.
+    if (opts.graphOk !== undefined) {
+      validated.push(store.writeArtifact('VALIDATED', 'graph-validation-report', {
+        ok: opts.graphOk, broken_links: opts.graphOk ? [] : [{ from: 'concepts/n1.md', to: 'ghost' }],
+      }))
+    }
     store.saveRunState(RunStateSchema.parse({
       runId: 'RUN-1', projectId: 'p1', engine: 'claude', state,
-      artifacts: { STAGING_WRITTEN: [rel], VALIDATED: [secretRel] },
+      artifacts: { STAGING_WRITTEN: [rel], VALIDATED: validated },
     }))
     // staging contents the writer produced
     const staging = join(runsRoot, 'RUN-1', 'vault-staging')
@@ -70,6 +77,24 @@ describe('HarnessPromoteService', () => {
     const svc = new HarnessPromoteService({ runsRoot, vaultRoot })
     expect(svc.promote({ runId: 'RUN-1' }).ok).toBe(false)
     expect(svc.promote({ runId: 'RUN-1', allowSecrets: true }).ok).toBe(true)  // explicit human override
+  })
+
+  // #58 contract: deterministic validation (graph/markdown/link) is a PROMOTION gate, not advisory.
+  test('refuses promotion when graph/markdown/link validation failed (unless allowInvalid)', () => {
+    const { runsRoot } = seedRun('HUMAN_REVIEW_REQUIRED', { graphOk: false })
+    const vaultRoot = join(root, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    const svc = new HarnessPromoteService({ runsRoot, vaultRoot })
+    const blocked = svc.promote({ runId: 'RUN-1' })
+    expect(blocked.ok).toBe(false)
+    if (!blocked.ok) expect(blocked.reason).toContain('graph integrity')
+    expect(svc.promote({ runId: 'RUN-1', allowInvalid: true }).ok).toBe(true)  // explicit human override
+    expect(existsSync(join(vaultRoot, 'concepts', 'n1.md'))).toBe(true)        // and it actually promotes
+  })
+
+  test('a valid (ok) graph report does not block promotion', () => {
+    const { runsRoot } = seedRun('HUMAN_REVIEW_REQUIRED', { graphOk: true })
+    const vaultRoot = join(root, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    expect(new HarnessPromoteService({ runsRoot, vaultRoot }).promote({ runId: 'RUN-1' }).ok).toBe(true)
   })
 
   test('refuses to promote a run that is not at HUMAN_REVIEW_REQUIRED', () => {

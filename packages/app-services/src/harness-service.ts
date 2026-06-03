@@ -115,13 +115,13 @@ export class HarnessService {
     return { ok: true, runState, artifacts }
   }
 
-  promote(input: { runId: string; allowSecrets?: boolean }): HarnessPromoteResult {
+  promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {
     return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot })
       .promote(input)
   }
 
   /** Hash-gated promotion of one canonical proposal into the real vault (acceptance #7). */
-  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean }): CanonicalPromoteResult {
+  promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean; allowInvalid?: boolean }): CanonicalPromoteResult {
     return new HarnessPromoteService({
       runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot,
       // full timestamp (not date-only) so two same-day conflicts on the same canonical don't clobber each other

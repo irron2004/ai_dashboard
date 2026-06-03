@@ -22,11 +22,21 @@ function wikiLinks(text: string): string[] {
  * Deterministic graph integrity over a vault directory (design §7.3). A doc's identity is its
  * `node_id` (frontmatter) if present, else its filename stem. Links `[[X]]` resolve to a doc whose
  * stem OR node_id is X. Every check is exact and fixture-testable — no LLM.
+ *
+ * Two classes of finding (Step-2 spec):
+ *  - HARD-FAIL (sets ok=false): broken_links, duplicate_node_ids, node_id_mismatches — genuine corruption.
+ *  - ADVISORY (reported, ok unaffected): orphan_nodes, missing_backlinks — graph-completeness signals that
+ *    are EXPECTED mid-write (a freshly-authored, not-yet-linked node is legitimately an orphan). Gating on
+ *    them would block every run.
+ *
+ * `node_id_mismatches` is a CROSS-ARTIFACT check: a doc whose frontmatter node_id is absent from the graph
+ * update plan's node ids (`opts.graphNodeIds`). With no plan ids the check is skipped — NOT the old (wrong)
+ * "node_id !== filename stem" comparison, which false-positived on every titled Obsidian doc.
  */
 export class GraphIntegrity {
   readonly name = 'graph-integrity'
 
-  validate(vaultDir: string): KhGraphValidationReport {
+  validate(vaultDir: string, opts: { graphNodeIds?: string[] } = {}): KhGraphValidationReport {
     const docs: Doc[] = listMarkdown(vaultDir).map(abs => {
       const text = readFileSync(abs, 'utf8')
       return {
@@ -49,8 +59,11 @@ export class GraphIntegrity {
     for (const d of docs) if (d.nodeId) byNodeId.set(d.nodeId, [...(byNodeId.get(d.nodeId) ?? []), d.path])
     const duplicate_node_ids = [...byNodeId.entries()].filter(([, p]) => p.length > 1).map(([node_id, paths]) => ({ node_id, paths }))
 
-    // node_id ↔ stem mismatch
-    const node_id_mismatches = docs.filter(d => d.nodeId && d.nodeId !== d.stem).map(d => ({ path: d.path, node_id: d.nodeId }))
+    // node_id ↔ graph-plan mismatch: a doc declaring a node_id the graph plan doesn't know about.
+    // Skipped when no plan ids are supplied (can't validate against nothing) — never compares to the stem.
+    const planIds = new Set(opts.graphNodeIds ?? [])
+    const node_id_mismatches = planIds.size === 0 ? []
+      : docs.filter(d => d.nodeId && !planIds.has(d.nodeId)).map(d => ({ path: d.path, node_id: d.nodeId }))
 
     // broken links + collect resolved edges
     const broken_links: { from: string; to: string }[] = []
@@ -61,8 +74,8 @@ export class GraphIntegrity {
       edges.push({ from: d, to: target })
     }
 
-    // orphan nodes: a doc with no inbound resolved link
-    const hasInbound = new Set(edges.map(e => idOf(e.to)))
+    // orphan nodes (ADVISORY): a doc with no inbound resolved link. Self-links (#39) don't count as inbound.
+    const hasInbound = new Set(edges.filter(e => idOf(e.from) !== idOf(e.to)).map(e => idOf(e.to)))
     const orphan_nodes = docs.filter(d => !hasInbound.has(idOf(d))).map(d => d.path)
 
     // missing backlinks: A→B exists but B→A does not
@@ -73,7 +86,8 @@ export class GraphIntegrity {
       if (!edgeSet.has(edgeKey(e.to, e.from))) missing_backlinks.push({ from: e.from.path, to: e.to.path })
     }
 
-    const ok = !broken_links.length && !duplicate_node_ids.length && !node_id_mismatches.length && !missing_backlinks.length && !orphan_nodes.length
+    // ok reflects HARD-FAIL findings only; orphan_nodes + missing_backlinks are advisory (reported, not gating).
+    const ok = !broken_links.length && !duplicate_node_ids.length && !node_id_mismatches.length
     return KhGraphValidationReportSchema.parse({
       ok, broken_links, duplicate_node_ids, orphan_nodes, node_id_mismatches, missing_backlinks,
     })

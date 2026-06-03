@@ -117,7 +117,10 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
     VALIDATED: async (ctx) => {
       // Deterministic verification over the staging vault (design §7.3-7.4).
-      const graphReport = graph.validate(deps.stagingRoot)
+      // node_id consistency is checked against the graph plan's node ids (cross-artifact), not filenames.
+      const graphPlan = artifactByName<{ node_ops?: { node_id?: string }[] }>(ctx, 'LEAD_MERGED', 'graph-update-plan')
+      const graphNodeIds = (graphPlan?.node_ops ?? []).map(o => o.node_id).filter((id): id is string => !!id)
+      const graphReport = graph.validate(deps.stagingRoot, { graphNodeIds })
       const mdReport = mdYaml.validate(deps.stagingRoot)
       const linkReport = links.validate(deps.stagingRoot)
       // Secret scan is scoped to THIS RUN's authored files (applied + proposals), not the whole
