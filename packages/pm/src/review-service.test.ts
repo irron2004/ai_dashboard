@@ -6,7 +6,7 @@ import { ReviewService } from './review-service.js'
 import type { Review, Task } from '@apc/shared'
 
 const task: Task = { id: 'TASK-001', projectId: 'p1', title: 't', status: 'review',
-  assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending' }
+  assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [] }
 
 function review(status: Review['status'], nextTasks: string[] = []): Review {
   return { id: 'REVIEW-1', taskId: 'TASK-001', agentRunId: 'RUN-1', reviewer: 'me', status, summary: 's', nextTasks }

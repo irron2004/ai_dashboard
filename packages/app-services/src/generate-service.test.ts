@@ -57,7 +57,7 @@ describe('GenerateService', () => {
   test('summarizes the latest matching session and writes summary + proposal', async () => {
     const registry = new ProjectRegistry(db)
     registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
-    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', turns: [{ role: 'user', text: 'did work', toolCalls: [] }], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'did work', toolCalls: [] }], filesTouched: [] }
     const wiki = new WikiEngine(new FakeAgentRunner([JSON.stringify({
       workSummary: 'summary', filesTouched: ['a.ts'], openProblems: [], nextTasks: [{ title: 'next', rationale: 'r' }],
       currentProposalMarkdown: '## Current\n- updated\n',
@@ -76,7 +76,7 @@ describe('GenerateService', () => {
   test('ok:false with a reason when no session matches the project repoPath', async () => {
     const registry = new ProjectRegistry(db)
     registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', repoPaths: ['/other'], vaultPaths: [], sourcePaths: [] })
-    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', turns: [], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const wiki = new WikiEngine(new FakeAgentRunner([]))
     const svc = new GenerateService({ adapters: [fakeAdapter(session)], registry, vault: new VaultAdapter(dir), vaultWriter: new VaultWriter(new VaultAdapter(dir)), wiki })
     const res = await svc.generateForProject({ projectId: 'p2', engine: 'claude' })
@@ -91,6 +91,7 @@ describe('GenerateService', () => {
       id: `s${index}`,
       agentType: 'claude',
       repoPath: index === 29 ? '/target' : '/other',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
       turns: [{ role: 'user', text: `session ${index}`, toolCalls: [] }],
       filesTouched: [],
     }))
@@ -112,6 +113,7 @@ describe('GenerateService', () => {
       id: `s${index}`,
       agentType: 'claude',
       repoPath: index === GENERATE_SOURCE_SCAN_LIMIT + 1 ? '/target' : '/other',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
       turns: [],
       filesTouched: [],
     }))
