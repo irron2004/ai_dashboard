@@ -65,6 +65,7 @@ describe('IngestService', () => {
 
   test('ingests new sources: resolves projectId, indexes turns, saves cursor', async () => {
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
       turns: [{ role: 'user', text: 'design the ingest service', toolCalls: [] }], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     const result = await svc.ingestAll([new FakeAdapter(session)])
@@ -74,7 +75,7 @@ describe('IngestService', () => {
   })
 
   test('a second run finds nothing new (cursor honored)', async () => {
-    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', turns: [], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     const adapter = new FakeAdapter(session)
     await svc.ingestAll([adapter])
@@ -83,7 +84,7 @@ describe('IngestService', () => {
   })
 
   test('concurrent ingestAll calls are serialized by the service lock', async () => {
-    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', turns: [], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     const adapter = new BlockingAdapter(session)
     const first = svc.ingestAll([adapter])
@@ -98,7 +99,7 @@ describe('IngestService', () => {
   })
 
   test('lock is released after adapter parse failure', async () => {
-    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', turns: [], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     await expect(svc.ingestAll([new ThrowingAdapter()])).rejects.toThrow(/parse failed/)
     await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toEqual({ sources: 1, sessions: 1 })
