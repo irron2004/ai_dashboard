@@ -25,6 +25,9 @@ export type Project = z.infer<typeof ProjectSchema>
 
 export const TaskStatus = z.enum(['todo', 'in_progress', 'review', 'done', 'rejected'])
 export const ReviewStatus = z.enum(['none', 'pending', 'approved', 'needs_changes', 'rejected'])
+// Value + type merge: consumers import `type TaskStatus` / `type ReviewStatus` to type columns/params.
+export type TaskStatus = z.infer<typeof TaskStatus>
+export type ReviewStatus = z.infer<typeof ReviewStatus>
 
 export const TaskSchema = z.object({
   id: z.string().min(1),

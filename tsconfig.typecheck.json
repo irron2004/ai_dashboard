@@ -1,0 +1,30 @@
+{
+  "//": "Root typecheck (D2). Catches type errors esbuild/vitest silently strip. Scoped to committed",
+  "//2": "package SOURCE; tests + apps/desktop are deferred (entangled with in-flight work streams).",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@apc/shared": ["./packages/shared/src/index.ts"],
+      "@apc/core": ["./packages/core/src/index.ts"],
+      "@apc/llm-wiki": ["./packages/llm-wiki/src/index.ts"],
+      "@apc/knowledge-harness": ["./packages/knowledge-harness/src/index.ts"],
+      "@apc/app-services": ["./packages/app-services/src/index.ts"],
+      "@apc/agents": ["./packages/agents/src/index.ts"],
+      "@apc/vault": ["./packages/vault/src/index.ts"],
+      "@apc/search": ["./packages/search/src/index.ts"],
+      "@apc/pm": ["./packages/pm/src/index.ts"],
+      "@apc/harness": ["./packages/harness/src/index.ts"],
+      "@apc/dashboard-api": ["./packages/dashboard-api/src/index.ts"],
+      "@apc/workflow": ["./packages/workflow/src/index.ts"],
+      "@apc/knowledge": ["./packages/knowledge/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
+  "exclude": ["**/node_modules/**", "**/*.test.ts", "**/*.test.tsx"]
+}
