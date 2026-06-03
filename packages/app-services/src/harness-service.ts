@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import type { AgentType, RunState } from '@apc/shared'
 import type { AgentRunner } from '@apc/llm-wiki'
 import {
-  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, loadPreamble, DEFAULT_GATES_PATH,
+  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
@@ -29,11 +29,21 @@ export type HarnessServiceDeps = {
 export class HarnessService {
   private readonly now: () => string
   private readonly preamble: string
-  private readonly gatesPath: string
+  private readonly gatesPath?: string
   constructor(private readonly deps: HarnessServiceDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
-    this.preamble = deps.preamble ?? loadPreamble()
-    this.gatesPath = deps.gatesPath ?? DEFAULT_GATES_PATH
+    // Defaults are compiled-in (fs-free): a bundled app boots even if no harness/ file is reachable.
+    this.preamble = deps.preamble ?? DEFAULT_PREAMBLE
+    this.gatesPath = deps.gatesPath
+  }
+
+  /** Fail-safe gate source: read the override file if given & readable, else the embedded defaults. */
+  private featureGate(): FeatureGate {
+    if (this.gatesPath) {
+      try { return FeatureGate.fromFile(this.gatesPath) }
+      catch { /* missing/unreadable override → embedded defaults (never block boot on a missing file) */ }
+    }
+    return FeatureGate.default()
   }
 
   private stagingDir(runId: string): string { return join(this.deps.runsRoot, runId, 'vault-staging') }
@@ -45,7 +55,7 @@ export class HarnessService {
       stagingRoot: this.stagingDir(runId), preamble: this.preamble,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
-    return new HarnessRunner({ gates: FeatureGate.fromFile(this.gatesPath), drivers, now: this.now, lock })
+    return new HarnessRunner({ gates: this.featureGate(), drivers, now: this.now, lock })
   }
 
   /** advance() the run, mapping a thrown lock-contention error to a structured failure result. */

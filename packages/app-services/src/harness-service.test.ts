@@ -65,6 +65,33 @@ describe('HarnessService', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
   })
 
+  // D1: a bundled Electron app cannot reach harness/ via import.meta.url path-walking. Constructing the
+  // service with NO gatesPath/preamble must boot from the compiled-in defaults and run end-to-end.
+  test('boots and runs with NO gatesPath/preamble (packaged-app, fs-free defaults)', async () => {
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      now: () => '2026-06-02T00:00:00Z',
+      // intentionally omit gatesPath + preamble → embedded DEFAULT_GATES_YAML / DEFAULT_PREAMBLE
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+  })
+
+  // A stale/unreadable override path must not block boot — it falls back to the embedded defaults.
+  test('falls back to embedded defaults when gatesPath points at a missing file', async () => {
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath: join(ws, 'does-not-exist', 'feature-gates.yml'),
+      now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+  })
+
   test('resume continues a run paused by a closed gate after the gate is reopened (acceptance #6)', async () => {
     const gatesFile = join(ws, 'gates.yml')
     const writeGates = (proposalsGate: boolean) => writeFileSync(gatesFile, [
