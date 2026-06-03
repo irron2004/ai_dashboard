@@ -8,7 +8,7 @@ describe('migrateKnowledge', () => {
     migrate(db)
     migrateKnowledge(db)
     const names = db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name").all()
-      .map((row: { name: string }) => row.name)
+      .map((row) => (row as { name: string }).name)
     expect(names).toEqual(expect.arrayContaining([
       'knowledge_collections',
       'knowledge_contexts',
