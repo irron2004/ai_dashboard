@@ -266,3 +266,16 @@ export const KhMarkdownYamlValidationReportSchema = z.object({
   problems: z.array(z.object({ path: z.string(), kind: z.string(), detail: z.string().default('') })).default([]),
 })
 export type KhMarkdownYamlValidationReport = z.infer<typeof KhMarkdownYamlValidationReportSchema>
+
+// A2 (Step 5): deterministic verification that declared evidence resolves to a real raw source.
+export const KhEvidenceVerificationReportSchema = z.object({
+  generated_by: z.string().default('evidence-verifier'),
+  ok: z.boolean().default(true),
+  unverifiable: z.array(z.object({
+    proposal_id: z.string(),
+    evidence_id: z.string(),
+    source_path: z.string(),
+    reason: z.enum(['source_not_found', 'quote_not_found', 'path_escape']),
+  })).default([]),
+})
+export type KhEvidenceVerificationReport = z.infer<typeof KhEvidenceVerificationReportSchema>

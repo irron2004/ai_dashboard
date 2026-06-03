@@ -33,7 +33,7 @@ function cannedOutputs(): string[] {
 
 describe('HarnessService', () => {
   let ws: string
-  beforeEach(() => { ws = mkdtempSync(join(tmpdir(), 'kh-svc-')); mkdirSync(join(ws, 'vault'), { recursive: true }); writeFileSync(join(ws, 'vault', 'README.md'), '# v\n') })
+  beforeEach(() => { ws = mkdtempSync(join(tmpdir(), 'kh-svc-')); mkdirSync(join(ws, 'vault', 'raw'), { recursive: true }); writeFileSync(join(ws, 'vault', 'README.md'), '# v\n'); writeFileSync(join(ws, 'vault', 'raw', 'a'), 'evidence source\n') })
   afterEach(() => { rmSync(ws, { recursive: true, force: true }) })
 
   function service() {
@@ -63,6 +63,30 @@ describe('HarnessService', () => {
 
   test('show reports an unknown run', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
+  })
+
+  // A2 (#1/#7/#34): a proposal citing a source_path that doesn't exist under raw/ fails the run.
+  test('fabricated evidence (source_path not in raw/) → run FAILED', async () => {
+    const proposals = { proposals: [{
+      proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
+      node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/ghost.jsonl', evidence_type: 'd' }],
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
+    }] }
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner([
+        JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+        JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+        JSON.stringify({ generated_by: 'classifier', documents: [] }),
+        JSON.stringify(proposals),
+      ]),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES',
+      now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok).toBe(false)
+    expect(r.finalState).toBe('FAILED')
+    expect(r.reason).toContain('EvidenceVerifier')
   })
 
   // D1: a bundled Electron app cannot reach harness/ via import.meta.url path-walking. Constructing the

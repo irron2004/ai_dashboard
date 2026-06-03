@@ -47,8 +47,9 @@ describe('phase-2 e2e — LLM agents (faked) with shipped gates', () => {
   let ws: string
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'kh-e2e2-'))
-    mkdirSync(join(ws, 'vault'), { recursive: true })
+    mkdirSync(join(ws, 'vault', 'raw'), { recursive: true })
     writeFileSync(join(ws, 'vault', 'current.md'), '# current\n')
+    writeFileSync(join(ws, 'vault', 'raw', 'sess.jsonl'), 'shipped staging vault\n')  // A2: evidence source must exist
   })
   afterEach(() => { rmSync(ws, { recursive: true, force: true }) })
 

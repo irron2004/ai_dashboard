@@ -21,7 +21,7 @@ const proposals = { proposals: [{
 
 describe('resume mid-pipeline with REAL drivers (cross-step on-disk artifact reload)', () => {
   let ws: string
-  beforeEach(() => { ws = mkdtempSync(join(tmpdir(), 'kh-resume-')); mkdirSync(join(ws, 'vault'), { recursive: true }); writeFileSync(join(ws, 'vault', 'README.md'), '#\n') })
+  beforeEach(() => { ws = mkdtempSync(join(tmpdir(), 'kh-resume-')); mkdirSync(join(ws, 'vault', 'raw'), { recursive: true }); writeFileSync(join(ws, 'vault', 'README.md'), '#\n'); writeFileSync(join(ws, 'vault', 'raw', 'a'), 'evidence source\n') })
   afterEach(() => { rmSync(ws, { recursive: true, force: true }) })
 
   test('a run stopped by a closed gate resumes via a NEW runner+runner-backend, reusing on-disk artifacts', async () => {

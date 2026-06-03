@@ -38,7 +38,7 @@ function outputs(proposalsEvidence: boolean): string[] {
 
 describe('phase-3 e2e — policy/verify/eval wired into the pipeline', () => {
   let ws: string
-  beforeEach(() => { ws = mkdtempSync(join(tmpdir(), 'kh-e2e3-')); mkdirSync(join(ws, 'vault'), { recursive: true }); writeFileSync(join(ws, 'vault', 'current.md'), '# current\n') })
+  beforeEach(() => { ws = mkdtempSync(join(tmpdir(), 'kh-e2e3-')); mkdirSync(join(ws, 'vault', 'raw'), { recursive: true }); writeFileSync(join(ws, 'vault', 'current.md'), '# current\n'); writeFileSync(join(ws, 'vault', 'raw', 'a'), 'evidence source\n') })
   afterEach(() => { rmSync(ws, { recursive: true, force: true }) })
 
   function driveWith(evidence: boolean) {

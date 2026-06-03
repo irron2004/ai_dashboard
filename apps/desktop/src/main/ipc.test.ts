@@ -162,7 +162,9 @@ describe('IPC handlers (no Electron)', () => {
     // vault/ and runs/ are siblings so the staging copy never nests inside the vault
     const harnessRoot = mkdtempSync(join(tmpdir(), 'apc-harness-'))
     const harnessVault = join(harnessRoot, 'vault')
-    mkdirSync(harnessVault, { recursive: true })
+    mkdirSync(join(harnessVault, 'raw'), { recursive: true })
+    writeFileSync(join(harnessVault, 'raw', 'a'), 'evidence source\n')  // A2: cited evidence source must exist
+
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: harnessVault, agentRunner: runner, harnessRunsRoot: join(harnessRoot, 'runs') })
     const h = handlers(c2)
 

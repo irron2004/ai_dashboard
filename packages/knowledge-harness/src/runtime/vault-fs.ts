@@ -16,6 +16,21 @@ export function listMarkdown(dir: string): string[] {
   return out
 }
 
+/** List all files (any extension) under a directory (absolute paths). Empty if the dir is absent. */
+export function listFiles(dir: string): string[] {
+  const out: string[] = []
+  let entries: Array<{ name: string; parentPath?: string; path?: string; isFile(): boolean }>
+  try {
+    entries = readdirSync(dir, { withFileTypes: true, recursive: true }) as never
+  } catch {
+    return out  // dir does not exist
+  }
+  for (const ent of entries) {
+    if (ent.isFile()) out.push(join(ent.parentPath ?? ent.path ?? dir, ent.name))
+  }
+  return out
+}
+
 /** Normalize Windows back-slashes so path predicates are separator-independent (this app ships on Windows). */
 const norm = (p: string): string => p.replace(/\\/g, '/')
 

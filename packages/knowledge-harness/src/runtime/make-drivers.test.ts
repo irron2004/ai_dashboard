@@ -45,8 +45,11 @@ describe('makeDrivers (real agents, faked LLM)', () => {
   let ws: string
   beforeEach(() => {
     ws = mkdtempSync(join(tmpdir(), 'kh-md-'))
-    mkdirSync(join(ws, 'vault'), { recursive: true })
+    mkdirSync(join(ws, 'vault', 'raw'), { recursive: true })
     writeFileSync(join(ws, 'vault', 'README.md'), '# vault\n')
+    // A2: the proposals' evidence cites these raw sources — they must exist on disk.
+    writeFileSync(join(ws, 'vault', 'raw', 'sess.jsonl'), 'shipped staging vault\n')
+    writeFileSync(join(ws, 'vault', 'raw', 'a'), 'evidence source\n')
   })
   afterEach(() => { rmSync(ws, { recursive: true, force: true }) })
 

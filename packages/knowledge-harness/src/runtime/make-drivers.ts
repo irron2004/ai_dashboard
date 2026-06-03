@@ -1,5 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { resolveInside } from './vault-fs.js'
+import { SourceReader } from './source-reader.js'
+import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
   type KhState, type AgentType, type KhNodeProposal,
@@ -50,6 +52,8 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const lead = makeWikiGraphLead(deps.preamble)
   const writer = new ObsidianWikiWriter()
   const policy = new PolicyGuard()
+  const evidenceVerifier = new EvidenceVerifier()
+  const sources = new SourceReader(deps.vaultRoot)
   const secrets = new SecretScanner()
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
@@ -63,7 +67,12 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     SOURCES_EXTRACTED: async (ctx) => {
-      const data = await reader.run({ ...run, engine: engineOf(ctx), input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', 'project-discovery-report') } })
+      // A1: materialize the real raw/ source text so the reader reasons over actual content, not just the
+      // (LLM-generated) discovery report.
+      const data = await reader.run({ ...run, engine: engineOf(ctx), input: {
+        discovery: artifactByName(ctx, 'PROJECT_SCANNED', 'project-discovery-report'),
+        sources: sources.read(),
+      } })
       return { artifacts: [{ name: 'conversation-history-report', data }] }
     },
 
@@ -76,6 +85,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const data = await extractor.run({ ...run, engine: engineOf(ctx), input: {
         history: artifactByName(ctx, 'SOURCES_EXTRACTED', 'conversation-history-report'),
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', 'document-intent-report'),
+        sources: sources.read(),  // A1: extractor cites paths/quotes from real source text
       } })
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
@@ -84,7 +94,17 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         throw new Error(`PolicyGuard blocked ${report.blocked_proposal_ids.length} proposal(s): ` +
           report.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id}:${v.rule}`).join(', '))
       }
-      return { artifacts: [{ name: 'node-proposals', data }, { name: 'policy-report', data: report }] }
+      // A2: deterministic evidence verification — every declared evidence must resolve to a real raw source
+      // (and its quote, if any, must be present). Fabricated evidence is a hard stop, like no-evidence.
+      const evidence = evidenceVerifier.verify(data.proposals, deps.vaultRoot)
+      if (!evidence.ok) {
+        throw new Error(`EvidenceVerifier blocked ${evidence.unverifiable.length} evidence item(s): ` +
+          evidence.unverifiable.map(u => `${u.proposal_id}/${u.evidence_id}:${u.reason}`).join(', '))
+      }
+      return { artifacts: [
+        { name: 'node-proposals', data }, { name: 'policy-report', data: report },
+        { name: 'evidence-verification-report', data: evidence },
+      ] }
     },
 
     LEAD_MERGED: async (ctx) => {
