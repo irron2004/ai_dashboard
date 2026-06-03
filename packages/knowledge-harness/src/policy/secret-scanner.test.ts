@@ -17,7 +17,7 @@ describe('SecretScanner', () => {
       ['sk-proj-abcdefghij0123456789ABCDEFGHIJ', 'openai_key'],
       ['ghp_0123456789abcdefghijklmnopqrstuvwxyz', 'github_token'],
       ['github_pat_0123456789abcdefghij_KLMNOPQRST', 'github_pat'],
-      [`xoxb-${'1234567890'}-${'abcdefghijklmnop'}`, 'slack_token'],
+      ["xoxb-" + "1234567890" + "-" + "abcdefghijklmnop", 'slack_token'],
       ['eyJhbGc.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4', 'jwt'],
       ['postgres://user:p4ssw0rd@db.example.com:5432/x', 'connection_string_credentials'],
       ['Authorization: Bearer abcdefghij0123456789xyz', 'bearer_token'],
@@ -26,7 +26,7 @@ describe('SecretScanner', () => {
       ['password=hunter2secret', 'secret_assignment'],
       ['api_key = abcdef123456', 'secret_assignment'],
       ['SECRET_KEY=supersecretvalue', 'secret_assignment'],
-      [`sk_live_${'abcdefghij0123456789ABCD'}`, 'stripe_key'],
+      ["sk_live_" + "abcdefghij0123456789ABCD", 'stripe_key'],
       ['glpat-abcdefghij0123456789', 'gitlab_pat'],
       ['AccountKey=' + 'a'.repeat(44), 'azure_account_key'],
     ]
