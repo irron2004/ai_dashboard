@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'node:fs'
+import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
 import { SourceReader } from './source-reader.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
@@ -29,12 +30,42 @@ export type DriverDeps = {
   // Phase 3 will add: policy, validators
 }
 
+/**
+ * Canonical artifact base names (#17). The writer (driver return `name`) and the reader (artifactByName
+ * lookup) reference the SAME identifiers here instead of duplicating magic strings across call sites,
+ * and lookup is by exact basename equality (not endsWith), so e.g. 'write-plan' can never accidentally
+ * resolve 'lead-write-plan'.
+ */
+export const ARTIFACTS = {
+  projectDiscovery: 'project-discovery-report',
+  conversationHistory: 'conversation-history-report',
+  documentIntent: 'document-intent-report',
+  nodeProposals: 'node-proposals',
+  policyReport: 'policy-report',
+  evidenceVerification: 'evidence-verification-report',
+  graphUpdatePlan: 'graph-update-plan',
+  sharedPromotionPlan: 'shared-promotion-plan',
+  staleDocReport: 'stale-doc-report',
+  leadWritePlan: 'lead-write-plan',
+  writePlan: 'write-plan',
+  appliedWriteReport: 'applied-write-report',
+  gitDiffReport: 'git-diff-report',
+  graphValidation: 'graph-validation-report',
+  markdownYamlValidation: 'markdown-yaml-validation-report',
+  linkValidation: 'link-validation-report',
+  secretScan: 'secret-scan-report',
+  finalPolicy: 'final-policy-report',
+  evalReport: 'eval-report',
+  finalReport: 'final-report',
+} as const
+
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
 
-/** Read a prior state's artifact by its base name (e.g. 'lead-write-plan'). Order-independent. */
+/** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
+ *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
 function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
   const paths = ctx.runState.artifacts[state] ?? []
-  const rel = paths.find(p => p.endsWith(`${name}.json`))
+  const rel = paths.find(p => basename(p) === `${name}.json`)
   return rel ? ctx.store.readArtifact<T>(rel) : undefined
 }
 
@@ -63,28 +94,28 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   return {
     PROJECT_SCANNED: async (ctx) => {
       const data = await discovery.run({ ...run, engine: engineOf(ctx), input: { projectId: ctx.projectId } })
-      return { artifacts: [{ name: 'project-discovery-report', data }] }
+      return { artifacts: [{ name: ARTIFACTS.projectDiscovery, data }] }
     },
 
     SOURCES_EXTRACTED: async (ctx) => {
       // A1: materialize the real raw/ source text so the reader reasons over actual content, not just the
       // (LLM-generated) discovery report.
       const data = await reader.run({ ...run, engine: engineOf(ctx), input: {
-        discovery: artifactByName(ctx, 'PROJECT_SCANNED', 'project-discovery-report'),
+        discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
         sources: sources.read(),
       } })
-      return { artifacts: [{ name: 'conversation-history-report', data }] }
+      return { artifacts: [{ name: ARTIFACTS.conversationHistory, data }] }
     },
 
     DOCUMENTS_CLASSIFIED: async (ctx) => {
-      const data = await classifier.run({ ...run, engine: engineOf(ctx), input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', 'project-discovery-report') } })
-      return { artifacts: [{ name: 'document-intent-report', data }] }
+      const data = await classifier.run({ ...run, engine: engineOf(ctx), input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery) } })
+      return { artifacts: [{ name: ARTIFACTS.documentIntent, data }] }
     },
 
     NODE_PROPOSALS_CREATED: async (ctx) => {
       const data = await extractor.run({ ...run, engine: engineOf(ctx), input: {
-        history: artifactByName(ctx, 'SOURCES_EXTRACTED', 'conversation-history-report'),
-        intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', 'document-intent-report'),
+        history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
+        intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
         sources: sources.read(),  // A1: extractor cites paths/quotes from real source text
       } })
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
@@ -102,43 +133,43 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
           evidence.unverifiable.map(u => `${u.proposal_id}/${u.evidence_id}:${u.reason}`).join(', '))
       }
       return { artifacts: [
-        { name: 'node-proposals', data }, { name: 'policy-report', data: report },
-        { name: 'evidence-verification-report', data: evidence },
+        { name: ARTIFACTS.nodeProposals, data }, { name: ARTIFACTS.policyReport, data: report },
+        { name: ARTIFACTS.evidenceVerification, data: evidence },
       ] }
     },
 
     LEAD_MERGED: async (ctx) => {
-      const out = await lead.run({ ...run, engine: engineOf(ctx), input: { proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', 'node-proposals') } })
+      const out = await lead.run({ ...run, engine: engineOf(ctx), input: { proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals) } })
       return { artifacts: [
-        { name: 'graph-update-plan', data: out.graph_update_plan },
-        { name: 'shared-promotion-plan', data: out.shared_promotion_plan },
-        { name: 'stale-doc-report', data: out.stale_doc_report },
-        { name: 'lead-write-plan', data: out.write_plan },  // cached for WRITE_PLAN_CREATED (no 2nd LLM call)
+        { name: ARTIFACTS.graphUpdatePlan, data: out.graph_update_plan },
+        { name: ARTIFACTS.sharedPromotionPlan, data: out.shared_promotion_plan },
+        { name: ARTIFACTS.staleDocReport, data: out.stale_doc_report },
+        { name: ARTIFACTS.leadWritePlan, data: out.write_plan },  // cached for WRITE_PLAN_CREATED (no 2nd LLM call)
       ] }
     },
 
     WRITE_PLAN_CREATED: async (ctx) => {
-      const writePlan = artifactByName(ctx, 'LEAD_MERGED', 'lead-write-plan')
-      return { artifacts: [{ name: 'write-plan', data: writePlan }] }
+      const writePlan = artifactByName(ctx, 'LEAD_MERGED', ARTIFACTS.leadWritePlan)
+      return { artifacts: [{ name: ARTIFACTS.writePlan, data: writePlan }] }
     },
 
     STAGING_WRITTEN: async (ctx) => {
       const staging = new StagingVault(deps.vaultRoot, deps.stagingRoot)
       staging.prepare()
-      const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', 'write-plan'))
+      const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
       const applied = writer.apply(plan, staging)
       const patch = staging.diff()
       ctx.store.writeFile('diff.patch', patch)  // top-level deliverable (design §6.2)
       return { artifacts: [
-        { name: 'applied-write-report', data: applied },
-        { name: 'git-diff-report', data: { patch } },
+        { name: ARTIFACTS.appliedWriteReport, data: applied },
+        { name: ARTIFACTS.gitDiffReport, data: { patch } },
       ] }
     },
 
     VALIDATED: async (ctx) => {
       // Deterministic verification over the staging vault (design §7.3-7.4).
       // node_id consistency is checked against the graph plan's node ids (cross-artifact), not filenames.
-      const graphPlan = artifactByName<{ node_ops?: { node_id?: string }[] }>(ctx, 'LEAD_MERGED', 'graph-update-plan')
+      const graphPlan = artifactByName<{ node_ops?: { node_id?: string }[] }>(ctx, 'LEAD_MERGED', ARTIFACTS.graphUpdatePlan)
       const graphNodeIds = (graphPlan?.node_ops ?? []).map(o => o.node_id).filter((id): id is string => !!id)
       const graphReport = graph.validate(deps.stagingRoot, { graphNodeIds })
       const mdReport = mdYaml.validate(deps.stagingRoot)
@@ -146,7 +177,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // Secret scan is scoped to THIS RUN's authored files (applied + proposals), not the whole
       // staging copy — otherwise a pre-existing vault secret would permanently block all promotions.
       // Scans every authored file regardless of extension (a secret in config/app.env must be caught).
-      const applied = artifactByName<{ applied: string[]; proposals: string[] }>(ctx, 'STAGING_WRITTEN', 'applied-write-report')
+      const applied = artifactByName<{ applied: string[]; proposals: string[] }>(ctx, 'STAGING_WRITTEN', ARTIFACTS.appliedWriteReport)
       const authored = [...(applied?.applied ?? []), ...(applied?.proposals ?? [])]
       const findings = authored.flatMap(rel => {
         const abs = resolveInside(deps.stagingRoot, rel)
@@ -154,23 +185,23 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       })
       const secretReport = KhSecretScanReportSchema.parse({ ok: findings.length === 0, findings })
       return { artifacts: [
-        { name: 'graph-validation-report', data: graphReport },
-        { name: 'markdown-yaml-validation-report', data: mdReport },
-        { name: 'link-validation-report', data: linkReport },
-        { name: 'secret-scan-report', data: secretReport },
+        { name: ARTIFACTS.graphValidation, data: graphReport },
+        { name: ARTIFACTS.markdownYamlValidation, data: mdReport },
+        { name: ARTIFACTS.linkValidation, data: linkReport },
+        { name: ARTIFACTS.secretScan, data: secretReport },
       ] }
     },
 
     HUMAN_REVIEW_REQUIRED: async (ctx) => {
       // Final policy pass (now with the write plan) feeds the eval safety metrics; non-blocking here.
-      const proposals = (artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', 'node-proposals')?.proposals) ?? []
-      const writePlanRaw = artifactByName(ctx, 'WRITE_PLAN_CREATED', 'write-plan')
+      const proposals = (artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals) ?? []
+      const writePlanRaw = artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan)
       const writePlan = writePlanRaw ? KhWritePlanSchema.parse(writePlanRaw) : undefined
       const finalPolicy = policy.check(proposals, writePlan)
-      const intents = artifactByName<{ documents: unknown[] }>(ctx, 'DOCUMENTS_CLASSIFIED', 'document-intent-report')
-      const graphReport = artifactByName(ctx, 'VALIDATED', 'graph-validation-report')
-      const secretReport = artifactByName<{ findings: unknown[] }>(ctx, 'VALIDATED', 'secret-scan-report')
-      const applied = artifactByName<{ applied: string[]; proposals: string[]; skipped: string[] }>(ctx, 'STAGING_WRITTEN', 'applied-write-report')
+      const intents = artifactByName<{ documents: unknown[] }>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent)
+      const graphReport = artifactByName(ctx, 'VALIDATED', ARTIFACTS.graphValidation)
+      const secretReport = artifactByName<{ findings: unknown[] }>(ctx, 'VALIDATED', ARTIFACTS.secretScan)
+      const applied = artifactByName<{ applied: string[]; proposals: string[]; skipped: string[] }>(ctx, 'STAGING_WRITTEN', ARTIFACTS.appliedWriteReport)
 
       const evalReport = buildEvalReport({
         sourcesTotal: intents?.documents.length ?? 0,
@@ -191,9 +222,9 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       ].join('\n')
       ctx.store.writeFile('final-report.md', finalReport)  // top-level deliverable (design §6.2)
       return { artifacts: [
-        { name: 'final-policy-report', data: finalPolicy },
-        { name: 'eval-report', data: evalReport },
-        { name: 'final-report', data: { markdown: finalReport } },
+        { name: ARTIFACTS.finalPolicy, data: finalPolicy },
+        { name: ARTIFACTS.evalReport, data: evalReport },
+        { name: ARTIFACTS.finalReport, data: { markdown: finalReport } },
       ] }
     },
   }
