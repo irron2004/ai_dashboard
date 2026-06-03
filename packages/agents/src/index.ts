@@ -1,5 +1,6 @@
 export * from './types.js'
 export * from './redact.js'
+export * from './source-discovery.js'
 export * from './claude-adapter.js'
 export * from './codex-adapter.js'
 export * from './opencode-adapter.js'

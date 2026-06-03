@@ -8,7 +8,7 @@ import { VaultWriter } from '@apc/pm'
 import { WikiEngine, FakeAgentRunner } from '@apc/llm-wiki'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession, SourceCursor } from '@apc/shared'
-import { GenerateService } from './generate-service.js'
+import { GENERATE_SOURCE_SCAN_LIMIT, GenerateService } from './generate-service.js'
 
 function fakeAdapter(session: NormalizedSession): AgentIngestAdapter {
   return {
@@ -17,6 +17,30 @@ function fakeAdapter(session: NormalizedSession): AgentIngestAdapter {
       return [{ id: 'claude:s1', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/s1.jsonl', mtimeMs: 100 }]
     },
     async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+      return { session, position: '{}' }
+    },
+  }
+}
+
+function fakeManyAdapter(sessions: NormalizedSession[]): AgentIngestAdapter & { parsed: string[] } {
+  const parsed: string[] = []
+  return {
+    agentKind: 'claude',
+    parsed,
+    async discoverSources(): Promise<AgentSource[]> {
+      return sessions.map((session, index) => ({
+        id: `claude:${session.id}`,
+        agentKind: 'claude',
+        kind: 'jsonl-file',
+        locator: `/x/${session.id}.jsonl`,
+        mtimeMs: sessions.length - index,
+      }))
+    },
+    async parseSource(source: AgentSource): Promise<{ session: NormalizedSession; position: string }> {
+      const id = source.id.replace('claude:', '')
+      parsed.push(id)
+      const session = sessions.find((item) => item.id === id)
+      if (!session) throw new Error(`missing session ${id}`)
       return { session, position: '{}' }
     },
   }
@@ -58,5 +82,44 @@ describe('GenerateService', () => {
     const res = await svc.generateForProject({ projectId: 'p2', engine: 'claude' })
     expect(res.ok).toBe(false)
     expect(res.reason).toMatch(/no.*session/i)
+  })
+
+  test('finds a matching repo session beyond the old 25-source window while keeping a scan bound', async () => {
+    const registry = new ProjectRegistry(db)
+    registry.register({ id: 'p3', name: 'P3', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [] })
+    const sessions: NormalizedSession[] = Array.from({ length: 30 }, (_, index) => ({
+      id: `s${index}`,
+      agentType: 'claude',
+      repoPath: index === 29 ? '/target' : '/other',
+      turns: [{ role: 'user', text: `session ${index}`, toolCalls: [] }],
+      filesTouched: [],
+    }))
+    const adapter = fakeManyAdapter(sessions)
+    const wiki = new WikiEngine(new FakeAgentRunner([JSON.stringify({
+      workSummary: 'summary', filesTouched: [], openProblems: [], nextTasks: [], currentProposalMarkdown: '',
+    })]))
+    const svc = new GenerateService({ adapters: [adapter], registry, vault: new VaultAdapter(dir), vaultWriter: new VaultWriter(new VaultAdapter(dir)), wiki })
+    const res = await svc.generateForProject({ projectId: 'p3', engine: 'claude' })
+    expect(res.ok).toBe(true)
+    expect(res.sessionId).toBe('s29')
+    expect(adapter.parsed).toHaveLength(30)
+  })
+
+  test('does not parse past the generate source scan limit', async () => {
+    const registry = new ProjectRegistry(db)
+    registry.register({ id: 'p4', name: 'P4', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [] })
+    const sessions: NormalizedSession[] = Array.from({ length: GENERATE_SOURCE_SCAN_LIMIT + 5 }, (_, index) => ({
+      id: `s${index}`,
+      agentType: 'claude',
+      repoPath: index === GENERATE_SOURCE_SCAN_LIMIT + 1 ? '/target' : '/other',
+      turns: [],
+      filesTouched: [],
+    }))
+    const adapter = fakeManyAdapter(sessions)
+    const wiki = new WikiEngine(new FakeAgentRunner([]))
+    const svc = new GenerateService({ adapters: [adapter], registry, vault: new VaultAdapter(dir), vaultWriter: new VaultWriter(new VaultAdapter(dir)), wiki })
+    const res = await svc.generateForProject({ projectId: 'p4', engine: 'claude' })
+    expect(res.ok).toBe(false)
+    expect(adapter.parsed).toHaveLength(GENERATE_SOURCE_SCAN_LIMIT)
   })
 })

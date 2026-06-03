@@ -5,6 +5,8 @@ import type { VaultWriter } from '@apc/pm'
 import type { WikiEngine } from '@apc/llm-wiki'
 import type { AgentType, NormalizedSession, WikiGeneration } from '@apc/shared'
 
+export const GENERATE_SOURCE_SCAN_LIMIT = 100
+
 export type GenerateResult = {
   ok: boolean
   reason?: string
@@ -36,7 +38,7 @@ export class GenerateService {
     const repoPath = project.repoPaths[0]
     if (!repoPath) return { ok: false, reason: 'project has no repo path' }
 
-    // Gather sources from all adapters, most-recent-first; parse until one matches repoPath.
+    // Gather sources from all adapters, most-recent-first; parse a bounded scan until one matches repoPath.
     const pairs: { mtime: number; parse: () => Promise<NormalizedSession> }[] = []
     for (const adapter of this.deps.adapters) {
       const sources = await adapter.discoverSources(() => undefined)
@@ -47,7 +49,7 @@ export class GenerateService {
     pairs.sort((a, b) => b.mtime - a.mtime)
 
     let session: NormalizedSession | undefined
-    for (const p of pairs.slice(0, 25)) {
+    for (const p of pairs.slice(0, GENERATE_SOURCE_SCAN_LIMIT)) {
       const s = await p.parse()
       if (s.repoPath === repoPath) { session = s; break }
     }

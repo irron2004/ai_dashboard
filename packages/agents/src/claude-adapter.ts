@@ -1,15 +1,16 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { AgentSourceSchema, NormalizedSessionSchema, type AgentSource, type NormalizedSession, type NormalizedTurn, type SourceCursor } from '@apc/shared'
+import { dirname, join } from 'node:path'
+import { AgentSourceSchema, NormalizedSessionSchema, SourceMetaSchema, type AgentSource, type NormalizedSession, type NormalizedTurn, type SourceCursor } from '@apc/shared'
 import { redact } from './redact.js'
 import type { AgentIngestAdapter } from './types.js'
+import { folderPathFor, walkFiles } from './source-discovery.js'
 
 const FILE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
 /** Parse Claude `.jsonl` transcript content (string) into a NormalizedSession. Reused for
  *  local files (ClaudeAdapter) and remote transcripts read over SSH. */
-export function parseClaudeJsonl(raw: string, opts: { id?: string; transcriptPath?: string } = {}): NormalizedSession {
+export function parseClaudeJsonl(raw: string, opts: { id?: string; transcriptPath?: string; sourceDirPath?: string; sourceKind?: 'jsonl-file' | 'ssh-jsonl'; discoveredAt?: string; sourceMeta?: Record<string, unknown> } = {}): NormalizedSession {
   const lines = raw.split('\n').filter((l) => l.trim().length > 0)
   const turns: NormalizedTurn[] = []
   const filesTouched = new Set<string>()
@@ -50,6 +51,23 @@ export function parseClaudeJsonl(raw: string, opts: { id?: string; transcriptPat
     id: sessionId ?? opts.id ?? 'claude-session',
     agentType: 'claude',
     repoPath, branch, startedAt, endedAt,
+    sourceDirPath: opts.sourceDirPath,
+    sourceMeta: SourceMetaSchema.parse({
+      provider: 'claude',
+      sourceKind: opts.sourceKind ?? 'jsonl-file',
+      rawLocator: opts.transcriptPath ?? opts.id ?? 'claude-session',
+      sourceDirPath: opts.sourceDirPath,
+      discoveredAt: opts.discoveredAt,
+      sessionHeader: {
+        sessionId: sessionId ?? opts.id ?? 'claude-session',
+        cwd: repoPath,
+        gitBranch: branch,
+        startedAt,
+        endedAt,
+        transcriptPath: opts.transcriptPath,
+        ...opts.sourceMeta,
+      },
+    }),
     transcriptPath: opts.transcriptPath,
     turns, filesTouched: [...filesTouched],
   })
@@ -57,38 +75,46 @@ export function parseClaudeJsonl(raw: string, opts: { id?: string; transcriptPat
 
 export class ClaudeAdapter implements AgentIngestAdapter {
   readonly agentKind = 'claude' as const
-  constructor(private readonly projectsDir: string = join(homedir(), '.claude', 'projects')) {}
+  constructor(private readonly projectsDir: string | readonly string[] = join(homedir(), '.claude', 'projects')) {}
 
   async discoverSources(cursorFor: (id: string) => SourceCursor | undefined): Promise<AgentSource[]> {
     const out: AgentSource[] = []
-    let dirs: string[]
-    try { dirs = readdirSync(this.projectsDir) } catch { return [] }
-    for (const dir of dirs) {
-      const abs = join(this.projectsDir, dir)
-      let files: string[]
-      try { files = readdirSync(abs) } catch { continue }
-      for (const f of files) {
-        if (!f.endsWith('.jsonl')) continue
-        const locator = join(abs, f)
-        const st = statSync(locator)
-        const id = `claude:${locator}`
-        const cur = cursorFor(id)
-        if (cur) {
+    const discoveredAt = new Date().toISOString()
+    for (const locator of walkFiles(this.projectsDir, (path) => path.endsWith('.jsonl'))) {
+      const st = statSync(locator)
+      const id = `claude:${locator}`
+      const cur = cursorFor(id)
+      if (cur) {
+        try {
           const pos = JSON.parse(cur.position) as { sizeBytes?: number; mtimeMs?: number }
           if (pos.sizeBytes === st.size && pos.mtimeMs === Math.floor(st.mtimeMs)) continue
+        } catch {
+          // corrupted cursor — treat as changed so it will be re-ingested
         }
-        out.push(AgentSourceSchema.parse({
-          id, agentKind: 'claude', kind: 'jsonl-file', locator,
-          mtimeMs: Math.floor(st.mtimeMs), sizeBytes: st.size,
-        }))
       }
+      out.push(AgentSourceSchema.parse({
+        id,
+        agentKind: 'claude',
+        kind: 'jsonl-file',
+        locator,
+        sourceDirPath: folderPathFor(locator),
+        discoveredAt,
+        mtimeMs: Math.floor(st.mtimeMs),
+        sizeBytes: st.size,
+      }))
     }
     return out
   }
 
   async parseSource(source: AgentSource): Promise<{ session: NormalizedSession; position: string }> {
     const raw = readFileSync(source.locator, 'utf8')
-    const session = parseClaudeJsonl(raw, { id: source.locator, transcriptPath: source.locator })
+    const session = parseClaudeJsonl(raw, {
+      id: source.locator,
+      transcriptPath: source.locator,
+      sourceDirPath: source.sourceDirPath ?? dirname(source.locator),
+      discoveredAt: source.discoveredAt,
+      sourceMeta: { sourceLocator: source.locator },
+    })
     const position = JSON.stringify({ sizeBytes: source.sizeBytes, mtimeMs: source.mtimeMs })
     return { session, position }
   }

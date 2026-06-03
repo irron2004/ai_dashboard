@@ -36,6 +36,8 @@ describe('generateRemote', () => {
       if (cmd.includes('.claude/projects')) {
         // verify Claude's path-encoding scheme is applied to the remote path
         expect(cmd).toContain('-home-me-work-apc')
+        expect(cmd).toContain('find')
+        expect(cmd).toContain('-type f')
         expect(ssh.host).toBe('a6000')
         return { ok: true, stdout: TRANSCRIPT, stderr: '' }
       }
