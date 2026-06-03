@@ -4,6 +4,18 @@
 - **브랜치**: `docs/knowledge-harness-pipeline-spec` (repo: `ai_dashboard`)
 - **세션 성격**: Ralph loop — Phase 1→4 구현, phase마다 commit, 완료 후 team-mode 평가 + 개선 반복.
 
+> ## ⚠️ 상태 정정 (가장 중요 — 먼저 읽을 것)
+> 이 핸드오프 본문(§1~2)은 "수렴/완료"로 적혀 있으나, **마지막에 수행한 holistic 팀 진단이 그 프레이밍을
+> 뒤집었다.** narrow 리뷰 7라운드는 *바뀐 부분*만 검증해서 시스템 차원의 구멍을 놓쳤다. 전체 진단 결과:
+> **현 구현은 잘 테스트된 "골격(skeleton)"이지 동작하는 evidence 파이프라인이 아니다 — production-ready 아님.**
+> - **전체 진단 문서**: `docs/superpowers/specs/2026-06-03-knowledge-harness-diagnosis.md` (58개 confirmed 문제, 우선순위·fix 포함).
+> - **3대 시스템 약점**: (1) evidence chain이 decorative(실제 source 미수집·미검증), (2) 결정론 검증이
+>   advisory/inert(validator .ok를 아무도 안 읽음, 게이트 17/22 inert), (3) 데스크톱 UI config가 backend로
+>   전달 안 됨(죽은 컨트롤). + CI typecheck 없음, 실 LLM 테스트 없음.
+> - **현재 안전한 이유는 staging-only write + 사람 promote뿐 — 코드가 아니라 사람이 안전장치다.**
+> - **블로커**: A1/A2(grounding 부재), B1–B3(검증 미게이트+매번 false-fail), C1/C2(UI 거짓), D1(패키징된
+>   Electron 부팅 실패), D2(typecheck 없음), E1(테스트가 실제 일을 검증 안 함). 권장 순서는 진단 문서 참조.
+
 ## 1. 이번 세션에 한 일 (결론 중심)
 
 증거 기반 위키 파이프라인 `@apc/knowledge-harness`를 **4개 phase 전부 구현**했다. 기존
@@ -218,3 +230,29 @@ hash-gate 정확성, 경로 containment, allowSecrets end-to-end. 라운드 4·5
 - 7 review rounds (R1-6 각각 실버그 발견 후 수정, R7 CLEAN). canonical-promote feature까지 수렴.
 - acceptance §12 1~8 전부 데스크톱 UX까지 충족. packages 233 + desktop 34 green.
 - 남은 backlog는 전부 저가치/비권장(per-flag gate[비권장], --from rewind, git-worktree, 실 LLM CI test).
+
+---
+
+## 2-p. 세션 closeout — Holistic 진단 (이 핸드오프의 최신 작업)
+
+1. **한 일**: Ralph loop 취소 후, 사용자 요청으로 전체 구현을 **team-mode로 holistic 진단**(문제 위주).
+   workflow `wf_46a7620f-d0c` (69 agents, 6 dimension → adversarial verify → synthesis):
+   **62 raised / 58 confirmed** (critical 1, high 9, medium 28, low 20). 진단 문서로 정리.
+2. **변경 파일/커밋**:
+   - 신규: `docs/superpowers/specs/2026-06-03-knowledge-harness-diagnosis.md` (전체 58문제 + 우선순위 + fix). commit.
+   - 이 핸드오프 상단에 ⚠️ 상태정정 배너 추가. commit.
+   - 코드 변경 없음(진단만). 그 외는 직전 세션 그대로(packages 233 + desktop 34 green, 79 commits).
+3. **다음에 할 일 (권장 순서, 진단 문서 §Recommended sequencing)**:
+   - (1) **D1+D2**: 패키징 Electron 부팅 경로 수정(`feature-gate.ts:6`/`preamble.ts:6` import.meta.url 의존 +
+     container에서 gatesPath/preamble 명시 주입 + `harness/`를 extraResource로 동봉) + 루트 typecheck 스텝.
+   - (2) **B1–B3**: VALIDATED validator를 실제 게이트로(또는 promote 게이트에 추가); orphan/node_id 규칙이
+     매 run false-fail 안 하도록 수정(신규 노드 orphan 제외, node_id는 graph-plan과 비교).
+   - (3) **스키마 하드닝**: kh-schema의 identity/evidence/op 필드에 `.min(1)`/`z.enum`, `scope` enum.
+   - (4) **C1/C2**: UI config를 backend로 plumb하거나 컨트롤을 read-only로(거짓 표시 제거).
+   - (5) **A1+A2**(핵심·큰 작업): SourceReader 경계 + 결정론적 evidence-verification driver.
+   - (6) **E1**: makeDrivers에 실제형/적대적 agent 출력 fixture + opt-in 실 LLM smoke test.
+4. **재현/검증**:
+   - 진단 원본 JSON: `/tmp/.../tasks/wbwt2d1fy.output` (휘발성; 핵심은 진단 문서에 보존됨).
+   - 테스트: `pnpm test`(packages) / `cd apps/desktop && pnpm exec vitest run`(desktop).
+   - 신규 파일 수동 typecheck: 진단 §D2 / 직전 핸드오프 §4 명령 참조.
+   - **주의**: "수렴/완료"라던 직전 결론은 narrow 리뷰 기준이었음 — 진단 문서가 실제 상태(골격, 블로커 존재)다.
