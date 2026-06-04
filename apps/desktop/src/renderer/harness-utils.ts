@@ -1,4 +1,4 @@
-import type { AgentType, KhState, RunState } from '@apc/shared'
+import type { AgentType, KhState, RunState, FeatureGateKey } from '@apc/shared'
 
 export const HARNESS_STATE_ORDER: KhState[] = [
   'CREATED', 'PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED',
@@ -6,29 +6,10 @@ export const HARNESS_STATE_ORDER: KhState[] = [
   'VALIDATED', 'HUMAN_REVIEW_REQUIRED', 'MERGED', 'FAILED',
 ]
 
-export type HarnessFeatureGateKey =
-  | 'auto_classify_documents'
-  | 'auto_create_node_proposals'
-  | 'auto_create_write_plan'
-  | 'auto_write_to_staging'
-  | 'auto_write_to_real_vault'
-  | 'auto_shared_promotion'
-  | 'auto_deprecate'
-  | 'auto_delete'
-  | 'auto_graph_update'
-  | 'auto_update_current'
-  | 'auto_update_adr'
-  | 'enable_conversation_history_reader'
-  | 'enable_claude_history_reader'
-  | 'enable_codex_history_reader'
-  | 'enable_opencode_history_reader'
-  | 'enable_policy_guard'
-  | 'enable_secret_scan'
-  | 'enable_evidence_required'
-  | 'enable_human_review_for_shared'
-  | 'enable_human_review_for_canonical'
-  | 'use_staging_vault'
-  | 'require_git_diff_before_merge'
+// Single-sourced from @apc/shared KNOWN_FEATURE_GATES: the GATE_WIRING / SHIPPED_GATE_VALUES tables
+// below are Record<HarnessFeatureGateKey, …>, so adding/removing/renaming a gate in the shared universe
+// turns into a compile error here until these tables are updated to match.
+export type HarnessFeatureGateKey = FeatureGateKey
 
 export const HARNESS_FEATURE_GATES: Array<{ key: HarnessFeatureGateKey; label: string; description: string }> = [
   { key: 'auto_classify_documents', label: 'Auto classify documents', description: 'Classify markdown and source files into canonical/reference/scratch roles.' },

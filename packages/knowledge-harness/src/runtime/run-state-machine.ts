@@ -1,7 +1,9 @@
-import type { KhState } from '@apc/shared'
+import type { KhState, HonoredGate } from '@apc/shared'
 
-/** Happy-path pipeline: each step names the target state and the feature gate (if any) that must be open. */
-export type PipelineStep = { to: KhState; gate?: string }
+/** Happy-path pipeline: each step names the target state and the feature gate (if any) that must be open.
+ * `gate` is typed against HonoredGate (not string) so a renamed/typo'd gate key is a COMPILE error and a
+ * gate that no step consults can't drift out of the honored set — the single source is @apc/shared. */
+export type PipelineStep = { to: KhState; gate?: HonoredGate }
 
 export const PIPELINE: PipelineStep[] = [
   { to: 'PROJECT_SCANNED' },
