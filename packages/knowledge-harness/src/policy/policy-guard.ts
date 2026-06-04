@@ -47,6 +47,15 @@ export class PolicyGuard {
       if (isCanonical(op.path) && op.mode !== 'proposal_only') {
         warn(pid, 'canonical_overwrite', `canonical doc must be proposal_only: ${op.path}`)
       }
+      // Only create_file / append_section actually author a file body. Constrain them to markdown (#24)
+      // and refuse to author secret-bearing content into the staging vault (#21) — the latter is a BLOCK,
+      // not the warn we use for secrets merely quoted in evidence, because here it would be written out.
+      if (op.op === 'create_file' || op.op === 'append_section') {
+        if (!/\.md$/i.test(op.path)) block(pid, 'non_markdown_write', `write op must target a .md file: ${op.path}`)
+        const body = op.content ?? op.content_template ?? ''
+        const hits = this.secrets.scan(body, op.path)
+        if (hits.length) block(pid, 'secret_in_write', `secret-like content in write op for ${op.path}: ${hits.map(h => h.rule).join(',')}`)
+      }
     }
 
     const hasBlock = violations.some(v => v.severity === 'block')

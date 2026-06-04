@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FakeAgentRunner } from '@apc/llm-wiki'
@@ -74,17 +74,39 @@ describe('makeDrivers — adversarial agent output', () => {
     expect(applied.proposals).toContain('current.proposal.md')
   })
 
-  test('a write op under raw/ is skipped by the writer', async () => {
+  // #26: a write op under raw/ is a hard block at the pre-staging gate (the run FAILS) — not merely
+  // skipped by the writer. The writer's skip remains as defense-in-depth (unit-tested separately), but a
+  // plan that even ATTEMPTS a raw write is LLM misbehavior the pipeline must refuse, not silently absorb.
+  test('a write op under raw/ blocks the run before staging (#26)', async () => {
     const lead = leadJson([
       { op: 'create_file', path: 'concepts/n1.md', content: '# T\n' },
       { op: 'create_file', path: 'raw/should-not-write.md', content: 'nope\n' },
     ])
     const { store, runner } = drive([discovery, reader, classifier, proposalsJson(), lead])
     const rs = await runner.advance(store)
-    const applied = store.readArtifact<{ applied: string[]; skipped: string[] }>(
-      rs.artifacts['STAGING_WRITTEN'].find(p => p.endsWith('applied-write-report.json'))!)
-    expect(applied.skipped).toContain('raw/should-not-write.md')
-    expect(applied.applied).not.toContain('raw/should-not-write.md')
+    expect(rs.state).toBe('FAILED')
+    expect(rs.error).toContain('raw_write')
+    expect(existsSync(join(ws, 'staging', 'concepts', 'n1.md'))).toBe(false)  // nothing authored on a blocked plan
+  })
+
+  // #21/#22: a secret in a write-op BODY is caught BEFORE the staging write happens (scan-before-staging),
+  // so the secret is never authored into the staging vault and the run FAILs.
+  test('a write op carrying a secret blocks the run before staging (#21/#22)', async () => {
+    const lead = leadJson([{ op: 'create_file', path: 'concepts/n1.md', content: 'AWS_KEY=AKIAIOSFODNN7EXAMPLE\n' }])
+    const { store, runner } = drive([discovery, reader, classifier, proposalsJson(), lead])
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('FAILED')
+    expect(rs.error).toContain('secret_in_write')
+    expect(existsSync(join(ws, 'staging', 'concepts', 'n1.md'))).toBe(false)  // secret never written
+  })
+
+  // #24: a write op authoring a non-.md file blocks the run before staging.
+  test('a non-.md write op blocks the run before staging (#24)', async () => {
+    const lead = leadJson([{ op: 'create_file', path: 'config/app.env', content: 'plain config\n' }])
+    const { store, runner } = drive([discovery, reader, classifier, proposalsJson(), lead])
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('FAILED')
+    expect(rs.error).toContain('non_markdown_write')
   })
 
   test('evidence citing a nonexistent raw source fails the run (EvidenceVerifier)', async () => {

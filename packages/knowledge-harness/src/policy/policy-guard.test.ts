@@ -67,4 +67,43 @@ describe('PolicyGuard', () => {
     expect(v?.severity).toBe('warn')
     expect(r.ok).toBe(true)  // warn alone does not block
   })
+
+  // #24: a write op that would author a non-.md file is a hard block — the harness only ever authors
+  // markdown wiki docs, so a plan targeting .env/.js/etc. is LLM misbehavior, not a benign write.
+  test('a create_file/append_section op targeting a non-.md path is blocked (#24)', () => {
+    const wp = KhWritePlanSchema.parse({
+      write_plan_id: 'WP-1', created_by: 'lead',
+      operations: [
+        { op: 'create_file', path: 'config/app.env', content: 'x' },
+        { op: 'append_section', path: 'notes/log.txt', content: 'y' },
+      ],
+    })
+    const r = guard.check([proposal()], wp)
+    const hits = r.violations.filter(v => v.rule === 'non_markdown_write')
+    expect(hits).toHaveLength(2)
+    expect(hits.every(v => v.severity === 'block')).toBe(true)
+    expect(r.ok).toBe(false)
+  })
+
+  // #21: a secret in a write-op BODY is a block (unlike a secret merely quoted in evidence, which warns) —
+  // it would otherwise be authored into the staging vault.
+  test('a write op whose body contains a secret is blocked (#21)', () => {
+    const wp = KhWritePlanSchema.parse({
+      write_plan_id: 'WP-1', created_by: 'lead',
+      operations: [{ op: 'create_file', path: 'concepts/n1.md', content: 'AWS_KEY=AKIAIOSFODNN7EXAMPLE\n' }],
+    })
+    const r = guard.check([proposal()], wp)
+    expect(r.violations.find(v => v.rule === 'secret_in_write')?.severity).toBe('block')
+    expect(r.ok).toBe(false)
+  })
+
+  test('a clean .md write op with no secret adds no write-content violations', () => {
+    const wp = KhWritePlanSchema.parse({
+      write_plan_id: 'WP-1', created_by: 'lead',
+      operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# clean\n' }],
+    })
+    const r = guard.check([proposal()], wp)
+    expect(r.violations.find(v => v.rule === 'non_markdown_write' || v.rule === 'secret_in_write')).toBeUndefined()
+    expect(r.ok).toBe(true)
+  })
 })

@@ -154,9 +154,19 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     STAGING_WRITTEN: async (ctx) => {
+      const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
+      // Pre-staging blocking gate (#21/#22/#26, #24): re-run PolicyGuard with the write plan and HALT before
+      // touching the staging vault if any op would write to raw/, delete, author a non-.md file, or carry a
+      // secret in its body. Scanning the op bodies HERE (not just the files at VALIDATED) means a secret or
+      // raw/non-md write is refused before it is ever authored — not flagged after the fact.
+      const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
+      const gate = policy.check(proposals, plan)
+      if (!gate.ok) {
+        throw new Error(`PolicyGuard blocked the write plan before staging: ` +
+          gate.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id || '-'}:${v.rule}`).join(', '))
+      }
       const staging = new StagingVault(deps.vaultRoot, deps.stagingRoot)
       staging.prepare()
-      const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
       const applied = writer.apply(plan, staging)
       const patch = staging.diff()
       ctx.store.writeFile('diff.patch', patch)  // top-level deliverable (design §6.2)
