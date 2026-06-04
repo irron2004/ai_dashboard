@@ -38,6 +38,31 @@ describe('SecretScanner', () => {
     }
   })
 
+  // #23: client_secret / generic *_token bodies and header-less private-key bodies. These catch real
+  // credential values while staying off benign config/prose — the discriminator is the VALUE shape
+  // (mixed-case + digit + length), not the key name, so the benign cases below must still be clean.
+  test('detects client_secret / generic *_token assignments with secret-shaped values (#23)', () => {
+    const cases: [string, string][] = [
+      ['client_secret=GOCSPX-AbCdEf0123456789AbCdEfGh', 'credential_assignment'],
+      ['client_secret: aB3dEfGh1jKlMn0pQrStUv', 'credential_assignment'],
+      ['CLIENT_SECRET=GOCSPX-Ab12Cd34Ef56Gh78Ij90Kl', 'credential_assignment'],
+      ['refresh_token = 1ABcd3Fghi5Jklm7Nopq9Rstu', 'credential_assignment'],
+      ['app_refresh_token: Zx9Yw8Vu7Ts6Rq5Po4Nm3', 'credential_assignment'],
+    ]
+    for (const [text, rule] of cases) {
+      const f = scanner.scan(text, 'src')
+      expect(f.map(x => x.rule), `expected ${rule} in "${text}"`).toContain(rule)
+      expect(f.find(x => x.rule === rule)!.match_preview).toContain('*')
+    }
+  })
+
+  test('detects a header-less private-key body (DER/base64 MII… block) (#23)', () => {
+    const body = 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtAbCdEf0123456789'
+    const f = scanner.scan(body, 'src')
+    expect(f.map(x => x.rule)).toContain('private_key_body')
+    expect(f.find(x => x.rule === 'private_key_body')!.match_preview).toContain('*')
+  })
+
   test('does NOT flag benign schema/prose vocabulary (no false-positive promotion blocks)', () => {
     for (const benign of [
       'primary_key: integer NOT NULL',
@@ -47,6 +72,11 @@ describe('SecretScanner', () => {
       'session token: expires after 30 minutes',
       'client_secret: snake_case_word',
       'The primary key is the id column',
+      // #23 boundary: credential-named keys whose VALUE is not secret-shaped (no digit, or no uppercase)
+      'refresh_token: see_auth_docs_below',
+      'access_token field stores the bearer value',
+      'release_token: build_2024_candidate',
+      'client_secret: lowercase_only_value',
     ]) {
       expect(scanner.scan(benign, 'doc.md'), benign).toEqual([])
     }

@@ -22,9 +22,18 @@ const RULES: { rule: string; re: RegExp }[] = [
   { rule: 'connection_string_credentials', re: /\w+:\/\/[^/\s:@]+:[^/\s:@]+@/g },
   { rule: 'bearer_token', re: /bearer\s+[A-Za-z0-9._\-]{20,}/gi },
   { rule: 'private_key', re: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY(?: BLOCK)?-----/g },
-  // Only UNAMBIGUOUS credential key names — NOT generic `*_key`/`*_token`/`*_secret` suffixes or a
-  // bare `token`, which match benign wiki/schema prose (primary_key:, session token:, client_secret: word).
+  // #23: a header-less private-key/cert BODY. Base64 of DER `30 82 …` (SEQUENCE) always starts `MII`, so
+  // a long `MII…` base64 run is a key/cert body even when the `-----BEGIN…-----` armor was stripped.
+  { rule: 'private_key_body', re: /MII[A-Za-z0-9+/]{40,}={0,2}/g },
+  // Only UNAMBIGUOUS credential key names — NOT a bare `token` or benign schema prose (primary_key:,
+  // session token:, client_secret: word) — matched regardless of value.
   { rule: 'secret_assignment', re: /(?:password|passwd|api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token|aws_secret_access_key)\s*[:=]\s*\S{6,}/gi },
+  // #23: generic `*_secret` / `*_token` assignments (client_secret, refresh_token, …). To stay off benign
+  // config/prose where these names appear with plain values, the VALUE must be secret-SHAPED: >=16 chars
+  // from the secret alphabet AND containing a digit AND an uppercase letter (so `snake_case_word`,
+  // `build_2024_candidate`, `see_auth_docs` are all ignored). NOTE: deliberately NOT /i — the uppercase
+  // lookahead must stay case-sensitive; key suffixes spell both lower and SCREAMING forms explicitly.
+  { rule: 'credential_assignment', re: /[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*[_-](?:secret|SECRET|token|TOKEN)\s*[:=]\s*["']?(?=[A-Za-z0-9_\-./+=]*[0-9])(?=[A-Za-z0-9_\-./+=]*[A-Z])[A-Za-z0-9_\-./+=]{16,}/g },
 ]
 
 /**
