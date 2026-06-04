@@ -131,4 +131,28 @@ describe('kh-schema', () => {
     expect(() => RunStateSchema.parse({ runId: 'R', projectId: 'p', engine: 'gpt', state: 'CREATED' })).toThrow()
     expect(RunStateSchema.parse({ runId: 'R', projectId: 'p', engine: 'codex', state: 'CREATED' }).engine).toBe('codex')
   })
+
+  // ---- #29: claim→evidence referential integrity (parse-level defense-in-depth, "NEVER invent evidence") ----
+  // PolicyGuard remains the proposal-level evidence gate at RUNTIME, and the eval report MEASURES
+  // evidence quality — so an EMPTY proposal (no claims, no evidence) must stay parseable. This layer only
+  // rejects a claim whose cited evidence was never declared, or a claim that cites no evidence at all.
+
+  test('rejects a claim citing an unknown evidence_id (#29)', () => {
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal,
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-404'] }],
+      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }] })).toThrow()
+  })
+
+  test('rejects a claim that cites no evidence at all (#29)', () => {
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal,
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: [] }] })).toThrow()
+  })
+
+  test('an empty proposal (no claims, no evidence) still PARSES — PolicyGuard is the runtime evidence gate (#29)', () => {
+    expect(() => KhNodeProposalSchema.parse({ ...validProposal, claims: [], evidence: [] })).not.toThrow()
+  })
+
+  test('a claim citing a declared evidence_id parses (#29)', () => {
+    expect(KhNodeProposalSchema.parse(validProposal).claims[0].evidence_ids).toEqual(['EV-1'])
+  })
 })

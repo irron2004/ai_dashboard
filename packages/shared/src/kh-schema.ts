@@ -66,6 +66,26 @@ export const KhNodeProposalSchema = z.object({
   risk: z.object({ level: Risk.default('low'), reason: z.string().default('') }).default({}),
   review: z.object({ requires_human_review: z.boolean().default(true), reviewer_question: z.string().default('') }).default({}),
 })
+  // #29: claim→evidence referential integrity (parse-level defense-in-depth for "NEVER invent evidence").
+  // Every claim must cite >=1 evidence id, and each cited id must resolve to a declared evidence entry —
+  // a dangling/hallucinated reference is a structural reject, not a runtime warning. NOTE: an EMPTY
+  // proposal (no claims, no evidence) stays valid on purpose: PolicyGuard is the runtime evidence gate and
+  // the eval report measures evidence-less proposals, so they must remain parseable.
+  .superRefine((p, ctx) => {
+    const declared = new Set(p.evidence.map(e => e.evidence_id))
+    p.claims.forEach((c, i) => {
+      if (c.evidence_ids.length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['claims', i, 'evidence_ids'],
+          message: `claim ${c.claim_id} must cite at least one evidence entry` })
+      }
+      for (const eid of c.evidence_ids) {
+        if (!declared.has(eid)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['claims', i, 'evidence_ids'],
+            message: `claim ${c.claim_id} cites unknown evidence_id "${eid}"` })
+        }
+      }
+    })
+  })
 export type KhNodeProposal = z.infer<typeof KhNodeProposalSchema>
 
 // Recognized write verbs. delete_file is recognized-but-forbidden: it parses so PolicyGuard can block it
