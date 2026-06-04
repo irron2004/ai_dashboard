@@ -199,31 +199,59 @@ describe('HarnessService', () => {
     expect(r.reason).toContain('PolicyGuard blocked')  // error message preserved end-to-end
   })
 
-  test('a secret in staged content lets the run finish but BLOCKS promotion (allowSecrets overrides)', async () => {
-    const proposals = { proposals: [{
-      proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
-      node: { id: 'n1', type: 'ConceptNode', title: 'T' },
-      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }],
-      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
-    }] }
+  const proposalsWith = () => ({ proposals: [{
+    proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
+    node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+    evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }],
+    claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
+  }] })
+
+  test('a secret in a write-op body FAILS the run before staging (#21/#22)', async () => {
     const lead = {
       graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
-      // the staged file body carries an AWS key
+      // the op body carries an AWS key — caught at the pre-staging gate, so it is never authored
       write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# T\nkey AKIAIOSFODNN7EXAMPLE\n' }] },
     }
     const outs = [
       JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
       JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
       JSON.stringify({ generated_by: 'classifier', documents: [] }),
-      JSON.stringify(proposals), JSON.stringify(lead),
+      JSON.stringify(proposalsWith()), JSON.stringify(lead),
     ]
     const svc = new HarnessService({
       runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
       gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
     })
     const r = await svc.run({ projectId: 'p1', engine: 'claude' })
-    expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')  // secret is warn-level: run completes for review
-    expect(svc.promote({ runId: r.runId }).ok).toBe(false)                 // ...but promotion is blocked
+    expect(r.finalState).toBe('FAILED')
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toContain('secret_in_write')
+    expect(existsSync(join(ws, 'vault-staging', 'concepts', 'n1.md'))).toBe(false)  // never authored
+  })
+
+  test('a secret that reaches staged content (pre-existing, merged by append) BLOCKS promotion; allowSecrets overrides', async () => {
+    // The op body itself is clean, so the pre-staging gate lets the run finish — but appending to a
+    // pre-existing vault doc that already holds a secret surfaces it in the authored staged file, where
+    // the VALIDATED scan catches it and the promote gate refuses (unless a human passes allowSecrets).
+    mkdirSync(join(ws, 'vault', 'notes'), { recursive: true })
+    writeFileSync(join(ws, 'vault', 'notes', 'log.md'), '# Log\nleftover key AKIAIOSFODNN7EXAMPLE\n')
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'append_section', path: 'notes/log.md', content: '\n## update\nclean appended note\n', mode: 'apply' }] },
+    }
+    const outs = [
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+      JSON.stringify(proposalsWith()), JSON.stringify(lead),
+    ]
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')  // op body clean → run completes for review
+    expect(svc.promote({ runId: r.runId }).ok).toBe(false)                 // ...but the merged secret blocks promotion
     expect(svc.promote({ runId: r.runId, allowSecrets: true }).ok).toBe(true)  // explicit human override
   })
 })
