@@ -1,6 +1,6 @@
 import type { AgentType } from '@apc/shared'
 
-export type RunInput = { agent: AgentType; prompt: string; timeoutMs: number }
+export type RunInput = { agent: AgentType; prompt: string; timeoutMs: number; cwd?: string }
 export type RunResult = { ok: boolean; output: string; raw: string }
 
 export interface AgentRunner {
