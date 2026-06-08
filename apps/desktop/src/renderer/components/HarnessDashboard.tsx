@@ -11,6 +11,7 @@ import { DiffViewer } from './DiffViewer.js'
 import { CoverageMatrix } from './CoverageMatrix.js'
 import { QualityPanel } from './QualityPanel.js'
 import { ProposalsPanel } from './ProposalsPanel.js'
+import { AgentConfigEditorPanel } from './AgentConfigEditorPanel.js'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 
 type Props = {
@@ -18,7 +19,7 @@ type Props = {
   onSelectProfile: (profileId: string) => void
 }
 
-type Tab = 'markdown' | 'graph' | 'flow' | 'coverage' | 'quality' | 'proposals'
+type Tab = 'markdown' | 'graph' | 'flow' | 'coverage' | 'quality' | 'proposals' | 'config'
 
 function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): boolean {
   const normalized = target.trim().toLowerCase()
@@ -109,6 +110,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             <button type="button" className={tab === 'coverage' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('coverage')}>Coverage</button>
             <button type="button" className={tab === 'quality' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('quality')}>Quality</button>
             <button type="button" className={tab === 'proposals' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('proposals')}>Proposals</button>
+            <button type="button" className={tab === 'config' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('config')}>Config</button>
           </nav>
 
           <div className="harness-dashboard__content">
@@ -144,6 +146,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
                 ? <ProposalsPanel proposals={proposalsData} />
                 : <div className="harness-dashboard__placeholder">아직 노드 제안이 없습니다 — run을 실행하세요.</div>
             )}
+            {tab === 'config' && <AgentConfigEditorPanel profiles={profiles} />}
           </div>
 
           {harnessCanonicalProposals.length > 0 && (
