@@ -6,6 +6,7 @@ import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
 import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
+import { SearchModal } from './components/SearchModal.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -28,6 +29,7 @@ export function App() {
   const [agent, setAgent] = useState<AgentType>('claude')
   const [mainTab, setMainTab] = useState<MainTab>('pm')
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [selectedGenerateEngine, setSelectedGenerateEngine] = useState<AgentType>('claude')
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
@@ -128,6 +130,16 @@ export function App() {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [projects, selectProject])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyK') {
+        e.preventDefault(); setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // The active agent pane grows; the others shrink. Focus/typing in a pane makes it active.
   useEffect(() => {
@@ -242,6 +254,7 @@ export function App() {
           <button disabled={preflighting || generating || !selectedProjectId} onClick={openGeneratePreflight} title="문서/소스 범위 확인 후 current.md 제안 생성">
             {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
           </button>
+          <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)">🔎 Search</button>
           {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
             Ctrl+1..9 project · Shift+1/2/3 agent
@@ -471,6 +484,8 @@ export function App() {
           </div>
         </div>
       )}
+
+      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
 
       {error && (
         <div className="error-toast" onClick={clearError}>
