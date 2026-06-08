@@ -1095,3 +1095,33 @@ textarea {
     width: 100%;
   }
 }
+
+/* ── PM Home ─────────────────────────────────────────── */
+.main-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.main-panel__tabs { display: flex; gap: 4px; padding: 4px 6px 0; flex: 0 0 auto; }
+.main-panel__tab { background: #161616; border: 1px solid #2c2c2c; border-bottom: none; border-radius: 4px 4px 0 0; padding: 4px 12px; font-size: 0.8rem; color: #ccc; cursor: pointer; }
+.main-panel__tab--active { background: #23311f; border-color: #4a8a4a; color: #fff; }
+.main-panel__content { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid #2c2c2c; }
+
+.pm-home { display: flex; flex-direction: column; gap: 14px; padding: 12px; }
+.pm-home h2 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; margin: 0 0 6px; }
+.pm-home__header { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.pm-home__dates { margin-left: auto; font-size: 0.8rem; opacity: 0.7; }
+.pm-home__empty { opacity: 0.5; font-size: 0.82rem; }
+
+.pm-timeline { position: relative; }
+.pm-timeline__track { position: relative; height: 28px; background: #161616; border: 1px solid #2c2c2c; border-radius: 4px; }
+.pm-timeline__marker { position: absolute; top: 4px; width: 10px; height: 18px; margin-left: -5px; background: #4a8a4a; border-radius: 2px; }
+.pm-timeline__labels { display: flex; font-size: 0.7rem; opacity: 0.55; margin-top: 2px; }
+.pm-timeline__empty { opacity: 0.5; font-size: 0.82rem; }
+
+.pm-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pm-board__col { background: #161616; border: 1px solid #2c2c2c; border-radius: 4px; padding: 6px; min-height: 60px; }
+.pm-board__col-title { font-size: 0.74rem; text-transform: uppercase; opacity: 0.6; margin: 0 0 6px; display: flex; gap: 6px; }
+.pm-board__count { opacity: 0.5; }
+.pm-board__empty { opacity: 0.4; text-align: center; margin: 6px 0; }
+.pm-board__card { background: #1d1d1d; border: 1px solid #2c2c2c; border-radius: 3px; padding: 5px 6px; margin-bottom: 5px; font-size: 0.8rem; }
+.pm-board__card-meta { display: flex; gap: 6px; margin-top: 3px; font-size: 0.68rem; opacity: 0.75; }
+.pm-board__priority--high { color: #f87171; }
+.pm-board__priority--medium { color: #facc15; }
+.pm-board__priority--low { color: #4ade80; }
