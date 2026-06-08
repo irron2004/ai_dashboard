@@ -8,10 +8,12 @@ import { getProjectDashboard } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService, HarnessService } from '@apc/app-services'
 import { WikiEngine, CliAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
+import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import type {
-  GenerateProjectReq, GenerateProjectRes,
+  GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
+  GeneratePreflightCategoryId,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
 } from '../shared/ipc-contract.js'
@@ -30,6 +32,8 @@ export type Container = {
   ingestAdapters: AgentIngestAdapter[]
   runService: RunService
   generate: GenerateService
+  /** Count selectable Generate inputs without parsing sessions or invoking an LLM. */
+  generatePreflight: (req: GeneratePreflightReq) => Promise<GeneratePreflightRes>
   /** Branches on project kind: ssh:// → run the engine on the remote; local → GenerateService. */
   generateProject: (req: GenerateProjectReq) => Promise<GenerateProjectRes>
   harness: HarnessService
@@ -45,6 +49,39 @@ export type Container = {
 let _idCounter = 0
 function nextId(): string {
   return `auto-${Date.now()}-${++_idCounter}`
+}
+
+const PREFLIGHT_MARKDOWN_SCAN_LIMIT = 2_000
+const PREFLIGHT_MARKDOWN_DEPTH_LIMIT = 12
+const REQUIRED_GENERATE_PREFLIGHT_CATEGORIES: GeneratePreflightCategoryId[] = ['agent-conversations']
+
+function countMarkdownFiles(roots: readonly string[]): number {
+  const seen = new Set<string>()
+  const visit = (path: string, depth: number): void => {
+    if (seen.size >= PREFLIGHT_MARKDOWN_SCAN_LIMIT || depth > PREFLIGHT_MARKDOWN_DEPTH_LIMIT) return
+    let st: import('node:fs').Stats | undefined
+    try { st = statSync(path, { throwIfNoEntry: false }) } catch { return }
+    if (!st) return
+    if (st.isFile()) {
+      if (/\.mdx?$/i.test(path)) seen.add(path)
+      return
+    }
+    if (!st.isDirectory()) return
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(path, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue
+      visit(join(path, entry.name), depth + 1)
+      if (seen.size >= PREFLIGHT_MARKDOWN_SCAN_LIMIT) return
+    }
+  }
+  for (const root of roots) visit(root, 0)
+  return seen.size
+}
+
+function missingRequiredGenerateCategories(selected: readonly GeneratePreflightCategoryId[] | undefined): GeneratePreflightCategoryId[] {
+  if (!selected) return REQUIRED_GENERATE_PREFLIGHT_CATEGORIES
+  return REQUIRED_GENERATE_PREFLIGHT_CATEGORIES.filter((category) => !selected.includes(category))
 }
 
 export function buildContainer(opts: {
@@ -77,7 +114,62 @@ export function buildContainer(opts: {
   const wiki = new WikiEngine(opts.agentRunner ?? new CliAgentRunner())
   const runService = new RunService({ wiki, vaultWriter, tasks, runs })
   const generate = new GenerateService({ adapters: ingestAdapters, registry, vault, vaultWriter, wiki })
+  const generatePreflight = async (req: GeneratePreflightReq): Promise<GeneratePreflightRes> => {
+    const project = registry.get(req.projectId)
+    if (!project) return { ok: false, reason: 'project not found' }
+
+    const allTasks = tasks.listByProject(project.id)
+    const reviewRuns = allTasks.reduce((count, task) => count + runs.listByTask(task.id).length, 0)
+    const vaultRoots = [...project.vaultPaths, join(opts.vaultRoot, 'projects', project.id)]
+    const projectDocCount = countMarkdownFiles(vaultRoots)
+    const agentSourceCount = await generate.countProjectSources(project.id)
+
+    const categories: GeneratePreflightCategory[] = [
+      {
+        id: 'agent-conversations',
+        label: 'LLM CLI conversations',
+        description: 'Recent Claude, OpenCode, and Codex session sources used to build the work summary.',
+        count: agentSourceCount,
+        selectedByDefault: agentSourceCount > 0,
+        required: true,
+      },
+      {
+        id: 'project-docs',
+        label: 'Project docs',
+        description: 'Markdown documents found in this project vault area and registered vault paths.',
+        count: projectDocCount,
+        selectedByDefault: projectDocCount > 0,
+      },
+      {
+        id: 'tasks',
+        label: 'Tasks',
+        description: 'Tracked todo, in-progress, review, and completed tasks for this project.',
+        count: allTasks.length,
+        selectedByDefault: allTasks.length > 0,
+      },
+      {
+        id: 'review-runs',
+        label: 'Agent runs / reviews',
+        description: 'Recorded agent runs linked to this project’s tasks.',
+        count: reviewRuns,
+        selectedByDefault: reviewRuns > 0,
+      },
+    ]
+
+    return {
+      ok: true,
+      projectId: project.id,
+      projectName: project.name,
+      categories,
+      totalCount: categories.reduce((sum, category) => sum + category.count, 0),
+      status: 'Scanned registered project docs, task metadata, run metadata, and available local agent sources.',
+    }
+  }
   const generateProject = (req: GenerateProjectReq): Promise<GenerateProjectRes> => {
+    const missingRequired = missingRequiredGenerateCategories(req.selectedPreflightCategoryIds)
+    if (missingRequired.length > 0) {
+      return Promise.resolve({ ok: false, reason: 'Run Generate preflight and keep LLM CLI conversations selected for the current workflow.' })
+    }
     const project = registry.get(req.projectId)
     if (project?.repoPaths[0]?.startsWith('ssh://')) {
       return generateRemote({ registry, vault, vaultWriter }, req)
@@ -102,7 +194,7 @@ export function buildContainer(opts: {
 
   return {
     db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
-    ingest, ingestAdapters, runService, generate, generateProject,
+    ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     dashboard: getProjectDashboard,
   }

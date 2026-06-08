@@ -2,7 +2,7 @@ import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
-  GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+  GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
@@ -62,6 +62,9 @@ export const api = {
   },
   generateRun(req: GenerateRunReq): Promise<unknown> {
     return window.apc.invoke(CH.generateRun, req)
+  },
+  generatePreflight(req: GeneratePreflightReq): Promise<GeneratePreflightRes> {
+    return window.apc.invoke(CH.generatePreflight, req) as Promise<GeneratePreflightRes>
   },
   generateProject(req: GenerateProjectReq): Promise<GenerateProjectRes> {
     return window.apc.invoke(CH.generateProject, req) as Promise<GenerateProjectRes>

@@ -84,6 +84,39 @@ describe('GenerateService', () => {
     expect(res.reason).toMatch(/no.*session/i)
   })
 
+  test('ignores newer sources from unrelated repos and matches project subdirectories', async () => {
+    const registry = new ProjectRegistry(db)
+    registry.register({ id: 'p-target', name: 'Target', status: 'active', projectType: 'git', repoPaths: ['/work/apc/'], vaultPaths: [], sourcePaths: [] })
+    const sessions: Record<string, NormalizedSession> = {
+      unrelated: { id: 'unrelated', agentType: 'claude', repoPath: '/home/hskim/work/llm-agent-v2', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'pebot', toolCalls: [] }], filesTouched: [] },
+      target: { id: 'target', agentType: 'claude', repoPath: '/work/apc/apps/desktop', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'dashboard', toolCalls: [] }], filesTouched: [] },
+    }
+    const parsed: string[] = []
+    const adapter: AgentIngestAdapter = {
+      agentKind: 'claude',
+      async discoverSources(): Promise<AgentSource[]> {
+        return [
+          { id: 'claude:unrelated', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/unrelated.jsonl', repoPath: '/home/hskim/work/llm-agent-v2', mtimeMs: 200 },
+          { id: 'claude:target', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/target.jsonl', repoPath: '/work/apc/apps/desktop', mtimeMs: 100 },
+        ]
+      },
+      async parseSource(source: AgentSource): Promise<{ session: NormalizedSession; position: string }> {
+        const id = source.id.replace('claude:', '')
+        parsed.push(id)
+        return { session: sessions[id], position: '{}' }
+      },
+    }
+    const wiki = new WikiEngine(new FakeAgentRunner([JSON.stringify({
+      workSummary: 'target summary', filesTouched: [], openProblems: [], nextTasks: [], currentProposalMarkdown: '',
+    })]))
+    const svc = new GenerateService({ adapters: [adapter], registry, vault: new VaultAdapter(dir), vaultWriter: new VaultWriter(new VaultAdapter(dir)), wiki })
+    const res = await svc.generateForProject({ projectId: 'p-target', engine: 'claude' })
+    expect(res.ok).toBe(true)
+    expect(res.sessionId).toBe('target')
+    expect(res.generation?.workSummary).toBe('target summary')
+    expect(parsed).toEqual(['target'])
+  })
+
   test('finds a matching repo session beyond the old 25-source window while keeping a scan bound', async () => {
     const registry = new ProjectRegistry(db)
     registry.register({ id: 'p3', name: 'P3', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [] })

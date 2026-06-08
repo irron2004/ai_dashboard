@@ -138,9 +138,36 @@ describe('IPC handlers (no Electron)', () => {
     }
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake], agentRunner: runner })
     c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
-    const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; proposalPath?: string }
+    const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude', selectedPreflightCategoryIds: ['agent-conversations'] })) as { ok: boolean; proposalPath?: string }
     expect(res.ok).toBe(true)
     expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
+  })
+
+  test('c:generateProject requires the preflight conversation category', async () => {
+    const h = handlers(container)
+    const res = (await h[CH.generateProject]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; reason?: string }
+    expect(res.ok).toBe(false)
+    expect(res.reason).toMatch(/preflight/i)
+  })
+
+  test('c:generatePreflight counts only agent sources for the selected project', async () => {
+    const fake: AgentIngestAdapter = {
+      agentKind: 'claude',
+      async discoverSources(): Promise<AgentSource[]> {
+        return [
+          { id: 'claude:apc', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/apc.jsonl', repoPath: '/work/apc' },
+          { id: 'claude:pebot', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/pebot.jsonl', repoPath: '/home/hskim/work/llm-agent-v2' },
+        ]
+      },
+      async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+        throw new Error('preflight should not parse sources that already declare repoPath')
+      },
+    }
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    const res = (await handlers(c2)[CH.generatePreflight]({ projectId: 'p1' })) as { ok: boolean; categories?: Array<{ id: string; count: number }> }
+    expect(res.ok).toBe(true)
+    expect(res.categories?.find((category) => category.id === 'agent-conversations')?.count).toBe(1)
   })
 
   test('c:harnessRun → c:harnessGetRun → c:harnessPromote drive the pipeline (faked LLM)', async () => {

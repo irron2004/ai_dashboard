@@ -338,6 +338,132 @@ textarea {
   margin-top: 8px;
 }
 
+.generate-preflight {
+  width: 720px;
+  max-width: 92vw;
+}
+
+.generate-preflight__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.generate-preflight__header p {
+  margin-top: 4px;
+  color: #a8adbd;
+  font-size: 0.84rem;
+}
+
+.generate-preflight__badge {
+  flex: 0 0 auto;
+  border: 1px solid rgba(117, 199, 255, 0.38);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: #bde8ff;
+  background: rgba(117, 199, 255, 0.12);
+  font-size: 0.78rem;
+}
+
+.generate-preflight__status,
+.generate-preflight__summary,
+.generate-preflight__confirm {
+  border: 1px solid #3b4054;
+  border-radius: 8px;
+  background: rgba(17, 24, 34, 0.72);
+  padding: 12px;
+  color: #cfd6e6;
+  font-size: 0.84rem;
+}
+
+.generate-preflight__status--error {
+  border-color: #8a4444;
+  color: #ffd1d1;
+  background: rgba(90, 32, 32, 0.35);
+}
+
+.generate-preflight__summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: #a8adbd;
+}
+
+.generate-preflight__summary span:first-child {
+  color: #eef4ff;
+  font-weight: 650;
+}
+
+.generate-preflight__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.generate-preflight__card {
+  gap: 8px;
+  border: 1px solid #3b4054;
+  border-radius: 8px;
+  padding: 12px;
+  background: #1a1d2c;
+  cursor: pointer;
+}
+
+.generate-preflight__card.selected {
+  border-color: rgba(117, 199, 255, 0.55);
+  background: rgba(42, 58, 90, 0.75);
+}
+
+.generate-preflight__card.required {
+  cursor: default;
+}
+
+.generate-preflight__card-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: #eef4ff;
+  font-size: 0.9rem;
+}
+
+.generate-preflight__card-top b {
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #cfeeff;
+  background: rgba(117, 199, 255, 0.14);
+  font-size: 0.78rem;
+}
+
+.generate-preflight__card small {
+  color: #a8adbd;
+  line-height: 1.35;
+}
+
+.generate-preflight__card em {
+  color: #9ccfff;
+  font-size: 0.72rem;
+  font-style: normal;
+}
+
+.generate-preflight__confirm {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.generate-preflight__confirm label {
+  min-width: 170px;
+}
+
+.generate-preflight__confirm p {
+  margin: 0;
+  color: #a8adbd;
+  font-size: 0.82rem;
+}
+
 /* ── Shared panel chrome ────────────────────────────────── */
 .panel {
   display: flex;

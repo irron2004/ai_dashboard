@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes } from '../shared/ipc-contract.js'
+import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 import {
   createDefaultHarnessConfig,
@@ -27,6 +27,8 @@ type ApcStore = {
   lastIngest: { sources: number; sessions: number } | null
   error: string | null
   agentStatus: Record<AgentType, AgentRunStatus>
+  preflighting: boolean
+  generatePreflight: GeneratePreflightRes | null
   generating: boolean
   generation: GenerateProjectRes | null
 
@@ -40,7 +42,9 @@ type ApcStore = {
   harnessCanonicalProposals: HarnessCanonicalProposalsRes
 
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
-  generate(engine: AgentType): Promise<void>
+  prepareGenerate(): Promise<void>
+  generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
+  clearGeneratePreflight(): void
   clearGeneration(): void
   loadProjects(): Promise<void>
   addProject(name: string, projectType: string, repoPath: string): Promise<void>
@@ -98,6 +102,8 @@ export const useStore = create<ApcStore>((set, get) => ({
   lastIngest: null,
   error: null,
   agentStatus: { claude: 'idle', codex: 'idle', opencode: 'idle' },
+  preflighting: false,
+  generatePreflight: null,
   generating: false,
   generation: null,
 
@@ -112,12 +118,27 @@ export const useStore = create<ApcStore>((set, get) => ({
     set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
   },
 
-  async generate(engine) {
+  async prepareGenerate() {
+    const { selectedProjectId } = get()
+    if (!selectedProjectId) { set({ error: 'Select a project first.' }); return }
+    set({ preflighting: true, generatePreflight: null, generation: null })
+    try {
+      const generatePreflight = await api.generatePreflight({ projectId: selectedProjectId })
+      set({ generatePreflight })
+      if (!generatePreflight.ok) set({ error: generatePreflight.reason ?? 'Generate preflight failed' })
+    } catch (e) {
+      set({ error: `Generate preflight failed: ${e}` })
+    } finally {
+      set({ preflighting: false })
+    }
+  },
+
+  async generate(engine, selectedPreflightCategoryIds) {
     const { selectedProjectId } = get()
     if (!selectedProjectId) { set({ error: 'Select a project first.' }); return }
     set({ generating: true, generation: null })
     try {
-      const generation = await api.generateProject({ projectId: selectedProjectId, engine })
+      const generation = await api.generateProject({ projectId: selectedProjectId, engine, selectedPreflightCategoryIds })
       set({ generation })
       if (!generation.ok) set({ error: generation.reason ?? 'Generate failed' })
     } catch (e) {
@@ -127,6 +148,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
+  clearGeneratePreflight() { set({ generatePreflight: null, preflighting: false }) },
   clearGeneration() { set({ generation: null }) },
 
   async loadProjects() {

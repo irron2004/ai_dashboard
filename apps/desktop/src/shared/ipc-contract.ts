@@ -17,6 +17,7 @@ export const CH = {
   updateProject: 'c:updateProject',
   deleteProject: 'c:deleteProject',
   ingestAll: 'c:ingestAll',
+  generatePreflight: 'c:generatePreflight',
   generateRun: 'c:generateRun',
   generateProject: 'c:generateProject',
   harnessRun: 'c:harnessRun',
@@ -48,7 +49,26 @@ export type ListProfilesReq = { projectPath: string }
 export type SubmitReviewReq = { review: Review }
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
-export type GenerateProjectReq = { projectId: string; engine: AgentType }
+export type GeneratePreflightReq = { projectId: string }
+export type GeneratePreflightCategoryId = 'agent-conversations' | 'project-docs' | 'tasks' | 'review-runs'
+export type GeneratePreflightCategory = {
+  id: GeneratePreflightCategoryId
+  label: string
+  description: string
+  count: number
+  selectedByDefault: boolean
+  required?: boolean
+}
+export type GeneratePreflightRes = {
+  ok: boolean
+  reason?: string
+  projectId?: string
+  projectName?: string
+  categories?: GeneratePreflightCategory[]
+  totalCount?: number
+  status?: string
+}
+export type GenerateProjectReq = { projectId: string; engine: AgentType; selectedPreflightCategoryIds?: GeneratePreflightCategoryId[] }
 export type GenerateProjectRes = {
   ok: boolean
   reason?: string

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GenerateProjectReq,
+  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -73,6 +73,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.ingestAll]: async (_payload: unknown) => {
       return container.ingest.ingestAll(container.ingestAdapters)
+    },
+
+    [CH.generatePreflight]: async (payload: unknown) => {
+      const req = payload as GeneratePreflightReq
+      return container.generatePreflight(req)
     },
 
     [CH.generateProject]: async (payload: unknown) => {
