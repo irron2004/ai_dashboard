@@ -43,4 +43,13 @@ describe('LlmAgent failure + cwd', () => {
     await tinyAgent().run({ runner: rec, engine: 'codex', input: { x: 1 }, cwd: '/my/proj' }).catch(() => {})
     expect(calls[0].cwd).toBe('/my/proj')
   })
+
+  test('surfaces the TAIL of a long engine error (banner first, real error last)', async () => {
+    // Engine CLIs (codex/claude/opencode) print a startup banner first and the actual failure LAST;
+    // head-truncation would only show the useless banner.
+    const longRaw = 'OpenAI Codex v0.137.0 banner '.repeat(60) + 'REAL_ERROR_AT_THE_END'
+    const failing: AgentRunner = { run: async () => ({ ok: false, output: '', raw: longRaw }) }
+    await expect(tinyAgent().run({ runner: failing, engine: 'codex', input: {} }))
+      .rejects.toThrow(/REAL_ERROR_AT_THE_END/)
+  })
 })

@@ -30,7 +30,10 @@ export class LlmAgent<O> {
   async run(args: LlmRunArgs): Promise<O> {
     const res = await args.runner.run({ agent: args.engine, prompt: this.buildPrompt(args.input), timeoutMs: args.timeoutMs ?? 180000, cwd: args.cwd })
     if (!res.ok) {
-      const detail = (res.raw || 'agent runner returned not-ok').slice(0, 300)
+      // Engine CLIs print a startup banner first and the actual error LAST, so surface the TAIL
+      // (not the head) — otherwise the message is just the banner and the real failure is cut off.
+      const raw = res.raw || 'agent runner returned not-ok'
+      const detail = raw.length > 800 ? `…${raw.slice(-800)}` : raw
       throw new Error(`${this.cfg.name} failed (${args.engine}): ${detail}`)
     }
     // parseStructured's generic ties input===output; our schema's input is `unknown`, so cast to the
