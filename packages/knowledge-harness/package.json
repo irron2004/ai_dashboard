@@ -1,0 +1,11 @@
+{
+  "name": "@apc/knowledge-harness",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@apc/shared": "workspace:*",
+    "@apc/llm-wiki": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}

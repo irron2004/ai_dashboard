@@ -1,7 +1,9 @@
+import { z } from 'zod'
 import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GenerateProjectReq,
+  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
+  HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
@@ -73,9 +75,43 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.ingest.ingestAll(container.ingestAdapters)
     },
 
+    [CH.generatePreflight]: async (payload: unknown) => {
+      const req = payload as GeneratePreflightReq
+      return container.generatePreflight(req)
+    },
+
     [CH.generateProject]: async (payload: unknown) => {
       const req = payload as GenerateProjectReq
       return container.generateProject(req)
+    },
+
+    [CH.harnessRun]: async (payload: unknown) => {
+      return container.harnessRun(payload as HarnessRunReq)
+    },
+
+    [CH.harnessResume]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.harnessResume(req)
+    },
+
+    [CH.harnessGetRun]: async (payload: unknown) => {
+      return container.harnessGetRun(payload as HarnessGetRunReq)
+    },
+
+    [CH.harnessPromote]: async (payload: unknown) => {
+      // strict parse: only the declared fields reach the service (no arbitrary flag injection)
+      const req = z.object({ runId: z.string(), allowSecrets: z.boolean().optional(), allowInvalid: z.boolean().optional() }).strict().parse(payload)
+      return container.harnessPromote(req)
+    },
+
+    [CH.harnessPromoteCanonical]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string(), proposalRelPath: z.string(), lastReadHash: z.string(), allowSecrets: z.boolean().optional(), allowInvalid: z.boolean().optional() }).strict().parse(payload)
+      return container.harnessPromoteCanonical(req)
+    },
+
+    [CH.harnessCanonicalProposals]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.harnessCanonicalProposals(req)
     },
 
     [CH.generateRun]: async (payload: unknown) => {

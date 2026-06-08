@@ -1,16 +1,34 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OpenCodeAdapter } from './opencode-adapter.js'
+
+function createOpenCodeDb(path: string, sessionId: string, timeUpdated: number, worktree = '/mnt/c/work/apc'): void {
+  mkdirSync(join(path, '..'), { recursive: true })
+  const db = new DatabaseSync(path)
+  db.exec(`
+    CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
+    CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, agent TEXT, model TEXT, time_created INTEGER, time_updated INTEGER);
+    CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, data TEXT);
+    CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT);
+  `)
+  db.prepare('INSERT INTO project VALUES (?,?)').run('p1', worktree)
+  db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?)').run(sessionId, 'p1', 'build', 'openai/gpt-5.5', timeUpdated - 100, timeUpdated)
+  db.prepare('INSERT INTO message VALUES (?,?,?,?)').run(`m-${sessionId}-1`, sessionId, 'user', '{}')
+  db.prepare('INSERT INTO part VALUES (?,?,?)').run(`pt-${sessionId}-1`, `m-${sessionId}-1`, JSON.stringify({ type: 'text', text: `hello ${sessionId}` }))
+  db.close()
+}
 
 describe('OpenCodeAdapter', () => {
   let dir: string
   let dbPath: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'apc-oc-'))
-    dbPath = join(dir, 'opencode.db')
+    const nested = join(dir, 'nested', 'opencode-home')
+    mkdirSync(nested, { recursive: true })
+    dbPath = join(nested, 'opencode.db')
     const db = new DatabaseSync(dbPath)
     db.exec(`
       CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
@@ -29,16 +47,38 @@ describe('OpenCodeAdapter', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   test('discovers sessions newer than the cursor', async () => {
-    const a = new OpenCodeAdapter(dbPath)
+    const a = new OpenCodeAdapter(dir)
     expect(await a.discoverSources(() => undefined)).toHaveLength(1)
-    const seen = { sourceId: 'opencode:oc1', position: JSON.stringify({ timeUpdated: 2000 }), updatedAt: 'x' }
-    expect(await a.discoverSources((id) => (id === 'opencode:oc1' ? seen : undefined))).toHaveLength(0)
+    const sourceId = `opencode:${dbPath}#session:oc1`
+    const seen = { sourceId, position: JSON.stringify({ timeUpdated: 2000 }), updatedAt: 'x' }
+    expect(await a.discoverSources((id) => (id === sourceId ? seen : undefined))).toHaveLength(0)
   })
 
   test('skips sessions when the cursor is newer than the source', async () => {
-    const a = new OpenCodeAdapter(dbPath)
-    const newer = { sourceId: 'opencode:oc1', position: JSON.stringify({ timeUpdated: 3000 }), updatedAt: 'x' }
-    expect(await a.discoverSources((id) => (id === 'opencode:oc1' ? newer : undefined))).toHaveLength(0)
+    const a = new OpenCodeAdapter(dir)
+    const sourceId = `opencode:${dbPath}#session:oc1`
+    const newer = { sourceId, position: JSON.stringify({ timeUpdated: 3000 }), updatedAt: 'x' }
+    expect(await a.discoverSources((id) => (id === sourceId ? newer : undefined))).toHaveLength(0)
+  })
+
+  test('source ids include db path and mtimeMs comes from session update time', async () => {
+    const a = new OpenCodeAdapter(dir)
+    const [src] = await a.discoverSources(() => undefined)
+    expect(src.id).toBe(`opencode:${dbPath}#session:oc1`)
+    expect(src.mtimeMs).toBe(2_000_000)
+  })
+
+  test('same session id in different discovered db files does not collide', async () => {
+    const otherDb = join(dir, 'other-root', 'opencode.db')
+    createOpenCodeDb(otherDb, 'oc1', 3000, '/mnt/c/work/other')
+    const a = new OpenCodeAdapter(dir)
+    const sources = await a.discoverSources(() => undefined)
+    expect(sources).toHaveLength(2)
+    expect(new Set(sources.map((source) => source.id)).size).toBe(2)
+    expect(sources.map((source) => source.id)).toEqual(expect.arrayContaining([
+      `opencode:${dbPath}#session:oc1`,
+      `opencode:${otherDb}#session:oc1`,
+    ]))
   })
 
   test('returns no sources when the db file cannot be opened as sqlite', async () => {
@@ -48,11 +88,15 @@ describe('OpenCodeAdapter', () => {
   })
 
   test('parseSource joins message+part into turns and resolves repoPath', async () => {
-    const a = new OpenCodeAdapter(dbPath)
+    const a = new OpenCodeAdapter(dir)
     const [src] = await a.discoverSources(() => undefined)
     const { session, position } = await a.parseSource(src)
     expect(session.id).toBe('oc1')
     expect(session.repoPath).toBe('/mnt/c/work/apc')
+    expect(session.sourceDirPath).toContain('opencode-home')
+    expect(session.sourceMeta.provider).toBe('opencode')
+    expect(session.sourceMeta.sourceKind).toBe('sqlite-session')
+    expect(session.sourceMeta.sessionHeader.sessionId).toBe('oc1')
     expect(session.turns.map((t) => t.text)).toEqual(['please build', 'building now'])
     expect(JSON.parse(position).timeUpdated).toBe(2000)
   })

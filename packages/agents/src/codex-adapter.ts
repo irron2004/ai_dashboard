@@ -1,38 +1,34 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { AgentSourceSchema, NormalizedSessionSchema, type AgentSource, type NormalizedSession, type NormalizedTurn, type SourceCursor } from '@apc/shared'
+import { dirname, join } from 'node:path'
+import { AgentSourceSchema, NormalizedSessionSchema, SourceMetaSchema, type AgentSource, type NormalizedSession, type NormalizedTurn, type SourceCursor } from '@apc/shared'
 import { redact } from './redact.js'
 import type { AgentIngestAdapter } from './types.js'
-
-function walkJsonl(dir: string): string[] {
-  const out: string[] = []
-  let entries: import('node:fs').Dirent[]
-  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    const abs = join(dir, e.name)
-    if (e.isDirectory()) out.push(...walkJsonl(abs))
-    else if (e.name.endsWith('.jsonl')) out.push(abs)
-  }
-  return out
-}
+import { folderPathFor, walkFiles } from './source-discovery.js'
 
 export class CodexAdapter implements AgentIngestAdapter {
   readonly agentKind = 'codex' as const
-  constructor(private readonly sessionsDir: string = join(homedir(), '.codex', 'sessions')) {}
+  constructor(private readonly sessionsDir: string | readonly string[] = join(homedir(), '.codex', 'sessions')) {}
 
   async discoverSources(cursorFor: (id: string) => SourceCursor | undefined): Promise<AgentSource[]> {
     const out: AgentSource[] = []
-    for (const locator of walkJsonl(this.sessionsDir)) {
+    const discoveredAt = new Date().toISOString()
+    for (const locator of walkFiles(this.sessionsDir, (path) => path.endsWith('.jsonl'))) {
       const st = statSync(locator)
       const id = `codex:${locator}`
       const cur = cursorFor(id)
       if (cur) {
-        const pos = JSON.parse(cur.position) as { sizeBytes?: number; mtimeMs?: number }
-        if (pos.sizeBytes === st.size && pos.mtimeMs === Math.floor(st.mtimeMs)) continue
+        try {
+          const pos = JSON.parse(cur.position) as { sizeBytes?: number; mtimeMs?: number }
+          if (pos.sizeBytes === st.size && pos.mtimeMs === Math.floor(st.mtimeMs)) continue
+        } catch {
+          // corrupted cursor — treat as changed so it will be re-ingested
+        }
       }
       out.push(AgentSourceSchema.parse({
         id, agentKind: 'codex', kind: 'jsonl-file', locator,
+        sourceDirPath: folderPathFor(locator),
+        discoveredAt,
         mtimeMs: Math.floor(st.mtimeMs), sizeBytes: st.size,
       }))
     }
@@ -47,6 +43,7 @@ export class CodexAdapter implements AgentIngestAdapter {
     let branch: string | undefined
     let startedAt: string | undefined
     let endedAt: string | undefined
+    let sessionMeta: Record<string, unknown> | undefined
 
     for (const line of lines) {
       let obj: any
@@ -56,6 +53,7 @@ export class CodexAdapter implements AgentIngestAdapter {
         id = obj.payload?.id ?? id
         repoPath = obj.payload?.cwd ?? repoPath
         branch = obj.payload?.git?.branch ?? branch
+        sessionMeta = obj.payload && typeof obj.payload === 'object' ? obj.payload as Record<string, unknown> : sessionMeta
       } else if (obj.type === 'response_item' && obj.payload?.type === 'message') {
         const role = obj.payload.role === 'assistant' ? 'assistant'
           : obj.payload.role === 'user' ? 'user' : 'system'
@@ -67,6 +65,19 @@ export class CodexAdapter implements AgentIngestAdapter {
 
     const session = NormalizedSessionSchema.parse({
       id: id ?? source.locator, agentType: 'codex', repoPath, branch, startedAt, endedAt,
+      sourceDirPath: source.sourceDirPath ?? dirname(source.locator),
+      sourceMeta: SourceMetaSchema.parse({
+        provider: 'codex',
+        sourceKind: 'jsonl-file',
+        rawLocator: source.locator,
+        sourceDirPath: source.sourceDirPath ?? dirname(source.locator),
+        discoveredAt: source.discoveredAt,
+        sessionHeader: {
+          sessionId: id ?? source.locator,
+          sessionMeta,
+          transcriptPath: source.locator,
+        },
+      }),
       transcriptPath: source.locator, turns, filesTouched: [],
     })
     return { session, position: JSON.stringify({ sizeBytes: source.sizeBytes, mtimeMs: source.mtimeMs }) }

@@ -15,7 +15,7 @@ describe('RunService.completeRun', () => {
     db = openDb(':memory:'); migrate(db); migratePm(db)
     dir = mkdtempSync(join(tmpdir(), 'apc-run-'))
     tasks = new TaskStore(db); runs = new AgentRunStore(db)
-    tasks.create({ id: 'T1', projectId: 'p1', title: 't', status: 'in_progress', assigneeType: 'agent', priority: 'high', reviewStatus: 'none' })
+    tasks.create({ id: 'T1', projectId: 'p1', title: 't', status: 'in_progress', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [] })
     runs.create({ id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/p1', startedAt: '2026-06-01T10:00:00Z', status: 'running' })
     const wiki = new WikiEngine(new FakeAgentRunner([JSON.stringify({
       workSummary: 'did the thing', filesTouched: ['a.ts'], openProblems: [],
@@ -27,7 +27,7 @@ describe('RunService.completeRun', () => {
 
   test('generates summary+proposal, completes run, flips task to review/pending', async () => {
     const run: AgentRun = runs.get('R1')!
-    const session: NormalizedSession = { id: 's1', agentType: 'codex', projectId: 'p1', repoPath: '/p1', turns: [{ role: 'user', text: 'go', toolCalls: [] }], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'codex', projectId: 'p1', repoPath: '/p1', sourceMeta: { provider: 'codex', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'go', toolCalls: [] }], filesTouched: [] }
     const out = await svc.completeRun({ run, session, projectId: 'p1', engine: 'codex', currentCanonical: '', endedAt: '2026-06-01T10:30:00Z' })
 
     expect(out.generation.workSummary).toBe('did the thing')

@@ -7,7 +7,7 @@ test('migrate creates the core tables', () => {
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     .all()
-    .map((r: { name: string }) => r.name)
+    .map((r) => (r as { name: string }).name)
   expect(tables).toContain('projects')
   expect(tables).toContain('project_source_map')
   expect(tables).toContain('ingest_cursors')

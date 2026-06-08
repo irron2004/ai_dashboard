@@ -1,10 +1,11 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
   AgentSourceSchema,
   NormalizedSessionSchema,
+  SourceMetaSchema,
   type AgentSource,
   type NormalizedSession,
   type NormalizedTurn,
@@ -12,6 +13,7 @@ import {
 } from '@apc/shared'
 import { redact } from './redact.js'
 import type { AgentIngestAdapter } from './types.js'
+import { folderPathFor } from './source-discovery.js'
 
 type SessionRow = {
   id: string
@@ -63,8 +65,12 @@ function textFromPart(raw: string | null): string {
 
 function isoFromUnix(value: number | null): string | undefined {
   if (value === null) return undefined
-  const millis = value < 10_000_000_000 ? value * 1000 : value
-  return new Date(millis).toISOString()
+  return new Date(timestampToMillis(value) ?? 0).toISOString()
+}
+
+function timestampToMillis(value: number | null): number | undefined {
+  if (value === null) return undefined
+  return Math.floor(value < 10_000_000_000 ? value * 1000 : value)
 }
 
 function sourceSessionId(source: AgentSource): string {
@@ -76,59 +82,97 @@ function sourceSessionId(source: AgentSource): string {
 export class OpenCodeAdapter implements AgentIngestAdapter {
   readonly agentKind = 'opencode' as const
 
-  constructor(private readonly dbPath: string = join(homedir(), '.local', 'share', 'opencode', 'opencode.db')) {}
+  constructor(private readonly roots: string | readonly string[] = join(homedir(), '.local', 'share', 'opencode', 'opencode.db')) {}
+
+  private resolveDbPaths(): string[] {
+    const roots = Array.isArray(this.roots) ? this.roots : [this.roots]
+    const out = new Set<string>()
+
+    const walk = (root: string): void => {
+      const abs = resolve(root)
+      let st: import('node:fs').Stats
+      try {
+        st = statSync(abs)
+      } catch {
+        return
+      }
+      if (st.isFile()) {
+        if (abs.endsWith('opencode.db')) out.add(abs)
+        return
+      }
+      let entries: import('node:fs').Dirent[]
+      try {
+        entries = readdirSync(abs, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        const child = join(abs, entry.name)
+        if (entry.isDirectory()) walk(child)
+        else if (entry.isFile() && entry.name === 'opencode.db') out.add(child)
+      }
+    }
+
+    for (const root of roots) walk(root)
+    return [...out].sort()
+  }
 
   async discoverSources(cursorFor: (id: string) => SourceCursor | undefined): Promise<AgentSource[]> {
-    if (!existsSync(this.dbPath)) return []
-
-    let db: DatabaseSync
-    try {
-      db = new DatabaseSync(this.dbPath, { readOnly: true })
-    } catch {
-      return []
-    }
-    try {
-      const rows = db
-        .prepare(
-          `SELECT session.id, project.worktree, session.agent, session.model,
-                  session.time_created, session.time_updated
-             FROM session
-             LEFT JOIN project ON project.id = session.project_id
-             ORDER BY session.time_updated, session.id`,
-        )
-        .all() as SessionRow[]
-
-      const sources: AgentSource[] = []
-      for (const row of rows) {
-        const sourceId = `opencode:${row.id}`
-        const timeUpdated = row.time_updated ?? 0
-        const cursor = cursorFor(sourceId)
-        if (cursor) {
-          const position = parseJsonObject(cursor.position)
-          if ((numberValue(position?.timeUpdated) ?? -1) >= timeUpdated) continue
-        }
-
-        sources.push(
-          AgentSourceSchema.parse({
-            id: sourceId,
-            agentKind: 'opencode',
-            kind: 'sqlite-session',
-            locator: `${this.dbPath}#session:${row.id}`,
-            repoPath: row.worktree ?? undefined,
-          }),
-        )
+    const sources: AgentSource[] = []
+    const discoveredAt = new Date().toISOString()
+    for (const dbPath of this.resolveDbPaths()) {
+      let db: DatabaseSync
+      try {
+        db = new DatabaseSync(dbPath, { readOnly: true })
+      } catch {
+        continue
       }
-      return sources
-    } catch {
-      return []
-    } finally {
-      db.close()
+      try {
+        const rows = db
+          .prepare(
+            `SELECT session.id, project.worktree, session.agent, session.model,
+                    session.time_created, session.time_updated
+               FROM session
+               LEFT JOIN project ON project.id = session.project_id
+               ORDER BY session.time_updated, session.id`,
+          )
+          .all() as SessionRow[]
+
+        for (const row of rows) {
+          const sourceId = `opencode:${dbPath}#session:${row.id}`
+          const timeUpdated = row.time_updated ?? 0
+          const cursor = cursorFor(sourceId)
+          if (cursor) {
+            const position = parseJsonObject(cursor.position)
+            if ((numberValue(position?.timeUpdated) ?? -1) >= timeUpdated) continue
+          }
+
+          sources.push(
+            AgentSourceSchema.parse({
+              id: sourceId,
+              agentKind: 'opencode',
+              kind: 'sqlite-session',
+              locator: `${dbPath}#session:${row.id}`,
+              sourceDirPath: folderPathFor(dbPath),
+              discoveredAt,
+              repoPath: row.worktree ?? undefined,
+              mtimeMs: timestampToMillis(row.time_updated ?? row.time_created),
+            }),
+          )
+        }
+      } catch {
+        continue
+      } finally {
+        db.close()
+      }
     }
+    return sources
   }
 
   async parseSource(source: AgentSource): Promise<{ session: NormalizedSession; position: string }> {
     const sessionId = sourceSessionId(source)
-    const db = new DatabaseSync(this.dbPath, { readOnly: true })
+    const dbPath = source.locator.split('#session:')[0]
+    const db = new DatabaseSync(dbPath, { readOnly: true })
     try {
       const sessionRow = db
         .prepare(
@@ -174,6 +218,23 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
         repoPath: sessionRow.worktree ?? source.repoPath,
         startedAt: isoFromUnix(sessionRow.time_created),
         endedAt: isoFromUnix(sessionRow.time_updated),
+        sourceDirPath: source.sourceDirPath ?? dirname(dbPath),
+        sourceMeta: SourceMetaSchema.parse({
+          provider: 'opencode',
+          sourceKind: 'sqlite-session',
+          rawLocator: source.locator,
+          sourceDirPath: source.sourceDirPath ?? dirname(dbPath),
+          discoveredAt: source.discoveredAt,
+          sessionHeader: {
+            sessionId: sessionRow.id,
+            agent: sessionRow.agent,
+            model: sessionRow.model,
+            timeCreated: sessionRow.time_created,
+            timeUpdated: sessionRow.time_updated,
+            dbPath,
+            transcriptPath: source.locator,
+          },
+        }),
         transcriptPath: source.locator,
         turns: [...turns.values()].filter((turn) => turn.text.length > 0),
         filesTouched: [],

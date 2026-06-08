@@ -19,12 +19,29 @@ export const NormalizedTurnSchema = z.object({
 })
 export type NormalizedTurn = z.infer<typeof NormalizedTurnSchema>
 
+export const SourceMetaSchema = z.object({
+  provider: AgentKind,
+  sourceKind: z.enum(['jsonl-file', 'sqlite-session', 'ssh-jsonl']),
+  rawLocator: z.string(),
+  sourceDirPath: z.string().optional(),
+  discoveredAt: z.string().optional(),
+  sessionHeader: z.record(z.unknown()).default({}),
+}).catchall(z.unknown())
+export type SourceMeta = z.infer<typeof SourceMetaSchema>
+
 export const NormalizedSessionSchema = z.object({
   id: z.string().min(1),
   agentType: AgentKind,
   projectId: z.string().optional(),
   repoPath: z.string().optional(),
   worktreePath: z.string().optional(),
+  sourceDirPath: z.string().optional(),
+  sourceMeta: SourceMetaSchema.default({
+    provider: 'claude',
+    sourceKind: 'jsonl-file',
+    rawLocator: '',
+    sessionHeader: {},
+  }),
   branch: z.string().optional(),
   startedAt: z.string().optional(),
   endedAt: z.string().optional(),
@@ -39,6 +56,8 @@ export const AgentSourceSchema = z.object({
   agentKind: AgentKind,
   kind: z.enum(['jsonl-file', 'sqlite-session']),
   locator: z.string(),            // abs file path, or "db#sessionId"
+  sourceDirPath: z.string().optional(),
+  discoveredAt: z.string().optional(),
   repoPath: z.string().optional(),
   mtimeMs: z.number().optional(),
   sizeBytes: z.number().optional(),

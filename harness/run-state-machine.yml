@@ -1,0 +1,38 @@
+run_state_machine:
+  states:
+    - CREATED
+    - PROJECT_SCANNED
+    - SOURCES_EXTRACTED
+    - DOCUMENTS_CLASSIFIED
+    - NODE_PROPOSALS_CREATED
+    - LEAD_MERGED
+    - WRITE_PLAN_CREATED
+    - STAGING_WRITTEN
+    - VALIDATED
+    - HUMAN_REVIEW_REQUIRED
+    - MERGED
+    - FAILED
+  artifacts:
+    PROJECT_SCANNED:
+      - ProjectDiscoveryReport
+    SOURCES_EXTRACTED:
+      - SourceInventoryReport
+      - ConversationHistoryReport
+    DOCUMENTS_CLASSIFIED:
+      - DocumentIntentReport
+    NODE_PROPOSALS_CREATED:
+      - NodeProposal[]
+    LEAD_MERGED:
+      - GraphUpdatePlan
+      - SharedPromotionPlan
+      - StaleDocReport
+    WRITE_PLAN_CREATED:
+      - WritePlan
+    STAGING_WRITTEN:
+      - AppliedWriteReport
+      - GitDiffReport
+    VALIDATED:
+      - GraphValidationReport
+      - LinkValidationReport
+      - SecretScanReport
+      - MarkdownYamlValidationReport

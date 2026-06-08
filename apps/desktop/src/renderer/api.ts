@@ -2,8 +2,10 @@ import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
-  GenerateProjectReq, GenerateProjectRes,
-  StartPtyReq, PtyInputReq, PtyKillReq,
+  GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+  HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
+  HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile } from '@apc/shared'
 
@@ -61,8 +63,29 @@ export const api = {
   generateRun(req: GenerateRunReq): Promise<unknown> {
     return window.apc.invoke(CH.generateRun, req)
   },
+  generatePreflight(req: GeneratePreflightReq): Promise<GeneratePreflightRes> {
+    return window.apc.invoke(CH.generatePreflight, req) as Promise<GeneratePreflightRes>
+  },
   generateProject(req: GenerateProjectReq): Promise<GenerateProjectRes> {
     return window.apc.invoke(CH.generateProject, req) as Promise<GenerateProjectRes>
+  },
+  harnessRun(req: HarnessRunReq): Promise<HarnessRunRes> {
+    return window.apc.invoke(CH.harnessRun, req) as Promise<HarnessRunRes>
+  },
+  harnessResume(req: HarnessResumeReq): Promise<HarnessRunRes> {
+    return window.apc.invoke(CH.harnessResume, req) as Promise<HarnessRunRes>
+  },
+  harnessGetRun(req: HarnessGetRunReq): Promise<HarnessGetRunRes> {
+    return window.apc.invoke(CH.harnessGetRun, req) as Promise<HarnessGetRunRes>
+  },
+  harnessPromote(req: HarnessPromoteReq): Promise<HarnessPromoteRes> {
+    return window.apc.invoke(CH.harnessPromote, req) as Promise<HarnessPromoteRes>
+  },
+  harnessPromoteCanonical(req: HarnessPromoteCanonicalReq): Promise<HarnessPromoteCanonicalRes> {
+    return window.apc.invoke(CH.harnessPromoteCanonical, req) as Promise<HarnessPromoteCanonicalRes>
+  },
+  harnessCanonicalProposals(req: HarnessCanonicalProposalsReq): Promise<HarnessCanonicalProposalsRes> {
+    return window.apc.invoke(CH.harnessCanonicalProposals, req) as Promise<HarnessCanonicalProposalsRes>
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

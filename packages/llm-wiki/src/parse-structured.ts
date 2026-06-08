@@ -39,7 +39,10 @@ function extractJsonRegion(text: string): string | undefined {
   return undefined
 }
 
-export function parseStructured<T>(raw: string, schema: ZodType<T>): T {
+// Generic over the schema (not its output): `ZodType<T>` infers T from the *input* position, so a schema
+// with `.default()`s returns those fields as optional — breaking an output-typed caller (e.g. wiki-engine).
+// `S['_output']` is exactly what `schema.parse()` produces (defaults applied, fields required).
+export function parseStructured<S extends ZodType>(raw: string, schema: S): S['_output'] {
   const region = extractJsonRegion(raw)
   if (!region) throw new Error('Agent output contained no JSON object')
   let parsed: unknown

@@ -6,6 +6,13 @@ import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession, SourceCursor } from '@apc/shared'
 import { IngestService } from './ingest-service.js'
 
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason?: unknown) => void } {
+  let resolve: (value: T) => void = () => {}
+  let reject: (reason?: unknown) => void = () => {}
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
 class FakeAdapter implements AgentIngestAdapter {
   readonly agentKind = 'claude' as const
   calls = 0
@@ -20,6 +27,34 @@ class FakeAdapter implements AgentIngestAdapter {
   }
 }
 
+class BlockingAdapter implements AgentIngestAdapter {
+  readonly agentKind = 'claude' as const
+  calls = 0
+  parseStarted = deferred<void>()
+  releaseParse = deferred<void>()
+  constructor(private readonly session: NormalizedSession) {}
+  async discoverSources(cursorFor: (id: string) => SourceCursor | undefined): Promise<AgentSource[]> {
+    this.calls++
+    if (cursorFor('claude:s1')) return []
+    return [{ id: 'claude:s1', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/s1.jsonl', repoPath: this.session.repoPath }]
+  }
+  async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+    this.parseStarted.resolve()
+    await this.releaseParse.promise
+    return { session: this.session, position: JSON.stringify({ sizeBytes: 1, mtimeMs: 1 }) }
+  }
+}
+
+class ThrowingAdapter implements AgentIngestAdapter {
+  readonly agentKind = 'claude' as const
+  async discoverSources(): Promise<AgentSource[]> {
+    return [{ id: 'claude:bad', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/bad.jsonl' }]
+  }
+  async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+    throw new Error('parse failed')
+  }
+}
+
 describe('IngestService', () => {
   let db: Db; let registry: ProjectRegistry; let cursors: IngestCursorStore; let index: SearchIndex
   beforeEach(() => {
@@ -30,6 +65,7 @@ describe('IngestService', () => {
 
   test('ingests new sources: resolves projectId, indexes turns, saves cursor', async () => {
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
       turns: [{ role: 'user', text: 'design the ingest service', toolCalls: [] }], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     const result = await svc.ingestAll([new FakeAdapter(session)])
@@ -39,11 +75,33 @@ describe('IngestService', () => {
   })
 
   test('a second run finds nothing new (cursor honored)', async () => {
-    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', turns: [], filesTouched: [] }
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     const adapter = new FakeAdapter(session)
     await svc.ingestAll([adapter])
     const second = await svc.ingestAll([adapter])
     expect(second.sources).toBe(0)
+  })
+
+  test('concurrent ingestAll calls are serialized by the service lock', async () => {
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
+    const svc = new IngestService({ registry, cursors, index })
+    const adapter = new BlockingAdapter(session)
+    const first = svc.ingestAll([adapter])
+    await adapter.parseStarted.promise
+    const second = svc.ingestAll([adapter])
+    await Promise.resolve()
+    expect(adapter.calls).toBe(1)
+    adapter.releaseParse.resolve()
+    await expect(first).resolves.toEqual({ sources: 1, sessions: 1 })
+    await expect(second).resolves.toEqual({ sources: 0, sessions: 0 })
+    expect(adapter.calls).toBe(2)
+  })
+
+  test('lock is released after adapter parse failure', async () => {
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
+    const svc = new IngestService({ registry, cursors, index })
+    await expect(svc.ingestAll([new ThrowingAdapter()])).rejects.toThrow(/parse failed/)
+    await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toEqual({ sources: 1, sessions: 1 })
   })
 })

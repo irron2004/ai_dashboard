@@ -27,9 +27,10 @@ describe('CurrentPromotionService.promote', () => {
     vault.writeDoc('projects/p1/current.md', { frontmatter: {}, body: '## Current\n- edited in obsidian\n' })
     const res = svc.promote({ projectId: 'p1', lastReadHash: 'STALE' })
     expect(res.status).toBe('conflict')
+    if (res.status !== 'conflict') throw new Error('expected conflict result')
     expect(res.conflictPath).toBe('projects/p1/conflicts/2026-06-01-current-conflict.md')
     expect(vault.readDoc('projects/p1/current.md').body).toContain('edited in obsidian')  // untouched
-    expect(vault.readDoc(res.conflictPath!).body).toContain('edited in obsidian')
+    expect(vault.readDoc(res.conflictPath).body).toContain('edited in obsidian')
   })
 
   test('matching lastReadHash promotes over the existing canonical', () => {

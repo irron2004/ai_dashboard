@@ -80,10 +80,21 @@ export async function generateRemote(deps: RemoteGenerateDeps, input: { projectI
 
   // 1. Read the most-recent remote Claude transcript for the remote repo path.
   const encoded = ssh.path.replace(/\/+$/, '').replace(/\//g, '-') // /home/x/y -> -home-x-y (Claude's scheme)
-  const read = await exec(ssh, `ls -t "$HOME/.claude/projects/${encoded}"/*.jsonl 2>/dev/null | head -1 | xargs -r cat`, { timeoutMs: 30000 })
+  const read = await exec(
+    ssh,
+    `latest=$(find "$HOME/.claude/projects/${encoded}" -type f -name '*.jsonl' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-); [ -n "$latest" ] && cat "$latest"`,
+    { timeoutMs: 30000 },
+  )
   if (!read.ok) return { ok: false, reason: `ssh read failed: ${read.stderr.trim().slice(0, 200) || 'connection error'}` }
   if (!read.stdout.trim()) return { ok: false, reason: `no remote Claude session found under ${ssh.path}` }
-  const session = parseClaudeJsonl(read.stdout, { id: `${ssh.host}:${ssh.path}` })
+  const session = parseClaudeJsonl(read.stdout, {
+    id: `${ssh.host}:${ssh.path}`,
+    sourceDirPath: `$HOME/.claude/projects/${encoded}`,
+    sourceKind: 'ssh-jsonl',
+    transcriptPath: `ssh://${ssh.user}@${ssh.host}:${ssh.port}${ssh.path}`,
+    discoveredAt: new Date().toISOString(),
+    sourceMeta: { remote: true, rawLocator: `ssh://${ssh.user}@${ssh.host}:${ssh.port}${ssh.path}` },
+  })
 
   // 2. Local canonical current.md (vault is local).
   let currentCanonical = ''

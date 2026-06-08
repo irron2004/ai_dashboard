@@ -7,6 +7,15 @@ describe('NormalizedSessionSchema', () => {
       id: 'sess-1',
       agentType: 'claude',
       repoPath: '/mnt/c/work/apc',
+      sourceDirPath: '/home/me/.claude/projects/-mnt-c-work-apc',
+      sourceMeta: {
+        provider: 'claude',
+        sourceKind: 'jsonl-file',
+        rawLocator: '/home/me/.claude/projects/-mnt-c-work-apc/s1.jsonl',
+        sourceDirPath: '/home/me/.claude/projects/-mnt-c-work-apc',
+        discoveredAt: '2026-06-01T10:00:00Z',
+        sessionHeader: { sessionId: 'sess-1' },
+      },
       branch: 'main',
       startedAt: '2026-06-01T10:00:00Z',
       endedAt: '2026-06-01T10:30:00Z',
@@ -18,6 +27,8 @@ describe('NormalizedSessionSchema', () => {
     })
     expect(s.turns).toHaveLength(2)
     expect(s.turns[1].toolCalls[0].name).toBe('Bash')
+    expect(s.sourceMeta.provider).toBe('claude')
+    expect(s.sourceMeta.sourceKind).toBe('jsonl-file')
   })
 
   test('defaults turns/toolCalls/filesTouched to empty arrays', () => {
@@ -31,7 +42,7 @@ describe('AgentSourceSchema / SourceCursorSchema', () => {
   test('parses a jsonl-file source', () => {
     const src = AgentSourceSchema.parse({
       id: 'claude:/a/b.jsonl', agentKind: 'claude', kind: 'jsonl-file',
-      locator: '/a/b.jsonl', mtimeMs: 123, sizeBytes: 456,
+      locator: '/a/b.jsonl', sourceDirPath: '/a', mtimeMs: 123, sizeBytes: 456,
     })
     expect(src.kind).toBe('jsonl-file')
   })

@@ -118,6 +118,9 @@ importers:
       '@apc/core':
         specifier: workspace:*
         version: link:../core
+      '@apc/knowledge-harness':
+        specifier: workspace:*
+        version: link:../knowledge-harness
       '@apc/llm-wiki':
         specifier: workspace:*
         version: link:../llm-wiki
@@ -175,6 +178,18 @@ importers:
       '@apc/vault':
         specifier: workspace:*
         version: link:../vault
+
+  packages/knowledge-harness:
+    dependencies:
+      '@apc/llm-wiki':
+        specifier: workspace:*
+        version: link:../llm-wiki
+      '@apc/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
 
   packages/llm-wiki:
     dependencies:

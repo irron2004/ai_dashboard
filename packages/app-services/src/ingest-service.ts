@@ -7,22 +7,33 @@ export type IngestResult = { sources: number; sessions: number }
 
 export class IngestService {
   constructor(private readonly deps: IngestDeps) {}
+  private ingestLock: Promise<void> | null = null
 
   async ingestAll(adapters: AgentIngestAdapter[]): Promise<IngestResult> {
-    let sources = 0, sessions = 0
-    for (const adapter of adapters) {
-      const found = await adapter.discoverSources((id) => this.deps.cursors.get(id))
-      sources += found.length
-      for (const source of found) {
-        const { session, position } = await adapter.parseSource(source)
-        const repoPath = session.repoPath ?? source.repoPath
-        const project = repoPath ? this.deps.registry.findByRepoPath(repoPath) : undefined
-        const withProject = { ...session, projectId: project?.id ?? session.projectId }
-        this.deps.index.indexSession(withProject)
-        this.deps.cursors.set(source.id, position)
-        sessions++
-      }
+    while (this.ingestLock) {
+      await this.ingestLock
     }
-    return { sources, sessions }
+    let resolveLock = () => {}
+    this.ingestLock = new Promise<void>((resolve) => { resolveLock = resolve })
+    try {
+      let sources = 0, sessions = 0
+      for (const adapter of adapters) {
+        const found = await adapter.discoverSources((id) => this.deps.cursors.get(id))
+        sources += found.length
+        for (const source of found) {
+          const { session, position } = await adapter.parseSource(source)
+          const repoPath = session.repoPath ?? source.repoPath
+          const project = repoPath ? this.deps.registry.findByRepoPath(repoPath) : undefined
+          const withProject = { ...session, projectId: project?.id ?? session.projectId }
+          this.deps.index.indexSession(withProject)
+          this.deps.cursors.set(source.id, position)
+          sessions++
+        }
+      }
+      return { sources, sessions }
+    } finally {
+      resolveLock()
+      this.ingestLock = null
+    }
   }
 }

@@ -24,6 +24,7 @@ describe('IPC handlers (no Electron)', () => {
     container.tasks.create({
       id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress',
       assigneeType: 'agent', priority: 'high', reviewStatus: 'none',
+      acceptanceCriteria: [], linkedWikiPages: [],
     })
     container.runs.create({
       id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/work/apc',
@@ -90,6 +91,7 @@ describe('IPC handlers (no Electron)', () => {
   test('c:ingestAll runs the configured adapters and indexes a resolved session', async () => {
     const session: NormalizedSession = {
       id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x/s1.jsonl', sessionHeader: {} },
       turns: [{ role: 'user', text: 'design the control tower', toolCalls: [] }], filesTouched: [],
     }
     const fake: AgentIngestAdapter = {
@@ -113,6 +115,7 @@ describe('IPC handlers (no Electron)', () => {
   test('c:generateProject summarizes the latest session into a proposal', async () => {
     const session: NormalizedSession = {
       id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x.jsonl', sessionHeader: {} },
       turns: [{ role: 'user', text: 'go', toolCalls: [] }], filesTouched: [],
     }
     const fake: AgentIngestAdapter = {
@@ -135,8 +138,83 @@ describe('IPC handlers (no Electron)', () => {
     }
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake], agentRunner: runner })
     c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
-    const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; proposalPath?: string }
+    const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude', selectedPreflightCategoryIds: ['agent-conversations'] })) as { ok: boolean; proposalPath?: string }
     expect(res.ok).toBe(true)
     expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
+  })
+
+  test('c:generateProject requires the preflight conversation category', async () => {
+    const h = handlers(container)
+    const res = (await h[CH.generateProject]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; reason?: string }
+    expect(res.ok).toBe(false)
+    expect(res.reason).toMatch(/preflight/i)
+  })
+
+  test('c:generatePreflight counts only agent sources for the selected project', async () => {
+    const fake: AgentIngestAdapter = {
+      agentKind: 'claude',
+      async discoverSources(): Promise<AgentSource[]> {
+        return [
+          { id: 'claude:apc', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/apc.jsonl', repoPath: '/work/apc' },
+          { id: 'claude:pebot', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/pebot.jsonl', repoPath: '/home/hskim/work/llm-agent-v2' },
+        ]
+      },
+      async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+        throw new Error('preflight should not parse sources that already declare repoPath')
+      },
+    }
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    const res = (await handlers(c2)[CH.generatePreflight]({ projectId: 'p1' })) as { ok: boolean; categories?: Array<{ id: string; count: number }> }
+    expect(res.ok).toBe(true)
+    expect(res.categories?.find((category) => category.id === 'agent-conversations')?.count).toBe(1)
+  })
+
+  test('c:harnessRun → c:harnessGetRun → c:harnessPromote drive the pipeline (faked LLM)', async () => {
+    const { FakeAgentRunner } = await import('@apc/llm-wiki')
+    const proposals = { proposals: [{
+      proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
+      node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }],
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
+    }] }
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# T\n' }] },
+    }
+    const runner = new FakeAgentRunner([
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [{ path: 'current.md', intent: 'canonical' }] }),
+      JSON.stringify(proposals),
+      JSON.stringify(lead),
+    ])
+    // vault/ and runs/ are siblings so the staging copy never nests inside the vault
+    const harnessRoot = mkdtempSync(join(tmpdir(), 'apc-harness-'))
+    const harnessVault = join(harnessRoot, 'vault')
+    mkdirSync(join(harnessVault, 'raw'), { recursive: true })
+    writeFileSync(join(harnessVault, 'raw', 'a'), 'evidence source\n')  // A2: cited evidence source must exist
+
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: harnessVault, agentRunner: runner, harnessRunsRoot: join(harnessRoot, 'runs') })
+    const h = handlers(c2)
+
+    const ran = (await h[CH.harnessRun]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; runId: string; finalState: string; reason?: string }
+    expect(ran, JSON.stringify(ran)).toMatchObject({ ok: true })
+    expect(ran.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+
+    const shown = (await h[CH.harnessGetRun]({ runId: ran.runId })) as { ok: boolean; runState: { state: string } }
+    expect(shown.runState.state).toBe('HUMAN_REVIEW_REQUIRED')
+
+    const promoted = (await h[CH.harnessPromote]({ runId: ran.runId })) as { ok: boolean; promoted: string[] }
+    expect(promoted.ok).toBe(true)
+    expect(promoted.promoted).toContain('concepts/n1.md')
+    rmSync(harnessRoot, { recursive: true, force: true })
+  })
+
+  test('c:harnessPromote strict-parses its payload (rejects unknown/missing/mistyped fields)', async () => {
+    const h = handlers(container)
+    await expect(h[CH.harnessPromote]({ runId: 'R', bogus: 1 })).rejects.toThrow()  // unknown key
+    await expect(h[CH.harnessPromote]({})).rejects.toThrow()                          // missing runId
+    await expect(h[CH.harnessPromote]({ runId: 5 })).rejects.toThrow()               // non-string runId
   })
 })

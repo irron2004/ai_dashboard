@@ -56,8 +56,24 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelect, onAdd, o
     setEditingId(p.id)
     setName(p.name)
     setProjectType(p.projectType)
-    setPathMode('local')
-    setRepoPath(p.repoPaths[0] ?? '') // edit the stored path as a string (incl. ssh:// URLs)
+    const path = p.repoPaths[0] ?? ''
+    if (path.startsWith('ssh://')) {
+      setPathMode('ssh')
+      try {
+        const url = new URL(path)
+        setSshHost(url.hostname)
+        setSshPort(url.port || '22')
+        setSshUser(url.username)
+        setSshPath(url.pathname)
+      } catch {
+        // malformed ssh url — fall back to a raw editable path
+        setPathMode('local')
+        setRepoPath(path)
+      }
+    } else {
+      setPathMode('local')
+      setRepoPath(path)
+    }
     setShowDialog(true)
   }
 
@@ -150,7 +166,7 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelect, onAdd, o
                 minWidth: 140, padding: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
               }}
             >
-              <button type="button" style={menuItemStyle} onClick={() => { const t = target; openEdit(t) }}>
+              <button type="button" style={menuItemStyle} onClick={() => { setMenu(null); openEdit(target) }}>
                 ✎ 연결 편집
               </button>
               <button type="button" style={{ ...menuItemStyle, color: '#e06c6c' }} onClick={() => handleDelete(target)}>

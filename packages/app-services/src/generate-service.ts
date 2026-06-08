@@ -3,7 +3,10 @@ import type { ProjectRegistry } from '@apc/core'
 import type { VaultAdapter } from '@apc/vault'
 import type { VaultWriter } from '@apc/pm'
 import type { WikiEngine } from '@apc/llm-wiki'
-import type { AgentType, NormalizedSession, WikiGeneration } from '@apc/shared'
+import type { AgentSource, AgentType, NormalizedSession, Project, WikiGeneration } from '@apc/shared'
+import { isAbsolute, resolve } from 'node:path'
+
+export const GENERATE_SOURCE_SCAN_LIMIT = 100
 
 export type GenerateResult = {
   ok: boolean
@@ -23,6 +26,41 @@ export type GenerateDeps = {
   now?: () => string
 }
 
+export function normalizeRepoPath(path: string | undefined): string | undefined {
+  const trimmed = path?.trim()
+  if (!trimmed) return undefined
+  if (trimmed.startsWith('ssh://')) {
+    try {
+      const url = new URL(trimmed)
+      const pathName = url.pathname.replace(/\/+/g, '/').replace(/\/+$/, '') || '/'
+      const port = url.port ? `:${url.port}` : ''
+      const auth = url.username ? `${url.username}@` : ''
+      return `ssh://${auth}${url.hostname.toLowerCase()}${port}${pathName}`
+    } catch {
+      return trimmed.replace(/\\/g, '/').replace(/\/+$/, '')
+    }
+  }
+  const normalized = trimmed.replace(/\\/g, '/')
+  const absolute = isAbsolute(normalized) ? normalized : resolve(normalized)
+  return absolute.replace(/\/+$/, '') || '/'
+}
+
+export function repoPathMatches(candidate: string | undefined, repoPaths: readonly string[]): boolean {
+  const candidatePath = normalizeRepoPath(candidate)
+  if (!candidatePath) return false
+  return repoPaths.some((repoPath) => {
+    const projectPath = normalizeRepoPath(repoPath)
+    if (!projectPath) return false
+    if (candidatePath === projectPath) return true
+    if (candidatePath.startsWith('ssh://') || projectPath.startsWith('ssh://')) return false
+    return candidatePath.startsWith(`${projectPath}/`)
+  })
+}
+
+function sourceCanBelongToProject(source: AgentSource, repoPaths: readonly string[]): boolean {
+  return !source.repoPath || repoPathMatches(source.repoPath, repoPaths)
+}
+
 /**
  * Summarize the latest local agent session for a project into a work summary + a
  * current.md proposal (Obsidian-compatible). No Task/AgentRun prerequisite.
@@ -30,26 +68,50 @@ export type GenerateDeps = {
 export class GenerateService {
   constructor(private readonly deps: GenerateDeps) {}
 
-  async generateForProject(input: { projectId: string; engine: AgentType }): Promise<GenerateResult> {
-    const project = this.deps.registry.get(input.projectId)
-    if (!project) return { ok: false, reason: 'project not found' }
-    const repoPath = project.repoPaths[0]
-    if (!repoPath) return { ok: false, reason: 'project has no repo path' }
+  async countProjectSources(projectId: string): Promise<number> {
+    const project = this.deps.registry.get(projectId)
+    if (!project || project.repoPaths.length === 0) return 0
+    const pairs = await this.discoverCandidateSources(project)
+    const counted = new Set<string>()
+    for (const pair of pairs.slice(0, GENERATE_SOURCE_SCAN_LIMIT)) {
+      if (pair.source.repoPath) {
+        counted.add(pair.source.id)
+        continue
+      }
+      try {
+        const session = (await pair.parse()).session
+        if (repoPathMatches(session.repoPath, project.repoPaths)) counted.add(pair.source.id)
+      } catch {
+        // Preflight counts should stay best-effort; generation will surface parse errors on the selected path.
+      }
+    }
+    return counted.size
+  }
 
-    // Gather sources from all adapters, most-recent-first; parse until one matches repoPath.
-    const pairs: { mtime: number; parse: () => Promise<NormalizedSession> }[] = []
+  private async discoverCandidateSources(project: Project): Promise<Array<{ source: AgentSource; mtime: number; parse: () => Promise<{ session: NormalizedSession }> }>> {
+    const pairs: Array<{ source: AgentSource; mtime: number; parse: () => Promise<{ session: NormalizedSession }> }> = []
     for (const adapter of this.deps.adapters) {
       const sources = await adapter.discoverSources(() => undefined)
       for (const source of sources) {
-        pairs.push({ mtime: source.mtimeMs ?? 0, parse: async () => (await adapter.parseSource(source)).session })
+        if (!sourceCanBelongToProject(source, project.repoPaths)) continue
+        pairs.push({ source, mtime: source.mtimeMs ?? 0, parse: async () => adapter.parseSource(source) })
       }
     }
-    pairs.sort((a, b) => b.mtime - a.mtime)
+    return pairs.sort((a, b) => b.mtime - a.mtime)
+  }
+
+  async generateForProject(input: { projectId: string; engine: AgentType }): Promise<GenerateResult> {
+    const project = this.deps.registry.get(input.projectId)
+    if (!project) return { ok: false, reason: 'project not found' }
+    if (project.repoPaths.length === 0) return { ok: false, reason: 'project has no repo path' }
+
+    // Gather candidate sources most-recent-first, scoped to the selected project's registered repo paths.
+    const pairs = await this.discoverCandidateSources(project)
 
     let session: NormalizedSession | undefined
-    for (const p of pairs.slice(0, 25)) {
-      const s = await p.parse()
-      if (s.repoPath === repoPath) { session = s; break }
+    for (const p of pairs.slice(0, GENERATE_SOURCE_SCAN_LIMIT)) {
+      const s = (await p.parse()).session
+      if (repoPathMatches(s.repoPath ?? p.source.repoPath, project.repoPaths)) { session = s; break }
     }
     if (!session) return { ok: false, reason: 'no local session found for this project' }
 

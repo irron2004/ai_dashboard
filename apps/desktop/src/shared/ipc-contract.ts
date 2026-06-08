@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -17,8 +17,15 @@ export const CH = {
   updateProject: 'c:updateProject',
   deleteProject: 'c:deleteProject',
   ingestAll: 'c:ingestAll',
+  generatePreflight: 'c:generatePreflight',
   generateRun: 'c:generateRun',
   generateProject: 'c:generateProject',
+  harnessRun: 'c:harnessRun',
+  harnessResume: 'c:harnessResume',
+  harnessGetRun: 'c:harnessGetRun',
+  harnessPromote: 'c:harnessPromote',
+  harnessPromoteCanonical: 'c:harnessPromoteCanonical',
+  harnessCanonicalProposals: 'c:harnessCanonicalProposals',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -36,13 +43,32 @@ export type RegisterProjectReq = { name: string; projectType: string; repoPath: 
 export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string }
 export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
-export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[] }
+export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }
 export type SearchReq = { query: string; projectId?: string }
 export type ListProfilesReq = { projectPath: string }
 export type SubmitReviewReq = { review: Review }
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
-export type GenerateProjectReq = { projectId: string; engine: AgentType }
+export type GeneratePreflightReq = { projectId: string }
+export type GeneratePreflightCategoryId = 'agent-conversations' | 'project-docs' | 'tasks' | 'review-runs'
+export type GeneratePreflightCategory = {
+  id: GeneratePreflightCategoryId
+  label: string
+  description: string
+  count: number
+  selectedByDefault: boolean
+  required?: boolean
+}
+export type GeneratePreflightRes = {
+  ok: boolean
+  reason?: string
+  projectId?: string
+  projectName?: string
+  categories?: GeneratePreflightCategory[]
+  totalCount?: number
+  status?: string
+}
+export type GenerateProjectReq = { projectId: string; engine: AgentType; selectedPreflightCategoryIds?: GeneratePreflightCategoryId[] }
 export type GenerateProjectRes = {
   ok: boolean
   reason?: string
@@ -51,6 +77,20 @@ export type GenerateProjectRes = {
   proposalPath?: string
   generation?: WikiGeneration
 }
+
+// Knowledge Harness (evidence-based multi-agent pipeline) surface.
+export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean }
+export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
+export type HarnessResumeReq = { runId: string }
+export type HarnessGetRunReq = { runId: string }
+export type HarnessArtifactRes = { state: KhState; name: string; path: string; data: unknown }
+export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }
+export type HarnessPromoteReq = { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }
+export type HarnessPromoteRes = { ok: boolean; promoted?: string[]; proposals?: string[]; refusedCanonical?: string[]; reason?: string }
+export type HarnessPromoteCanonicalReq = { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean; allowInvalid?: boolean }
+export type HarnessPromoteCanonicalRes = { ok: boolean; status?: 'promoted' | 'conflict'; canonicalPath?: string; newHash?: string; conflictPath?: string; reason?: string }
+export type HarnessCanonicalProposalsReq = { runId: string }
+export type HarnessCanonicalProposalsRes = Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }>
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {

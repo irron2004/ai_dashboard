@@ -1,12 +1,11 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentType } from '@apc/shared'
+import type { GeneratePreflightCategoryId } from '../shared/ipc-contract.js'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
-import { PmHome } from './components/PmHome.js'
-import { HarnessPanel } from './components/HarnessPanel.js'
+import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
-import { ModelPicker } from './components/ModelPicker.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -21,12 +20,16 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 
 export function App() {
   const {
-    projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus, generating, generation,
+    projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus,
+    preflighting, generatePreflight, generating, generation,
     loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
-    generate, clearGeneration,
+    prepareGenerate, generate, clearGeneratePreflight, clearGeneration,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [mainTab, setMainTab] = useState<MainTab>('pm')
+  const [generateModalOpen, setGenerateModalOpen] = useState(false)
+  const [selectedGenerateEngine, setSelectedGenerateEngine] = useState<AgentType>('claude')
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track)
@@ -34,10 +37,25 @@ export function App() {
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
     { open: false, running: false, log: '', ok: false },
   )
+  const dragRef = useRef<{ onMove: (e: MouseEvent) => void; onUp: (e: MouseEvent) => void } | null>(null)
+  const appLayoutStyle: CSSProperties & Record<'--sidebar-width', string> = { '--sidebar-width': `${sidebarW}px` }
+
+  useEffect(() => {
+    return () => {
+      if (dragRef.current) {
+        window.removeEventListener('mousemove', dragRef.current.onMove)
+        window.removeEventListener('mouseup', dragRef.current.onUp)
+      }
+    }
+  }, [])
 
   // Drag a divider between terminal column i and i+1 (horizontal resize).
-  const startColDrag = (i: number) => (e: React.MouseEvent) => {
+  const startColDrag = (i: number) => (e: ReactMouseEvent) => {
     e.preventDefault()
+    if (dragRef.current) {
+      window.removeEventListener('mousemove', dragRef.current.onMove)
+      window.removeEventListener('mouseup', dragRef.current.onUp)
+    }
     const startX = e.clientX
     const start = [...sizes]
     const w = termRef.current?.clientWidth ?? 1
@@ -52,21 +70,29 @@ export function App() {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      dragRef.current = null
     }
+    dragRef.current = { onMove, onUp }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
 
   // Drag the sidebar/main divider to resize the projects bar.
-  const startSidebarDrag = (e: React.MouseEvent) => {
+  const startSidebarDrag = (e: ReactMouseEvent) => {
     e.preventDefault()
+    if (dragRef.current) {
+      window.removeEventListener('mousemove', dragRef.current.onMove)
+      window.removeEventListener('mouseup', dragRef.current.onUp)
+    }
     const startX = e.clientX
     const startW = sidebarW
     const onMove = (ev: MouseEvent) => setSidebarW(Math.min(480, Math.max(150, startW + (ev.clientX - startX))))
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      dragRef.current = null
     }
+    dragRef.current = { onMove, onUp }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
@@ -106,6 +132,11 @@ export function App() {
     setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
   }, [agent])
 
+  useEffect(() => {
+    if (!generatePreflight?.categories) return
+    setSelectedCategoryIds(generatePreflight.categories.filter((category) => category.selectedByDefault).map((category) => category.id))
+  }, [generatePreflight])
+
   const project = projects.find((p) => p.id === selectedProjectId)
   const cwd = project?.repoPaths[0] ?? '.'
 
@@ -137,8 +168,42 @@ export function App() {
     }
   }
 
+  const openGeneratePreflight = () => {
+    setGenerateModalOpen(true)
+    setPromoteMsg(null)
+    clearGeneration()
+    void prepareGenerate()
+  }
+
+  const closeGenerateModal = () => {
+    if (generating) return
+    setGenerateModalOpen(false)
+    setPromoteMsg(null)
+    clearGeneratePreflight()
+    clearGeneration()
+  }
+
+  const toggleGenerateCategory = (categoryId: GeneratePreflightCategoryId) => {
+    const category = generatePreflight?.categories?.find((item) => item.id === categoryId)
+    if (category?.required) return
+    setSelectedCategoryIds((current) => (
+      current.includes(categoryId) ? current.filter((id) => id !== categoryId) : [...current, categoryId]
+    ))
+  }
+
+  const selectedGenerateCount = generatePreflight?.categories
+    ?.filter((category) => selectedCategoryIds.includes(category.id))
+    .reduce((sum, category) => sum + category.count, 0) ?? 0
+  const requiredGenerateCategoriesSelected = generatePreflight?.categories
+    ?.filter((category) => category.required)
+    .every((category) => selectedCategoryIds.includes(category.id)) ?? false
+
+  const runGenerateFromPreflight = () => {
+    void generate(selectedGenerateEngine, selectedCategoryIds)
+  }
+
   return (
-    <div className="app-layout" style={{ gridTemplateColumns: `${sidebarW}px 1fr 240px` }}>
+    <div className="app-layout" style={appLayoutStyle}>
       {/* Update button — fixed at the top-right of the window */}
       <button
         disabled={upd.running}
@@ -172,8 +237,8 @@ export function App() {
           <button disabled={ingesting} onClick={() => ingest()}>
             {ingesting ? 'Ingesting...' : 'Ingest now'}
           </button>
-          <button disabled={generating || !selectedProjectId} onClick={() => setPickerOpen(true)} title="최근 세션 요약 → current.md 제안 생성 (모델 선택)">
-            {generating ? 'Generating…' : '✨ Generate'}
+          <button disabled={preflighting || generating || !selectedProjectId} onClick={openGeneratePreflight} title="문서/소스 범위 확인 후 current.md 제안 생성">
+            {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
           </button>
           {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
           <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
@@ -181,17 +246,19 @@ export function App() {
           </span>
         </header>
         {dashboard ? (
-          <PmHome dashboard={dashboard} />
+          <MainPanel
+            tab={mainTab}
+            onTab={setMainTab}
+            dashboard={dashboard}
+            profiles={profiles}
+            onSelectProfile={handleSelectProfile}
+          />
         ) : (
           <div className="app-layout__placeholder">
             {selectedProjectId ? 'Loading...' : 'Select a project or add one'}
           </div>
         )}
       </main>
-
-      <aside className="app-layout__harness">
-        <HarnessPanel profiles={profiles} onSelect={handleSelectProfile} />
-      </aside>
 
       {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
       <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'row', minHeight: 0 }}>
@@ -274,24 +341,75 @@ export function App() {
         </div>
       )}
 
-      {pickerOpen && (
-        <div className="add-project-overlay" onClick={() => setPickerOpen(false)}>
-          <div className="add-project-dialog" onClick={(e) => e.stopPropagation()}>
-            <ModelPicker
-              defaultEngine="claude"
-              onPick={(engine) => { setPickerOpen(false); setPromoteMsg(null); void generate(engine) }}
-            />
-            <div className="add-project-dialog__actions">
-              <button type="button" onClick={() => setPickerOpen(false)}>Cancel</button>
+      {generateModalOpen && (
+        <div className="add-project-overlay" onClick={closeGenerateModal}>
+          <div className="add-project-dialog generate-preflight" onClick={(e) => e.stopPropagation()}>
+            <div className="generate-preflight__header">
+              <div>
+                <h2>Generate preflight</h2>
+                <p>{generatePreflight?.projectName ? `${generatePreflight.projectName} source scan` : 'Scan project sources before generation.'}</p>
+              </div>
+              <span className="generate-preflight__badge">
+                {generating ? 'Generating' : preflighting ? 'Scanning' : `${selectedGenerateCount} selected`}
+              </span>
             </div>
-          </div>
-        </div>
-      )}
 
-      {generation && (
-        <div className="add-project-overlay" onClick={() => { clearGeneration(); setPromoteMsg(null) }}>
-          <div className="add-project-dialog" onClick={(e) => e.stopPropagation()} style={{ width: 680, maxWidth: '92vw' }}>
-            {generation.ok ? (
+            {preflighting && <div className="generate-preflight__status">Scanning documents, tasks, runs, and local LLM CLI sources…</div>}
+
+            {!preflighting && generatePreflight && !generatePreflight.ok && (
+              <div className="generate-preflight__status generate-preflight__status--error">
+                {generatePreflight.reason ?? 'Preflight failed.'}
+              </div>
+            )}
+
+            {!preflighting && generatePreflight?.ok && !generation && (
+              <>
+                <div className="generate-preflight__summary">
+                  <span>Total found: {generatePreflight.totalCount ?? 0}</span>
+                  <span>{generatePreflight.status}</span>
+                </div>
+                <div className="generate-preflight__grid">
+                  {generatePreflight.categories?.map((category) => {
+                    const checked = selectedCategoryIds.includes(category.id)
+                    return (
+                      <label key={category.id} className={`generate-preflight__card${checked ? ' selected' : ''}${category.required ? ' required' : ''}`}>
+                        <span className="generate-preflight__card-top">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={generating || category.required}
+                            onChange={() => toggleGenerateCategory(category.id)}
+                          />
+                          <span>{category.label}</span>
+                          <b>{category.count}</b>
+                        </span>
+                        <small>{category.description}</small>
+                        {category.required && <em>Required for the current session-based generator</em>}
+                      </label>
+                    )
+                  })}
+                </div>
+
+                <div className="generate-preflight__confirm">
+                  <label>
+                    Engine
+                    <select value={selectedGenerateEngine} disabled={generating} onChange={(e) => setSelectedGenerateEngine(e.target.value as AgentType)}>
+                      {AGENTS.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </label>
+                  <p>진행하시겠습니까? 정확한 퍼센트 대신 현재 단계와 결과를 표시합니다.</p>
+                </div>
+              </>
+            )}
+
+            {generating && (
+              <div className="generate-preflight__status">
+                Generating with {selectedGenerateEngine}. The app is summarizing the latest matching LLM CLI session and writing a proposal…
+              </div>
+            )}
+
+            {generation && (
+              generation.ok ? (
               <>
                 <h2>Generated ✓</h2>
                 <p style={{ fontSize: '0.85rem' }}><b>Summary:</b> {generation.generation?.workSummary}</p>
@@ -315,7 +433,7 @@ export function App() {
                 </pre>
                 {promoteMsg && <p style={{ fontSize: '0.8rem', color: '#9cf' }}>{promoteMsg}</p>}
                 <div className="add-project-dialog__actions">
-                  <button type="button" onClick={() => { clearGeneration(); setPromoteMsg(null) }}>Close</button>
+                  <button type="button" onClick={closeGenerateModal}>Close</button>
                   <button type="button" disabled={!generation.proposalPath} onClick={handlePromote} style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}>
                     Promote current
                   </button>
@@ -325,10 +443,28 @@ export function App() {
               <>
                 <h2>Generate ✗</h2>
                 <p style={{ fontSize: '0.85rem' }}>{generation.reason ?? 'failed'}</p>
-                <div className="add-project-dialog__actions">
-                  <button type="button" onClick={() => clearGeneration()}>Close</button>
-                </div>
               </>
+              )
+            )}
+
+            {!generation && (
+              <div className="add-project-dialog__actions">
+                <button type="button" disabled={generating} onClick={closeGenerateModal}>Cancel</button>
+                <button
+                  type="button"
+                  disabled={preflighting || generating || !generatePreflight?.ok || selectedCategoryIds.length === 0 || !requiredGenerateCategoriesSelected}
+                  onClick={runGenerateFromPreflight}
+                  style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}
+                >
+                  {generating ? 'Generating…' : 'Proceed'}
+                </button>
+              </div>
+            )}
+
+            {generation && !generation.ok && (
+              <div className="add-project-dialog__actions">
+                <button type="button" onClick={closeGenerateModal}>Close</button>
+              </div>
             )}
           </div>
         </div>

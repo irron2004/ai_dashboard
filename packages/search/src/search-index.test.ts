@@ -4,6 +4,7 @@ import { SearchIndex } from './search-index.js'
 
 function session(id: string, projectId: string, texts: [string, string][]) {
   return { id, agentType: 'claude' as const, projectId,
+    sourceMeta: { provider: 'claude' as const, sourceKind: 'jsonl-file' as const, rawLocator: '', sessionHeader: {} },
     turns: texts.map(([role, text]) => ({ role: role as 'user' | 'assistant', text, toolCalls: [] })),
     filesTouched: [] }
 }

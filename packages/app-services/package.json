@@ -3,8 +3,10 @@
   "version": "0.0.0",
   "type": "module",
   "main": "./src/index.ts",
+  "bin": { "knowledge-harness": "./src/harness-cli-bin.ts" },
   "dependencies": {
     "@apc/shared": "workspace:*", "@apc/core": "workspace:*", "@apc/agents": "workspace:*",
-    "@apc/search": "workspace:*", "@apc/vault": "workspace:*", "@apc/llm-wiki": "workspace:*", "@apc/pm": "workspace:*"
+    "@apc/search": "workspace:*", "@apc/vault": "workspace:*", "@apc/llm-wiki": "workspace:*", "@apc/pm": "workspace:*",
+    "@apc/knowledge-harness": "workspace:*"
   }
 }

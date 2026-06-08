@@ -14,7 +14,7 @@ describe('ClaudeAdapter', () => {
   let base: string
   beforeEach(() => {
     base = mkdtempSync(join(tmpdir(), 'apc-claude-'))
-    writeSession(base, '-mnt-c-work-apc', 's1.jsonl', [
+    writeSession(base, '-mnt-c-work-apc/nested/session-a', 's1.jsonl', [
       { type: 'user', sessionId: 's1', cwd: '/mnt/c/work/apc', gitBranch: 'main',
         timestamp: '2026-06-01T10:00:00Z', uuid: 'u1',
         message: { role: 'user', content: [{ type: 'text', text: 'add a feature' }] } },
@@ -37,6 +37,7 @@ describe('ClaudeAdapter', () => {
     expect(sources).toHaveLength(1)
     expect(sources[0].agentKind).toBe('claude')
     expect(sources[0].kind).toBe('jsonl-file')
+    expect(sources[0].sourceDirPath).toContain('session-a')
   })
 
   test('discoverSources skips a source whose cursor matches size+mtime', async () => {
@@ -55,6 +56,10 @@ describe('ClaudeAdapter', () => {
     expect(session.agentType).toBe('claude')
     expect(session.repoPath).toBe('/mnt/c/work/apc')
     expect(session.branch).toBe('main')
+    expect(session.sourceDirPath).toContain('session-a')
+    expect(session.sourceMeta.provider).toBe('claude')
+    expect(session.sourceMeta.sourceKind).toBe('jsonl-file')
+    expect(session.sourceMeta.sessionHeader.sourceLocator).toContain('s1.jsonl')
     expect(session.startedAt).toBe('2026-06-01T10:00:00Z')
     expect(session.turns.map((t) => t.role)).toEqual(['user', 'assistant', 'user'])
     expect(session.turns[1].toolCalls[0].name).toBe('Edit')
