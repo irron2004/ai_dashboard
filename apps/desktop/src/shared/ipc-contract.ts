@@ -79,7 +79,7 @@ export type GenerateProjectRes = {
 }
 
 // Knowledge Harness (evidence-based multi-agent pipeline) surface.
-export type HarnessRunReq = { projectId: string; engine: AgentType }
+export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
 export type HarnessGetRunReq = { runId: string }

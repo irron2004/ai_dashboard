@@ -185,7 +185,10 @@ export function buildContainer(opts: {
     vaultRoot: opts.vaultRoot,
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
   })
-  const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => harness.run(req)
+  const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
+    const project = registry.get(req.projectId)
+    return harness.run({ projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [] })
+  }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
   const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)

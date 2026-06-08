@@ -6,6 +6,7 @@ import {
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
+import { materializeProjectDocs } from './source-materializer.js'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
@@ -74,7 +75,10 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType }): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }): Promise<HarnessRunResult> {
+    if (input.materialize && input.repoPaths?.length) {
+      materializeProjectDocs(input.repoPaths, this.deps.vaultRoot)
+    }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
     const runner = this.runnerFor(runId, input.projectId)

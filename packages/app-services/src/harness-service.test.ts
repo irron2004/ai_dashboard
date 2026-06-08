@@ -169,6 +169,19 @@ describe('HarnessService', () => {
     expect(resumed.reason).toMatch(/already MERGED — nothing to resume/)
   })
 
+  test('run({ materialize: true }) copies project docs into raw/project-docs before running', async () => {
+    // Build `harness` + `vaultRoot` exactly as the other tests in this file do (reuse their setup/helpers).
+    const harness = service()
+    const vaultRoot = join(ws, 'vault')
+    const repo = join(ws, 'repo')              // `ws` = the temp root the other tests use
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'GUIDE.md'), '# guide')
+
+    await harness.run({ projectId: 'p1', engine: 'claude', materialize: true, repoPaths: [repo] })
+
+    expect(existsSync(join(vaultRoot, 'raw', 'project-docs', '0', 'GUIDE.md'))).toBe(true)
+  })
+
   test('a concurrent run for the same project returns a structured failure, not an unhandled throw', async () => {
     // someone else already holds the project lock
     new RunLock(join(ws, 'runs', '.locks'), 'p1').acquire('OTHER')
