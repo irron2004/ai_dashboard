@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { z } from 'zod'
 import { FakeAgentRunner } from '@apc/llm-wiki'
+import type { AgentRunner, RunInput } from '@apc/llm-wiki'
 import { LlmAgent } from './llm-agent.js'
 
 const Out = z.object({ value: z.string() })
@@ -24,5 +25,22 @@ describe('LlmAgent', () => {
     const runner = new FakeAgentRunner([])  // first call returns ok:false
     const agent = new LlmAgent({ name: 't', role: 'r', schema: Out, preamble: 'P' })
     await expect(agent.run({ runner, engine: 'claude', input: {}, timeoutMs: 10 })).rejects.toThrow(/failed/)
+  })
+})
+
+const tinyAgent = () => new LlmAgent({ name: 'project-discovery', role: 'r', preamble: 'p', schema: z.object({ ok: z.boolean() }) })
+
+describe('LlmAgent failure + cwd', () => {
+  test('surfaces the runner raw error and the engine name when not ok', async () => {
+    const failing: AgentRunner = { run: async () => ({ ok: false, output: '', raw: 'spawn claude ENOENT' }) }
+    await expect(tinyAgent().run({ runner: failing, engine: 'claude', input: {} }))
+      .rejects.toThrow(/project-discovery failed \(claude\): .*ENOENT/)
+  })
+
+  test('forwards cwd to the runner', async () => {
+    const calls: RunInput[] = []
+    const rec: AgentRunner = { run: async (i) => { calls.push(i); return { ok: false, output: '', raw: '' } } }
+    await tinyAgent().run({ runner: rec, engine: 'codex', input: { x: 1 }, cwd: '/my/proj' }).catch(() => {})
+    expect(calls[0].cwd).toBe('/my/proj')
   })
 })

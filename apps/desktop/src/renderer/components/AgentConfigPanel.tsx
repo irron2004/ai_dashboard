@@ -17,12 +17,13 @@ type Props = {
   onPromptChange: (key: HarnessAgentPromptKey, value: string) => void
   onRefresh: () => void
   onPromote: () => void
+  canPromote?: boolean
 }
 
 const ENGINE_OPTIONS: AgentType[] = ['claude', 'opencode', 'codex']
 
 export function AgentConfigPanel({
-  config, loading, message, profiles, onSelectProfile, onModelChange, onRefresh, onPromote,
+  config, loading, message, profiles, onSelectProfile, onModelChange, onRefresh, onPromote, canPromote = true,
 }: Props) {
   // Honesty (C1/C2): only Engine reaches the run. Gates reflect the shipped policy read-only; temperature/
   // max-tokens/prompts/safety map to no backend knob in the MVP and are shown disabled + labeled.
@@ -112,7 +113,7 @@ export function AgentConfigPanel({
 
       <section className="agent-config-panel__actions">
         <button type="button" onClick={onRefresh} disabled={loading}>Refresh run</button>
-        <button type="button" className="button button--accent" onClick={onPromote} disabled={loading}>Promote current</button>
+        <button type="button" className="button button--accent" onClick={onPromote} disabled={loading || !canPromote} title={canPromote ? undefined : '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 promote할 수 있습니다'}>Promote current</button>
       </section>
 
       {message && <div className="agent-config-panel__message">{message}</div>}

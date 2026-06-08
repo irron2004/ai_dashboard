@@ -50,10 +50,10 @@ export class HarnessService {
   private stagingDir(runId: string): string { return join(this.deps.runsRoot, runId, 'vault-staging') }
 
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock). */
-  private runnerFor(runId: string, projectId: string): HarnessRunner {
+  private runnerFor(runId: string, projectId: string, projectCwd?: string): HarnessRunner {
     const drivers = makeDrivers({
       runner: this.deps.runner, vaultRoot: this.deps.vaultRoot,
-      stagingRoot: this.stagingDir(runId), preamble: this.preamble,
+      stagingRoot: this.stagingDir(runId), preamble: this.preamble, projectCwd,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
     return new HarnessRunner({ gates: this.featureGate(), drivers, now: this.now, lock })
@@ -81,7 +81,7 @@ export class HarnessService {
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const runner = this.runnerFor(runId, input.projectId)
+    const runner = this.runnerFor(runId, input.projectId, input.repoPaths?.[0])
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     return this.advanceSafely(runId, runner, store)
   }
