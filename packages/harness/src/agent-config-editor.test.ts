@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import matter from 'gray-matter'
 import { parseJsonc } from './jsonc.js'
 import { AgentConfigEditor } from './agent-config-editor.js'
@@ -50,5 +53,51 @@ describe('diffText', () => {
     expect(d).toContain('-b')
     expect(d).toContain('+B')
     expect(d).not.toContain('-a')
+  })
+})
+
+describe('applyConfigText + rollbackConfig', () => {
+  let dir: string
+  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'cfg-')) })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  test('apply writes a snapshot then the new content; rollback restores it', () => {
+    const path = join(dir, 'opencode.json')
+    writeFileSync(path, '{ "agent": { "b": { "model": "old" } } }\n')
+    const proposed = '{ "agent": { "b": { "model": "new" } } }\n'
+
+    const res = ed.applyConfigText(path, proposed, 'json')
+    expect(res.ok).toBe(true)
+    expect(res.snapshotPath && existsSync(res.snapshotPath)).toBe(true)
+    expect(readFileSync(path, 'utf8')).toBe(proposed)
+    expect(readFileSync(res.snapshotPath!, 'utf8')).toBe('{ "agent": { "b": { "model": "old" } } }\n')
+
+    const rb = ed.rollbackConfig(path)
+    expect(rb.ok).toBe(true)
+    expect(readFileSync(path, 'utf8')).toBe('{ "agent": { "b": { "model": "old" } } }\n')
+  })
+
+  test('apply refuses invalid content (no write, no snapshot)', () => {
+    const path = join(dir, 'opencode.json')
+    writeFileSync(path, '{ "ok": true }\n')
+    const res = ed.applyConfigText(path, '{ not json', 'json')
+    expect(res.ok).toBe(false)
+    expect(res.errors.length).toBeGreaterThan(0)
+    expect(readFileSync(path, 'utf8')).toBe('{ "ok": true }\n')
+  })
+
+  test('rollback with no snapshot returns ok:false', () => {
+    const path = join(dir, 'opencode.json')
+    writeFileSync(path, '{}\n')
+    expect(ed.rollbackConfig(path).ok).toBe(false)
+  })
+
+  test('previewEdit reads file + returns validation + diff without writing', () => {
+    const path = join(dir, 'a.md')
+    writeFileSync(path, matter.stringify('p', { model: 'gpt-4' }))
+    const pv = ed.previewEdit(path, 'markdown', 'a', { model: 'gpt-5' })
+    expect(pv.ok).toBe(true)
+    expect(pv.diff).toContain('gpt-5')
+    expect(readFileSync(path, 'utf8')).toContain('gpt-4')
   })
 })

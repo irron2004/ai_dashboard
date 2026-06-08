@@ -1,3 +1,5 @@
+import { readFileSync, writeFileSync, copyFileSync, renameSync, readdirSync } from 'node:fs'
+import { dirname, basename, join } from 'node:path'
 import matter from 'gray-matter'
 import type { ProfileEdits } from '@apc/shared'
 import { parseJsonc } from './jsonc.js'
@@ -58,6 +60,47 @@ export class AgentConfigEditor {
       try { matter(text) } catch (e) { errors.push(`frontmatter parse error: ${e instanceof Error ? e.message : String(e)}`) }
     }
     return { ok: errors.length === 0, errors }
+  }
+
+  /** Validate, snapshot the current file, then atomically write the proposed text. No write if validation fails. */
+  applyConfigText(path: string, proposedText: string, rawFormat: 'json' | 'markdown'): { ok: boolean; snapshotPath?: string; errors: string[] } {
+    const v = this.validateConfigText(proposedText, rawFormat)
+    if (!v.ok) return { ok: false, errors: v.errors }
+    // snapshot first — copyFileSync throws if the original is missing, so we never write without a backup
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const snapshotPath = `${path}.bak-${stamp}`
+    copyFileSync(path, snapshotPath)
+    const tmp = `${path}.tmp-${stamp}`
+    writeFileSync(tmp, proposedText)
+    renameSync(tmp, path)
+    return { ok: true, snapshotPath, errors: [] }
+  }
+
+  /** Restore the most recent `<file>.bak-*` snapshot. */
+  rollbackConfig(path: string): { ok: boolean; restoredFrom?: string; error?: string } {
+    const dir = dirname(path), base = basename(path)
+    let snaps: string[]
+    try { snaps = readdirSync(dir).filter((f) => f.startsWith(`${base}.bak-`)) } catch { return { ok: false, error: 'cannot read directory' } }
+    if (snaps.length === 0) return { ok: false, error: 'no snapshot to restore' }
+    snaps.sort()
+    const latest = join(dir, snaps[snaps.length - 1])
+    copyFileSync(latest, path)
+    return { ok: true, restoredFrom: latest }
+  }
+
+  /** Read current file → serialize edits → validate + diff. No write. */
+  previewEdit(path: string, rawFormat: 'json' | 'markdown', profileName: string, edits: ProfileEdits): { ok: boolean; errors: string[]; diff: string } {
+    const current = readFileSync(path, 'utf8')
+    const proposed = this.serializeProfileEdit(current, rawFormat, profileName, edits)
+    const v = this.validateConfigText(proposed, rawFormat)
+    return { ok: v.ok, errors: v.errors, diff: this.diffText(current, proposed, path) }
+  }
+
+  /** Read current file → serialize edits → applyConfigText (validate + snapshot + atomic write). */
+  applyEdit(path: string, rawFormat: 'json' | 'markdown', profileName: string, edits: ProfileEdits): { ok: boolean; errors: string[]; snapshotPath?: string } {
+    const current = readFileSync(path, 'utf8')
+    const proposed = this.serializeProfileEdit(current, rawFormat, profileName, edits)
+    return this.applyConfigText(path, proposed, rawFormat)
   }
 
   /** Unified diff of the changed region only (common prefix/suffix trimmed). Empty string if identical. */
