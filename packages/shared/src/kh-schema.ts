@@ -299,3 +299,22 @@ export const KhEvidenceVerificationReportSchema = z.object({
   })).default([]),
 })
 export type KhEvidenceVerificationReport = z.infer<typeof KhEvidenceVerificationReportSchema>
+
+export const KhCoverageReportSchema = z.object({
+  sources: z.array(z.object({
+    path: z.string(),
+    status: z.enum(['covered', 'unmapped']),
+    citedBy: z.array(z.string()).default([]),   // node ids that cite this source
+  })).default([]),
+  nodes: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    cites: z.array(z.string()).default([]),     // source paths this node cites
+  })).default([]),
+  totals: z.object({
+    sourcesTotal: z.number().int().default(0),
+    covered: z.number().int().default(0),
+    unmapped: z.number().int().default(0),
+  }),
+})
+export type KhCoverageReport = z.infer<typeof KhCoverageReportSchema>
