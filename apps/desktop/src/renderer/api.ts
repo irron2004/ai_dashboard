@@ -6,6 +6,7 @@ import type {
   HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
+  ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile } from '@apc/shared'
 
@@ -96,6 +97,15 @@ export const api = {
   },
   selectProfile(req: SelectProfileReq): Promise<unknown> {
     return window.apc.invoke(CH.selectProfile, req)
+  },
+  configPreview(req: ConfigEditReq): Promise<ConfigPreviewRes> {
+    return window.apc.invoke(CH.configPreview, req) as Promise<ConfigPreviewRes>
+  },
+  configApply(req: ConfigEditReq): Promise<ConfigApplyRes> {
+    return window.apc.invoke(CH.configApply, req) as Promise<ConfigApplyRes>
+  },
+  configRollback(req: ConfigRollbackReq): Promise<ConfigRollbackRes> {
+    return window.apc.invoke(CH.configRollback, req) as Promise<ConfigRollbackRes>
   },
 
   // PTY (event-based)

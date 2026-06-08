@@ -4,6 +4,7 @@ import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
+  ConfigEditReq, ConfigRollbackReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
@@ -69,6 +70,22 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = payload as ListProfilesReq
       const { OpenCodeConfigAdapter } = await import('@apc/harness')
       return new OpenCodeConfigAdapter().discoverProfiles({ projectPath: req.projectPath })
+    },
+
+    [CH.configPreview]: async (payload: unknown) => {
+      const req = payload as ConfigEditReq
+      const { AgentConfigEditor } = await import('@apc/harness')
+      return new AgentConfigEditor().previewEdit(req.rawConfigPath, req.rawFormat, req.profileName, req.edits)
+    },
+    [CH.configApply]: async (payload: unknown) => {
+      const req = payload as ConfigEditReq
+      const { AgentConfigEditor } = await import('@apc/harness')
+      return new AgentConfigEditor().applyEdit(req.rawConfigPath, req.rawFormat, req.profileName, req.edits)
+    },
+    [CH.configRollback]: async (payload: unknown) => {
+      const req = payload as ConfigRollbackReq
+      const { AgentConfigEditor } = await import('@apc/harness')
+      return new AgentConfigEditor().rollbackConfig(req.rawConfigPath)
     },
 
     [CH.ingestAll]: async (_payload: unknown) => {
