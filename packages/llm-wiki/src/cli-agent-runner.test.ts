@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { mkdtempSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { CliAgentRunner, type EngineTemplates } from './cli-agent-runner.js'
 
@@ -77,4 +80,19 @@ describe('CliAgentRunner', () => {
   test('throws for an engine with no configured template', async () => {
     await expect(new CliAgentRunner({}).run({ agent: 'opencode', prompt: 'x', timeoutMs: 100 })).rejects.toThrow(/no command template/i)
   })
+})
+
+describe('CliAgentRunner (real process)', () => {
+  test('runs the engine command in the provided cwd', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cwd-test-')))
+    vi.doUnmock('node:child_process')
+    vi.resetModules()
+    const { CliAgentRunner: RealRunner } = await import('./cli-agent-runner.js')
+    const runner = new RealRunner({
+      codex: { command: process.execPath, args: ['-e', 'process.stdout.write(process.cwd())'] },
+    })
+    const res = await runner.run({ agent: 'codex', prompt: '', timeoutMs: 10_000, cwd: dir })
+    expect(res.ok).toBe(true)
+    expect(realpathSync(res.output.trim())).toBe(dir)
+  }, 15_000)
 })
