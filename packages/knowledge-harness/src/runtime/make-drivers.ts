@@ -28,6 +28,7 @@ export type DriverDeps = {
   vaultRoot: string
   stagingRoot: string
   preamble: string
+  projectCwd?: string
   // Phase 3 will add: policy, validators
 }
 
@@ -91,7 +92,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
   const links = new ObsidianLinkValidator()
-  const run = { runner: deps.runner }
+  const run = { runner: deps.runner, cwd: deps.projectCwd }
 
   return {
     PROJECT_SCANNED: async (ctx) => {

@@ -182,6 +182,18 @@ describe('HarnessService', () => {
     expect(existsSync(join(vaultRoot, 'raw', 'project-docs', '0', 'GUIDE.md'))).toBe(true)
   })
 
+  test('runs the engine CLI with the project repoPath as cwd', async () => {
+    const runner = new FakeAgentRunner(cannedOutputs())
+    const harness = new HarnessService({
+      runner, vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const repo = join(ws, 'repo')
+    await harness.run({ projectId: 'p1', engine: 'claude', repoPaths: [repo] })
+    expect(runner.calls.length).toBeGreaterThan(0)
+    expect(runner.calls[0].cwd).toBe(repo)
+  })
+
   test('a concurrent run for the same project returns a structured failure, not an unhandled throw', async () => {
     // someone else already holds the project lock
     new RunLock(join(ws, 'runs', '.locks'), 'p1').acquire('OTHER')
