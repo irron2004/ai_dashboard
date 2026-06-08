@@ -8,7 +8,7 @@ import type {
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
 } from '../shared/ipc-contract.js'
-import type { Project, AgentProfile } from '@apc/shared'
+import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
 
 declare global {
   interface Window {
@@ -53,8 +53,8 @@ export const api = {
   projectDashboard(req: ProjectDashboardReq): Promise<ProjectDashboardRes> {
     return window.apc.invoke(CH.projectDashboard, req) as Promise<ProjectDashboardRes>
   },
-  search(req: SearchReq): Promise<unknown[]> {
-    return window.apc.invoke(CH.search, req) as Promise<unknown[]>
+  search(req: SearchReq): Promise<UnifiedSearchResponse> {
+    return window.apc.invoke(CH.search, req) as Promise<UnifiedSearchResponse>
   },
   listProfiles(projectPath: string): Promise<AgentProfile[]> {
     return window.apc.invoke(CH.listProfiles, { projectPath }) as Promise<AgentProfile[]>

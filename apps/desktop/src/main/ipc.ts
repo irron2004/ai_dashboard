@@ -62,8 +62,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.search]: async (payload: unknown) => {
-      const req = payload as SearchReq
-      return container.searchIndex.search(req.query, req.projectId ? { projectId: req.projectId } : {})
+      return container.search(payload as SearchReq)
     },
 
     [CH.listProfiles]: async (payload: unknown) => {

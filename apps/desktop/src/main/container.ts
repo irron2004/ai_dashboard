@@ -8,6 +8,7 @@ import { getProjectDashboard } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService, HarnessService } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
+import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -17,7 +18,9 @@ import type {
   GeneratePreflightCategoryId,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  SearchReq,
 } from '../shared/ipc-contract.js'
+import type { UnifiedSearchResponse } from '@apc/shared'
 
 export type Container = {
   db: ReturnType<typeof openDb>
@@ -27,6 +30,7 @@ export type Container = {
   reviews: ReviewService
   cursors: IngestCursorStore
   searchIndex: SearchIndex
+  search: (req: SearchReq) => UnifiedSearchResponse
   vault: VaultAdapter
   taskProfiles: TaskProfileStore
   ingest: IngestService
@@ -107,6 +111,8 @@ export function buildContainer(opts: {
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
   const searchIndex = new SearchIndex(searchDb)
+  const unifiedSearch = new UnifiedSearch({ sessions: searchIndex })
+  const search = (req: SearchReq): UnifiedSearchResponse => unifiedSearch.search(req)
   const vault = new VaultAdapter(opts.vaultRoot)
   const taskProfiles = new TaskProfileStore(db)
   const ingest = new IngestService({ registry, cursors, index: searchIndex })
@@ -202,7 +208,7 @@ export function buildContainer(opts: {
   const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
 
   return {
-    db, registry, tasks, runs, reviews, cursors, searchIndex, vault, taskProfiles,
+    db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     dashboard: getProjectDashboard,
