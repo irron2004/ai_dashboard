@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -37,6 +37,9 @@ export const CH = {
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
   harnessProgress: 'harness:progress',
+  configPreview: 'c:configPreview',
+  configApply: 'c:configApply',
+  configRollback: 'c:configRollback',
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
@@ -109,3 +112,9 @@ export type PtyInputReq = { id: string; data: string }
 export type PtyKillReq = { id: string }
 export type PtyResizeReq = { id: string; cols: number; rows: number }
 export type ListProfilesResult = AgentProfile[]
+
+export type ConfigEditReq = { rawConfigPath: string; rawFormat: 'json' | 'markdown'; profileName: string; edits: ProfileEdits }
+export type ConfigPreviewRes = { ok: boolean; errors: string[]; diff: string }
+export type ConfigApplyRes = { ok: boolean; errors: string[]; snapshotPath?: string }
+export type ConfigRollbackReq = { rawConfigPath: string }
+export type ConfigRollbackRes = { ok: boolean; restoredFrom?: string; error?: string }

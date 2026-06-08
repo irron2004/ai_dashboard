@@ -23,3 +23,13 @@ export const AgentProfileSchema = z.object({
   rawFormat: z.enum(['json', 'markdown', 'toml', 'unknown']),
 })
 export type AgentProfile = z.infer<typeof AgentProfileSchema>
+
+export type ProfileEdits = {
+  model?: string
+  mode?: string
+  permissions?: Partial<Record<'read' | 'edit' | 'bash' | 'web' | 'task', 'allow' | 'ask' | 'deny'>>
+  tools?: string[]
+  temperature?: number
+  description?: string
+  prompt?: string
+}
