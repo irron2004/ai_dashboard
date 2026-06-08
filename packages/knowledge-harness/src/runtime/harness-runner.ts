@@ -35,7 +35,7 @@ export class HarnessRunner {
   }
 
   /** Walk PIPELINE from the run's current state to HUMAN_REVIEW_REQUIRED, a closed gate, or FAILED. Resumable. */
-  async advance(store: RunArtifactStore): Promise<RunState> {
+  async advance(store: RunArtifactStore, onProgress?: (rs: RunState) => void): Promise<RunState> {
     let runState = store.loadRunState()
 
     // Idempotent on terminal states: a finished/failed run is never re-walked.
@@ -70,6 +70,7 @@ export class HarnessRunner {
           }
           store.saveRunState(runState)
           ctx.runState = runState
+          onProgress?.(runState)
         } catch (err) {
           runState = {
             ...runState,
@@ -78,6 +79,7 @@ export class HarnessRunner {
             error: err instanceof Error ? err.message : String(err),
           }
           store.saveRunState(runState)
+          onProgress?.(runState)
           return runState
         }
       }

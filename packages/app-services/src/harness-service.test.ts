@@ -254,6 +254,13 @@ describe('HarnessService', () => {
     expect(existsSync(join(ws, 'vault-staging', 'concepts', 'n1.md'))).toBe(false)  // never authored
   })
 
+  test('run forwards per-stage progress to onProgress', async () => {
+    const stages: string[] = []
+    await service().run({ projectId: 'p1', engine: 'claude' }, (rs) => stages.push(rs.state))
+    expect(stages.length).toBeGreaterThan(0)
+    expect(stages[stages.length - 1]).toBe('HUMAN_REVIEW_REQUIRED')
+  })
+
   test('a secret that reaches staged content (pre-existing, merged by append) BLOCKS promotion; allowSecrets overrides', async () => {
     // The op body itself is clean, so the pre-staging gate lets the run finish — but appending to a
     // pre-existing vault doc that already holds a secret surfaces it in the authored staged file, where

@@ -92,6 +92,7 @@ export function buildContainer(opts: {
   agentRunner?: AgentRunner
   /** runs/ root for harness artifacts; defaults to <vaultRoot>/.harness-runs. */
   harnessRunsRoot?: string
+  emitHarnessProgress?: (e: { runId: string; state: string }) => void
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -189,7 +190,10 @@ export function buildContainer(opts: {
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)
-    return harness.run({ projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [] })
+    return harness.run(
+      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [] },
+      (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
+    )
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)

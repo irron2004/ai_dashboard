@@ -60,9 +60,9 @@ export class HarnessService {
   }
 
   /** advance() the run, mapping a thrown lock-contention error to a structured failure result. */
-  private async advanceSafely(runId: string, runner: HarnessRunner, store: RunArtifactStore): Promise<HarnessRunResult> {
+  private async advanceSafely(runId: string, runner: HarnessRunner, store: RunArtifactStore, onProgress?: (rs: RunState) => void): Promise<HarnessRunResult> {
     try {
-      const rs = await runner.advance(store)
+      const rs = await runner.advance(store, onProgress)
       return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
     } catch (err) {
       let reason = err instanceof Error ? err.message : String(err)
@@ -75,7 +75,7 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void): Promise<HarnessRunResult> {
     if (input.materialize && input.repoPaths?.length) {
       materializeProjectDocs(input.repoPaths, this.deps.vaultRoot)
     }
@@ -83,7 +83,7 @@ export class HarnessService {
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
     const runner = this.runnerFor(runId, input.projectId, input.repoPaths?.[0])
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
-    return this.advanceSafely(runId, runner, store)
+    return this.advanceSafely(runId, runner, store, onProgress)
   }
 
   /** Resume an existing run from its persisted state — e.g. after a paused gate is reopened. Re-reads

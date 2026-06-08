@@ -36,6 +36,7 @@ type ApcStore = {
   selectedHarnessRunId: string | null
   harnessLoading: boolean
   harnessMessage: string | null
+  harnessProgress: string | null
   harnessConfigs: Record<string, HarnessConfig>
   /** canonical proposals for the selected run; each currentHash captured when this list was fetched
    * (= the "last read" the hash-gate compares against when the user later clicks promote). */
@@ -68,6 +69,7 @@ type ApcStore = {
   toggleHarnessGate(key: HarnessFeatureGateKey): void
   updateHarnessPrompt(key: HarnessAgentPromptKey, value: string): void
   clearHarnessMessage(): void
+  setHarnessProgress(state: string | null): void
   attachProfileToActiveTask(profileId: string): Promise<void>
 }
 
@@ -112,6 +114,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   selectedHarnessRunId: null,
   harnessLoading: false,
   harnessMessage: null,
+  harnessProgress: null,
   harnessConfigs: {},
 
   setAgentStatus(agent, status) {
@@ -258,7 +261,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [] })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null })
     try {
       const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
@@ -408,6 +411,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   },
 
   clearHarnessMessage() { set({ harnessMessage: null }) },
+  setHarnessProgress(state) { set({ harnessProgress: state }) },
 
   async attachProfileToActiveTask(profileId: string) {
     const dashboard = get().dashboard

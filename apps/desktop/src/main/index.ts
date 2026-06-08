@@ -23,6 +23,7 @@ function createWindow(): void {
   const container = buildContainer({
     dbFile: join(userData, 'apc.db'),
     vaultRoot: join(userData, 'vault'),
+    emitHarnessProgress: (e) => win.webContents.send(CH.harnessProgress, e),
   })
 
   registerIpc(ipcMain, container)

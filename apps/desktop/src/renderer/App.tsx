@@ -97,6 +97,8 @@ export function App() {
     window.addEventListener('mouseup', onUp)
   }
 
+  useEffect(() => api.onHarnessProgress((e) => useStore.getState().setHarnessProgress(e.state)), [])
+
   useEffect(() => { loadProjects() }, [loadProjects])
 
   useEffect(() => {
