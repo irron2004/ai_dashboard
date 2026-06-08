@@ -57,7 +57,7 @@ type ApcStore = {
 
   hydrateHarnessProject(projectId: string): void
   selectHarnessRun(runId: string): void
-  startHarnessRun(): Promise<void>
+  startHarnessRun(materialize?: boolean): Promise<void>
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   promoteHarnessRun(runId?: string): Promise<void>
@@ -254,13 +254,13 @@ export const useStore = create<ApcStore>((set, get) => ({
     saveHarnessSelectedRun(projectId, runId)
   },
 
-  async startHarnessRun() {
+  async startHarnessRun(materialize = false) {
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
     set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [] })
     try {
-      const started = await api.harnessRun({ projectId, engine: config.model.engine })
+      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {

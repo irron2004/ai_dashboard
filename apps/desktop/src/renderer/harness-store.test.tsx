@@ -74,9 +74,19 @@ describe('harness store actions (api mocked)', () => {
     mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-2', finalState: 'HUMAN_REVIEW_REQUIRED' })
     mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-2' }, artifacts: [] })
     await useStore.getState().startHarnessRun()
-    expect(mockApi.harnessRun).toHaveBeenCalledWith({ projectId: 'p1', engine: 'opencode' })
+    expect(mockApi.harnessRun).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1', engine: 'opencode' }))
     expect(useStore.getState().selectedHarnessRunId).toBe('RUN-2')
     expect(useStore.getState().harnessMessage).toContain('RUN-2')
+  })
+
+  test('startHarnessRun(true) forwards materialize:true to api.harnessRun', async () => {
+    const cfg = createDefaultHarnessConfig()
+    cfg.model.engine = 'opencode'
+    useStore.setState({ harnessConfigs: { p1: cfg } })
+    mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-3', finalState: 'HUMAN_REVIEW_REQUIRED' })
+    mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-3' }, artifacts: [] })
+    await useStore.getState().startHarnessRun(true)
+    expect(api.harnessRun).toHaveBeenCalledWith(expect.objectContaining({ materialize: true }))
   })
 
   test('startHarnessRun without a project errors instead of calling the api', async () => {
