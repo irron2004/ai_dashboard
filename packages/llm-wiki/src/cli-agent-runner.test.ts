@@ -95,4 +95,16 @@ describe('CliAgentRunner (real process)', () => {
     expect(res.ok).toBe(true)
     expect(realpathSync(res.output.trim())).toBe(dir)
   }, 15_000)
+
+  test('a non-existent cwd does not crash the spawn (falls back to inherited cwd)', async () => {
+    vi.doUnmock('node:child_process')
+    vi.resetModules()
+    const { CliAgentRunner: RealRunner } = await import('./cli-agent-runner.js')
+    const runner = new RealRunner({
+      codex: { command: process.execPath, args: ['-e', 'process.stdout.write("ok")'] },
+    })
+    const res = await runner.run({ agent: 'codex', prompt: '', timeoutMs: 10_000, cwd: '/no/such/dir/xyz-does-not-exist' })
+    expect(res.ok).toBe(true)
+    expect(res.output).toBe('ok')
+  }, 15_000)
 })
