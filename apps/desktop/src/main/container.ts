@@ -178,7 +178,8 @@ export function buildContainer(opts: {
     return generate.generateForProject(req)
   }
 
-  // Knowledge Harness — shares the injected AgentRunner (FakeAgentRunner in tests, CliAgentRunner in prod).
+  // Knowledge Harness — shares the injected AgentRunner (FakeAgentRunner in tests, RoutingAgentRunner in prod:
+  // SSH for ssh:// projects, local CliAgentRunner otherwise).
   // runsRoot MUST live OUTSIDE the vault: StagingVault copies the whole vault into <runsRoot>/<id>/vault-staging,
   // so a runs dir nested inside the vault would make cpSync copy a directory into a subdirectory of itself.
   const harness = new HarnessService({
