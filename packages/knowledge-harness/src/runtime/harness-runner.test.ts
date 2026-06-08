@@ -122,4 +122,15 @@ describe('HarnessRunner', () => {
     // the foreign lock must survive — advance must not release a lock it did not acquire
     expect(() => new RunLock(dir, 'p1').acquire('RUN-3')).toThrow(/already in progress/)
   })
+
+  test('advance reports each completed stage to onProgress in order', async () => {
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers: fakeDrivers(), now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    const seen: string[] = []
+    const final = await runner.advance(store, (rs) => seen.push(rs.state))
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((s) => typeof s === 'string' && s.length > 0)).toBe(true)
+    // the last reported state equals the run's final state
+    expect(seen[seen.length - 1]).toBe(final.state)
+  })
 })
