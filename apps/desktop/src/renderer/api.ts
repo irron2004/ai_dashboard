@@ -19,6 +19,7 @@ declare global {
       resizePty(req: PtyResizeReq): void
       onPtyData(cb: (id: string, data: string) => void): () => void
       onPtyExit(cb: (id: string, code: number) => void): () => void
+      onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
     }
   }
 }
@@ -104,4 +105,7 @@ export const api = {
   resizePty(req: PtyResizeReq): void { window.apc.resizePty(req) },
   onPtyData(cb: (id: string, data: string) => void): () => void { return window.apc.onPtyData(cb) },
   onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
+  onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void {
+    return window.apc.onHarnessProgress(cb)
+  },
 }

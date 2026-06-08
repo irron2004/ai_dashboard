@@ -21,4 +21,9 @@ contextBridge.exposeInMainWorld('apc', {
     ipcRenderer.on(CH.ptyExit, handler)
     return () => ipcRenderer.removeListener(CH.ptyExit, handler)
   },
+  onHarnessProgress: (cb: (e: { runId: string; state: string }) => void) => {
+    const handler = (_e: unknown, ev: { runId: string; state: string }) => cb(ev)
+    ipcRenderer.on(CH.harnessProgress, handler)
+    return () => ipcRenderer.removeListener(CH.harnessProgress, handler)
+  },
 })

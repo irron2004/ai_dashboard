@@ -36,6 +36,7 @@ export const CH = {
   ptyResize: 'pty:resize',
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
+  harnessProgress: 'harness:progress',
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
@@ -79,6 +80,7 @@ export type GenerateProjectRes = {
 }
 
 // Knowledge Harness (evidence-based multi-agent pipeline) surface.
+export type HarnessProgressEvent = { runId: string; state: string }
 export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
