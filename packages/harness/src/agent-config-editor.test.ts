@@ -26,3 +26,29 @@ describe('serializeProfileEdit', () => {
     expect(obj.agent.plan.model).toBe('x')
   })
 })
+
+describe('validateConfigText', () => {
+  test('ok for valid json + markdown', () => {
+    expect(ed.validateConfigText('{ "agent": { "b": { "mode": "primary" } } }', 'json').ok).toBe(true)
+    expect(ed.validateConfigText(matter.stringify('p', { mode: 'subagent' }), 'markdown').ok).toBe(true)
+  })
+  test('flags broken json and invalid mode/permission', () => {
+    expect(ed.validateConfigText('{ not json', 'json').ok).toBe(false)
+    const bad = ed.validateConfigText('{ "agent": { "b": { "mode": "wat", "permission": { "bash": "nope" } } } }', 'json')
+    expect(bad.ok).toBe(false)
+    expect(bad.errors.join(' ')).toMatch(/mode/)
+    expect(bad.errors.join(' ')).toMatch(/permission|bash/)
+  })
+})
+
+describe('diffText', () => {
+  test('empty when identical, unified hunk on the changed region', () => {
+    expect(ed.diffText('a\nb\nc', 'a\nb\nc', 'f')).toBe('')
+    const d = ed.diffText('a\nb\nc', 'a\nB\nc', 'f')
+    expect(d).toContain('--- a/f')
+    expect(d).toContain('+++ b/f')
+    expect(d).toContain('-b')
+    expect(d).toContain('+B')
+    expect(d).not.toContain('-a')
+  })
+})
