@@ -4,7 +4,7 @@ import type { GeneratePreflightCategoryId } from '../shared/ipc-contract.js'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
-import { HarnessDashboard } from './components/HarnessDashboard.js'
+import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import './app.css'
 
@@ -26,6 +26,7 @@ export function App() {
     prepareGenerate, generate, clearGeneratePreflight, clearGeneration,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
+  const [mainTab, setMainTab] = useState<MainTab>('pm')
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [selectedGenerateEngine, setSelectedGenerateEngine] = useState<AgentType>('claude')
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
@@ -245,7 +246,13 @@ export function App() {
           </span>
         </header>
         {dashboard ? (
-          <HarnessDashboard profiles={profiles} onSelectProfile={handleSelectProfile} />
+          <MainPanel
+            tab={mainTab}
+            onTab={setMainTab}
+            dashboard={dashboard}
+            profiles={profiles}
+            onSelectProfile={handleSelectProfile}
+          />
         ) : (
           <div className="app-layout__placeholder">
             {selectedProjectId ? 'Loading...' : 'Select a project or add one'}
