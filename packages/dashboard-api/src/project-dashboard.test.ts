@@ -26,4 +26,9 @@ describe('getProjectDashboard', () => {
   test('throws for an unknown project', () => {
     expect(() => getProjectDashboard({ registry, tasks, runs }, 'nope')).toThrow(/not found/i)
   })
+
+  test('allTasks includes every task regardless of status', () => {
+    const dash = getProjectDashboard({ registry, tasks, runs }, 'p1')
+    expect(dash.allTasks.map((t) => t.id).sort()).toEqual(['T1', 'T2', 'T3'])
+  })
 })

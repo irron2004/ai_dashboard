@@ -7,6 +7,10 @@ const dashboard = {
   activeTasks: [{ id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress' as const, assigneeType: 'agent' as const, priority: 'high' as const, reviewStatus: 'none' as const, acceptanceCriteria: [], linkedWikiPages: [] }],
   reviewQueue: [{ id: 'T2', projectId: 'p1', title: 'needs review', status: 'review' as const, assigneeType: 'agent' as const, priority: 'medium' as const, reviewStatus: 'pending' as const, acceptanceCriteria: [], linkedWikiPages: [] }],
   recentRuns: [{ id: 'R1', taskId: 'T1', agent: 'codex' as const, repoPath: '/p1', startedAt: '2026-06-01T10:00:00Z', status: 'completed' as const }],
+  allTasks: [
+    { id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress' as const, assigneeType: 'agent' as const, priority: 'high' as const, reviewStatus: 'none' as const, acceptanceCriteria: [], linkedWikiPages: [] },
+    { id: 'T2', projectId: 'p1', title: 'needs review', status: 'review' as const, assigneeType: 'agent' as const, priority: 'medium' as const, reviewStatus: 'pending' as const, acceptanceCriteria: [], linkedWikiPages: [] },
+  ],
 }
 
 describe('PmHome', () => {
