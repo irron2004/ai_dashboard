@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import type { AgentType } from '@apc/shared'
 import type { AgentRunner, RunInput, RunResult } from './agent-runner.js'
 
@@ -22,7 +23,8 @@ export class CliAgentRunner implements AgentRunner {
 
     return new Promise<RunResult>((resolve) => {
       // shell:true on Windows so .cmd/PATHEXT shims (claude.cmd, etc.) resolve.
-      const child = spawn(tpl.command, tpl.args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32', cwd: input.cwd })
+      const safeCwd = input.cwd && existsSync(input.cwd) ? input.cwd : undefined
+      const child = spawn(tpl.command, tpl.args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32', cwd: safeCwd })
       let stdout = '', stderr = ''
       const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, output: '', raw: stderr || 'timeout' }) }, input.timeoutMs)
       child.stdout.on('data', (d) => (stdout += d))
