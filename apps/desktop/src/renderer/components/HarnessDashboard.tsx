@@ -119,9 +119,13 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             {tab === 'graph' && <GraphVisualization data={graphData} onNodeClick={handleNodeClick} />}
             {tab === 'flow' && <TaskFlowView run={currentRun} />}
             {tab === 'coverage' && (
-              coverageData
-                ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
-                : <div className="harness-dashboard__placeholder">아직 커버리지 데이터가 없습니다 — "전 문서로 위키 생성"을 실행하세요.</div>
+              harnessLoading
+                ? <div className="harness-dashboard__placeholder">⏳ 위키 생성 중… (수 분 소요 — 단계별 LLM 호출)</div>
+                : coverageData
+                  ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
+                  : currentRun?.runState.state === 'FAILED'
+                    ? <div className="harness-dashboard__placeholder harness-dashboard__placeholder--error">❌ 실패: {currentRun.runState.error ?? '원인 미상'}</div>
+                    : <div className="harness-dashboard__placeholder">아직 커버리지 데이터가 없습니다 — "전 문서로 위키 생성"을 실행하세요.</div>
             )}
           </div>
 
