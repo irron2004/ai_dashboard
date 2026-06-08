@@ -2,10 +2,11 @@ import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
 import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
+import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { UnifiedSearch } from './unified-search.js'
@@ -102,6 +103,7 @@ export function buildContainer(opts: {
   migrate(db)
   migratePm(db)
   migrateHarness(db)
+  migrateKnowledge(db)
 
   const searchDb = new DatabaseSync(':memory:')
 
@@ -111,11 +113,22 @@ export function buildContainer(opts: {
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
   const searchIndex = new SearchIndex(searchDb)
-  const unifiedSearch = new UnifiedSearch({ sessions: searchIndex })
+  const knowledgeStore = new KnowledgeStore(db)
+  const knowledgeRetrieval = new KnowledgeRetrieval(db)
+  const unifiedSearch = new UnifiedSearch({
+    sessions: searchIndex,
+    knowledge: knowledgeRetrieval,
+    projectIds: () => registry.list().map((p) => p.id),
+  })
   const search = (req: SearchReq): UnifiedSearchResponse => unifiedSearch.search(req)
   const vault = new VaultAdapter(opts.vaultRoot)
   const taskProfiles = new TaskProfileStore(db)
-  const ingest = new IngestService({ registry, cursors, index: searchIndex })
+  const ingest = new IngestService({
+    registry,
+    cursors,
+    index: searchIndex,
+    knowledge: new KnowledgeIndexer({ registry, store: knowledgeStore, vaultRoot: opts.vaultRoot }),
+  })
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
   const vaultWriter = new VaultWriter(vault)
