@@ -42,6 +42,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const graphData = useMemo(() => buildHarnessGraphData(currentRun), [currentRun])
   const diffArtifact = useMemo(() => currentRun?.artifacts.find((artifact) => artifact.name === 'git-diff-report'), [currentRun])
   const coverageData = currentRun?.artifacts.find((a) => a.name === 'coverage-report')?.data as KhCoverageReport | undefined
+  const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
 
   useEffect(() => {
     const next = currentRun?.artifacts.find((artifact) => artifact.path === selectedArtifactPath) ?? currentRun?.artifacts[0] ?? null
@@ -138,7 +139,8 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
                     <span>{p.canonicalPath}{p.currentHash === null ? ' (new)' : ''}</span>
                     <button
                       type="button"
-                      disabled={harnessLoading}
+                      disabled={harnessLoading || !canPromote}
+                      title={canPromote ? undefined : '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 promote할 수 있습니다'}
                       onClick={() => void promoteCanonicalDoc(p.proposalRelPath, p.currentHash ?? '')}
                     >
                       Promote to {p.canonicalPath}
@@ -162,6 +164,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
           onPromptChange={(key, value) => updateHarnessPrompt(key, value)}
           onRefresh={() => void refreshHarnessRun()}
           onPromote={() => void promoteHarnessRun()}
+          canPromote={canPromote}
         />
       </div>
     </section>
