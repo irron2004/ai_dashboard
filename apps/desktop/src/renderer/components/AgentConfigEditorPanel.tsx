@@ -29,10 +29,10 @@ export function AgentConfigEditorPanel({ profiles }: Props) {
   const val = <K extends keyof ProfileEdits>(k: K, fallback: ProfileEdits[K]): ProfileEdits[K] =>
     (edits[k] !== undefined ? edits[k] : fallback)
 
-  const onValidate = async () => { const r = await api.configPreview(req()); setErrors(r.errors); setMsg(r.ok ? '유효함' : null) }
-  const onDiff = async () => { const r = await api.configPreview(req()); setErrors(r.errors); setDiff(r.diff || '(변경 없음)') }
-  const onApply = async () => { const r = await api.configApply(req()); setErrors(r.errors); setMsg(r.ok ? `적용됨 (백업: ${r.snapshotPath})` : null) }
-  const onRollback = async () => { const r = await api.configRollback({ rawConfigPath: sel.rawConfigPath }); setMsg(r.ok ? `롤백됨 (${r.restoredFrom})` : `롤백 실패: ${r.error}`) }
+  const onValidate = async () => { try { const r = await api.configPreview(req()); setErrors(r.errors); setMsg(r.ok ? '유효함' : null) } catch (e) { setErrors([String(e)]); setMsg(null) } }
+  const onDiff = async () => { try { const r = await api.configPreview(req()); setErrors(r.errors); setDiff(r.diff || '(변경 없음)') } catch (e) { setErrors([String(e)]) } }
+  const onApply = async () => { try { const r = await api.configApply(req()); setErrors(r.errors); setMsg(r.ok ? `적용됨 (백업: ${r.snapshotPath})` : null) } catch (e) { setErrors([String(e)]); setMsg(null) } }
+  const onRollback = async () => { try { const r = await api.configRollback({ rawConfigPath: sel.rawConfigPath }); setMsg(r.ok ? `롤백됨 (${r.restoredFrom})` : `롤백 실패: ${r.error}`) } catch (e) { setMsg(`롤백 실패: ${e}`) } }
 
   return (
     <div className="config-editor">

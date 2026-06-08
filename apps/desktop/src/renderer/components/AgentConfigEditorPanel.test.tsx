@@ -5,7 +5,7 @@ import { AgentConfigEditorPanel } from './AgentConfigEditorPanel.js'
 
 vi.mock('../api.js', () => ({
   api: {
-    configPreview: vi.fn().mockResolvedValue({ ok: true, errors: [], diff: '--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n-model: gpt-4\n+model: gpt-5\n' }),
+    configPreview: vi.fn().mockResolvedValue({ ok: true, errors: [], diff: 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n-model: gpt-4\n+model: gpt-5\n' }),
     configApply: vi.fn().mockResolvedValue({ ok: true, errors: [], snapshotPath: '/x.bak-1' }),
     configRollback: vi.fn().mockResolvedValue({ ok: true, restoredFrom: '/x.bak-1' }),
   },

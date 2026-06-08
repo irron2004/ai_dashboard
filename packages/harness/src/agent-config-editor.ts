@@ -113,7 +113,7 @@ export class AgentConfigEditor {
     while (sa > p && sb > p && a[sa - 1] === b[sb - 1]) { sa--; sb-- }
     const removed = a.slice(p, sa), added = b.slice(p, sb)
     const start = p + 1
-    const header = `--- a/${path}\n+++ b/${path}\n@@ -${start},${removed.length} +${start},${added.length} @@\n`
+    const header = `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -${start},${removed.length} +${start},${added.length} @@\n`
     const body = [...removed.map((l) => `-${l}`), ...added.map((l) => `+${l}`)].join('\n') + '\n'
     return header + body
   }
