@@ -17,6 +17,7 @@ import { GraphIntegrity } from '../verify/graph-integrity.js'
 import { MarkdownYamlValidator } from '../verify/markdown-yaml-validator.js'
 import { ObsidianLinkValidator } from '../verify/obsidian-link-validator.js'
 import { buildEvalReport } from '../eval/eval-report.js'
+import { buildCoverageReport } from '../eval/coverage-report.js'
 import {
   makeProjectDiscovery, makeConversationHistoryReader, makeDocumentIntentClassifier,
   makeKnowledgeNodeExtractor, makeWikiGraphLead,
@@ -56,6 +57,7 @@ export const ARTIFACTS = {
   secretScan: 'secret-scan-report',
   finalPolicy: 'final-policy-report',
   evalReport: 'eval-report',
+  coverageReport: 'coverage-report',
   finalReport: 'final-report',
 } as const
 
@@ -222,6 +224,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         applied,
         secretScanFindings: secretReport?.findings.length ?? 0,
       })
+      const coverage = buildCoverageReport(sources.read().map((s) => s.source_path), proposals)
       const finalReport = [
         `# Harness Run ${ctx.runId}`,
         ``,
@@ -234,6 +237,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       return { artifacts: [
         { name: ARTIFACTS.finalPolicy, data: finalPolicy },
         { name: ARTIFACTS.evalReport, data: evalReport },
+        { name: ARTIFACTS.coverageReport, data: coverage },
         { name: ARTIFACTS.finalReport, data: { markdown: finalReport } },
       ] }
     },

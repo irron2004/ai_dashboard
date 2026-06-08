@@ -80,5 +80,13 @@ describe('phase-2 e2e — LLM agents (faked) with shipped gates', () => {
     )
     expect(applied.applied).toContain('decisions/n1.md')
     expect(applied.proposals).toContain('current.proposal.md')
+
+    // coverage-report artifact is emitted at HUMAN_REVIEW_REQUIRED
+    const artifacts = Object.values(rs.artifacts).flat()
+    const coverageArtifact = artifacts.find((a) => a.endsWith('coverage-report.json'))
+    expect(coverageArtifact).toBeDefined()
+    const coverage = store.readArtifact<{ totals: { sourcesTotal: number; covered: number; unmapped: number } }>(coverageArtifact!)
+    expect(typeof coverage.totals.sourcesTotal).toBe('number')
+    expect(coverage.totals.covered + coverage.totals.unmapped).toBe(coverage.totals.sourcesTotal)
   })
 })
