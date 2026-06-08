@@ -10,14 +10,15 @@ import { AgentConfigPanel } from './AgentConfigPanel.js'
 import { DiffViewer } from './DiffViewer.js'
 import { CoverageMatrix } from './CoverageMatrix.js'
 import { QualityPanel } from './QualityPanel.js'
-import type { KhCoverageReport, KhEvalReport } from '@apc/shared'
+import { ProposalsPanel } from './ProposalsPanel.js'
+import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 
 type Props = {
   profiles: AgentProfile[]
   onSelectProfile: (profileId: string) => void
 }
 
-type Tab = 'markdown' | 'graph' | 'flow' | 'coverage' | 'quality'
+type Tab = 'markdown' | 'graph' | 'flow' | 'coverage' | 'quality' | 'proposals'
 
 function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): boolean {
   const normalized = target.trim().toLowerCase()
@@ -44,6 +45,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const diffArtifact = useMemo(() => currentRun?.artifacts.find((artifact) => artifact.name === 'git-diff-report'), [currentRun])
   const coverageData = currentRun?.artifacts.find((a) => a.name === 'coverage-report')?.data as KhCoverageReport | undefined
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
+  const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
 
   useEffect(() => {
@@ -106,6 +108,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             <button type="button" className={tab === 'flow' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('flow')}>Task Flow View</button>
             <button type="button" className={tab === 'coverage' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('coverage')}>Coverage</button>
             <button type="button" className={tab === 'quality' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('quality')}>Quality</button>
+            <button type="button" className={tab === 'proposals' ? 'harness-dashboard__tab harness-dashboard__tab--active' : 'harness-dashboard__tab'} onClick={() => setTab('proposals')}>Proposals</button>
           </nav>
 
           <div className="harness-dashboard__content">
@@ -135,6 +138,11 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
               evalData
                 ? <QualityPanel data={evalData} />
                 : <div className="harness-dashboard__placeholder">아직 품질 데이터가 없습니다 — run을 실행하세요.</div>
+            )}
+            {tab === 'proposals' && (
+              proposalsData
+                ? <ProposalsPanel proposals={proposalsData} />
+                : <div className="harness-dashboard__placeholder">아직 노드 제안이 없습니다 — run을 실행하세요.</div>
             )}
           </div>
 
