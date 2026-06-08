@@ -1,22 +1,6 @@
 import type { AgentRunner, RunInput, RunResult } from '@apc/llm-wiki'
 import { CliAgentRunner } from '@apc/llm-wiki'
-import { parseSsh, sshExec, ENGINE_CMD, type SshExec } from './ssh-exec.js'
-
-// Source files loaded by both login and interactive shells so the user's full PATH is available.
-const SOURCE_CHAIN =
-  'source ~/.bashrc 2>/dev/null; source ~/.bash_profile 2>/dev/null; source ~/.profile 2>/dev/null; source ~/.zshrc 2>/dev/null; source ~/.zprofile 2>/dev/null'
-
-/**
- * Build a bash -lic command using double-quote wrapping so that single-quote-delimited path
- * segments (`cd '/path'`) appear literally in the command string — loginShell's single-quote
- * wrapping would mangle embedded single quotes in the path. Dollar signs, backticks, and
- * backslashes that could be interpreted inside double quotes are escaped.
- */
-function agentLoginShell(cdPath: string, engineCmd: string): string {
-  // Escape chars that are special inside double-quoted bash strings.
-  const safePath = cdPath.replace(/["\\$`]/g, (c) => `\\${c}`)
-  return `bash -lic "${SOURCE_CHAIN}; cd '${safePath}' && ${engineCmd}"`
-}
+import { parseSsh, sshExec, loginShell, ENGINE_CMD, type SshExec } from './ssh-exec.js'
 
 /**
  * Runs the engine on the remote host (ssh:// cwd) using the same non-interactive ssh + login-shell
@@ -29,8 +13,9 @@ export class SshAgentRunner implements AgentRunner {
   async run(input: RunInput): Promise<RunResult> {
     const ssh = parseSsh(input.cwd ?? '')
     if (!ssh) return { ok: false, output: '', raw: 'SshAgentRunner: cwd is not an ssh:// target' }
-    const cmd = agentLoginShell(ssh.path, ENGINE_CMD[input.agent])
-    const r = await this.exec(ssh, cmd, { stdin: input.prompt, timeoutMs: input.timeoutMs })
+    const cdPath = ssh.path.replace(/'/g, `'\\''`)
+    const engineCmd = `cd '${cdPath}' && ${ENGINE_CMD[input.agent]}`
+    const r = await this.exec(ssh, loginShell(engineCmd), { stdin: input.prompt, timeoutMs: input.timeoutMs })
     return { ok: r.ok, output: r.stdout, raw: r.stderr || r.stdout }
   }
 }

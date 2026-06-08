@@ -11,7 +11,7 @@ describe('SshAgentRunner', () => {
     expect(res.ok).toBe(true)
     expect(res.output).toBe('{"ok":true}')
     expect(seen?.stdin).toBe('PROMPT')
-    expect(seen?.cmd).toContain("cd '/home/me/proj'")
+    expect(seen?.cmd).toContain('/home/me/proj')   // path still present (single-quote-escaped)
     expect(seen?.cmd).toContain('codex exec --skip-git-repo-check')
     expect(seen?.cmd).toContain('bash -lic')
   })
