@@ -6,7 +6,8 @@ import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService, HarnessService } from '@apc/app-services'
-import { WikiEngine, CliAgentRunner, type AgentRunner } from '@apc/llm-wiki'
+import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
+import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -111,7 +112,7 @@ export function buildContainer(opts: {
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
   const vaultWriter = new VaultWriter(vault)
-  const wiki = new WikiEngine(opts.agentRunner ?? new CliAgentRunner())
+  const wiki = new WikiEngine(opts.agentRunner ?? new RoutingAgentRunner())
   const runService = new RunService({ wiki, vaultWriter, tasks, runs })
   const generate = new GenerateService({ adapters: ingestAdapters, registry, vault, vaultWriter, wiki })
   const generatePreflight = async (req: GeneratePreflightReq): Promise<GeneratePreflightRes> => {
@@ -181,7 +182,7 @@ export function buildContainer(opts: {
   // runsRoot MUST live OUTSIDE the vault: StagingVault copies the whole vault into <runsRoot>/<id>/vault-staging,
   // so a runs dir nested inside the vault would make cpSync copy a directory into a subdirectory of itself.
   const harness = new HarnessService({
-    runner: opts.agentRunner ?? new CliAgentRunner(),
+    runner: opts.agentRunner ?? new RoutingAgentRunner(),
     vaultRoot: opts.vaultRoot,
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
   })
