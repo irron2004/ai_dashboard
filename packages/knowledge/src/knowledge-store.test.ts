@@ -24,4 +24,20 @@ describe('KnowledgeStore', () => {
     expect(store.listChunks(first.id)).toHaveLength(1)
     expect(store.listChunks(first.id)[0].body).toContain('Second version')
   })
+
+  test('clearProject removes only that project documents and chunks', () => {
+    store.upsertCollection({ id: 'kc1', projectId: 'p1', name: 'Wiki', rootPath: '/vault/p1', include: ['**/*.md'], exclude: [], includeByDefault: true })
+    store.upsertCollection({ id: 'kc2', projectId: 'p2', name: 'Wiki2', rootPath: '/vault/p2', include: ['**/*.md'], exclude: [], includeByDefault: true })
+    const a = store.indexMarkdownDoc({ collectionId: 'kc1', projectId: 'p1', relPath: 'current.md', markdown: '# A\n\nalpha', updatedAt: '2026-06-01T10:00:00Z' })
+    const b = store.indexMarkdownDoc({ collectionId: 'kc2', projectId: 'p2', relPath: 'current.md', markdown: '# B\n\nbeta', updatedAt: '2026-06-01T10:00:00Z' })
+
+    store.clearProject('p1')
+
+    expect(store.getDocument(a.id)).toBeUndefined()
+    expect(store.listChunks(a.id)).toHaveLength(0)
+    expect(store.getDocument(b.id)?.id).toBe(b.id)   // p2 intact
+    expect(store.listChunks(b.id).length).toBeGreaterThan(0)
+    const ftsCount = (db.prepare('SELECT count(*) AS n FROM knowledge_chunk_fts WHERE project_id = ?').get('p1') as { n: number }).n
+    expect(ftsCount).toBe(0)
+  })
 })
