@@ -17,9 +17,18 @@ export type SshExecResult = { ok: boolean; stdout: string; stderr: string }
 export type SshExec = (ssh: SshTarget, remoteCmd: string, opts?: { stdin?: string; timeoutMs?: number }) => Promise<SshExecResult>
 
 // Non-interactive ssh (BatchMode = key-auth only) running a remote command, optional stdin.
+// ConnectTimeout caps the TCP/handshake wait so an unreachable host fails in ~10s (matching the
+// testSsh preflight) instead of hanging to the app-level timeout. ServerAlive* probes the link
+// during the (long) engine run so a mid-run network drop is detected within ~60s rather than
+// silently stalling until timeoutMs — a transient blip then surfaces fast instead of killing the
+// whole pipeline after a long hang.
 export function sshExec(ssh: SshTarget, remoteCmd: string, opts: { stdin?: string; timeoutMs?: number } = {}): Promise<SshExecResult> {
   return new Promise((resolve) => {
-    const args = ['-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes', '-p', String(ssh.port), `${ssh.user}@${ssh.host}`, remoteCmd]
+    const args = [
+      '-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4',
+      '-p', String(ssh.port), `${ssh.user}@${ssh.host}`, remoteCmd,
+    ]
     const child = spawn(process.platform === 'win32' ? 'ssh.exe' : 'ssh', args, { stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = '', stderr = ''
     const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, stdout, stderr: stderr || 'timeout' }) }, opts.timeoutMs ?? 120000)

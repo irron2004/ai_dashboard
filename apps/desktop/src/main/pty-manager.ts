@@ -75,7 +75,7 @@ export class PtyManager {
       file = process.platform === 'win32' ? 'ssh.exe' : 'ssh'
       const remotePath = ssh.path.replace(/'/g, "'\\''")
       const remoteCmd = `cd '${remotePath}' 2>/dev/null; exec "\${SHELL:-bash}" -l`
-      spawnArgs = ['-t', '-o', 'StrictHostKeyChecking=accept-new', '-p', String(ssh.port), `${ssh.user}@${ssh.host}`, remoteCmd]
+      spawnArgs = ['-t', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=10', '-p', String(ssh.port), `${ssh.user}@${ssh.host}`, remoteCmd]
       spawnCwd = homedir()
     } else {
       file = process.platform === 'win32' ? (process.env.ComSpec || 'cmd.exe') : (process.env.SHELL || '/bin/bash')

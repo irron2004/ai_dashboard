@@ -1,0 +1,8 @@
+RUN-2026-06-09T07-51-27-124Z → FAILED — project-discovery failed (codex): ssh: connect to host 10.10.100.45 port 22: Connection timed out
+
+---
+Captured: 2026-06-09 (desktop app, 위키 생성 실행)
+Stage: PROJECT_SCANNED (project-discovery, engine=codex, remote via ssh://…@10.10.100.45:22)
+Diagnosis + fix: docs/handoffs/2026-06-09-harness-codex-discovery-failure.md §7
+Live check: Test-NetConnection 10.10.100.45 -Port 22 → TcpTestSucceeded: True (지금은 닿음 → 07:51 당시 일시적 순단)
+Fix: ssh-exec.ts sshExec 에 ConnectTimeout=10 + ServerAliveInterval/CountMax 추가 (fast-fail + mid-run drop 감지).

@@ -98,3 +98,37 @@ packages/app-services/src/harness-service.ts:82        # runId 포맷 (RUN-…)
 packages/llm-wiki/src/cli-agent-runner.ts:14           # codex 템플릿 args: ['exec']
 docs/handoffs/2026-06-08-harness-run-ux-and-cwd.md      # 직전 cwd/에러노출 수정 (이 실패의 전사前史)
 ```
+
+---
+
+## 7. 2차 incident — `ssh: connect to host 10.10.100.45 port 22: Connection timed out` (수정 완료)
+
+### 7.1 로그
+```
+RUN-2026-06-09T07-51-27-124Z → FAILED — project-discovery failed (codex):
+ssh: connect to host 10.10.100.45 port 22: Connection timed out
+```
+
+### 7.2 진단
+- 이 프로젝트의 `repoPaths[0]` 가 `ssh://…@10.10.100.45:22/…` 형태라, `RoutingAgentRunner` 가 codex 를 **원격 호스트에서 SSH 로 실행**한다 (`ssh-agent-runner.ts:30-32`). 이번엔 그 원격 호스트에 **TCP 연결 자체가 timeout**.
+- 이번엔 stdout 이 비어 stderr 가 그대로 표면화돼(결함 A 가 가린 게 없음) **메시지가 명확**했다 — §3 분석과 일관.
+- **실측**: 이 머신에서 `Test-NetConnection 10.10.100.45 -Port 22` → `TcpTestSucceeded: True` (Ping 은 ICMP 차단으로 False, 정상). **지금은 22 포트가 열려 있고 닿는다.** 즉 07:51 당시는 **일시적 연결 순단**(VPN/네트워크 블립 또는 원격 호스트 재부팅)이었고 현재는 복구됨.
+
+### 7.3 근본 코드 약점 (수정함)
+일시적 순단 하나가 **전체 파이프라인 run 을 FAILED 로 죽였다.** SSH 호출 경로가 비대칭이었음:
+- `index.ts:46` testSsh **프리플라이트** 는 이미 `ConnectTimeout=5` → 빠르게 실패.
+- 그러나 **실제 엔진 실행 경로** `sshExec` (`ssh-exec.ts:22`) 는 `ConnectTimeout` 도 keepalive 도 **없었다** → 닿지 않는 호스트에서 OS TCP 타임아웃/앱 120s 타이머까지 길게 매달리고, run 중간 드롭도 감지 못 함.
+
+### 7.4 수정
+- `ssh-exec.ts` `sshExec`: `-o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4` 추가.
+  - 닿지 않는 호스트 → ~10s 안에 명확히 실패 (프리플라이트와 동일 거동).
+  - 긴 엔진 run 중 네트워크 드롭 → ~60s 안에 감지 (이전엔 timeoutMs 까지 무한 대기).
+  - `ConnectTimeout` 은 **핸드셰이크만** 제한 → 정상 호스트의 장시간 codex 실행에는 영향 없음.
+- `pty-manager.ts:78` 원격 터미널 spawn 에도 `-o ConnectTimeout=10` 추가 (동일 행 hang 방지, 일관성).
+- 검증: `pnpm --filter @apc/desktop exec tsc --noEmit` clean, `ssh-agent-runner.test.ts` 5/5 green (ssh args 를 단언하는 테스트는 없어 회귀 없음).
+
+### 7.5 사용자 조치 (코드 밖)
+근본 트리거는 환경 문제다 — 코드가 못 고치는 부분:
+1. **지금은 호스트가 닿으므로 그냥 재실행하면 성공할 가능성이 높다.**
+2. 다시 timeout 나면: 원격 호스트 `10.10.100.45` 전원/네트워크, 같은 LAN/VPN 접속 여부, 22 포트 방화벽, sshd 기동을 확인. (`10.10.100.45` 는 사설 IP — VPN/내부망 연결이 끊기면 못 닿음.)
+3. 위키 생성 전 UI 의 **"Test connection"** (testSsh) 으로 사전 점검 가능 — 이제 본 실행 경로도 프리플라이트와 같은 속도로 실패한다.
