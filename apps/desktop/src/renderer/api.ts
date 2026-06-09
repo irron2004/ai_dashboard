@@ -59,8 +59,8 @@ export const api = {
   listProfiles(projectPath: string): Promise<AgentProfile[]> {
     return window.apc.invoke(CH.listProfiles, { projectPath }) as Promise<AgentProfile[]>
   },
-  ingestAll(): Promise<{ sources: number; sessions: number }> {
-    return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number }>
+  ingestAll(): Promise<{ sources: number; sessions: number; documents: number }> {
+    return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number; documents: number }>
   },
   generateRun(req: GenerateRunReq): Promise<unknown> {
     return window.apc.invoke(CH.generateRun, req)

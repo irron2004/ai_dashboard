@@ -120,4 +120,11 @@ export class KnowledgeStore {
     const rows = this.db.prepare('SELECT * FROM knowledge_chunks WHERE doc_id = ? ORDER BY ordinal').all(docIdValue) as ChunkRow[]
     return rows.map(chunkFrom)
   }
+
+  clearProject(projectId: string): void {
+    // FTS5 virtual tables don't participate in ON DELETE CASCADE; delete explicitly first.
+    this.db.prepare('DELETE FROM knowledge_chunk_fts WHERE project_id = ?').run(projectId)
+    this.db.prepare('DELETE FROM knowledge_chunks WHERE project_id = ?').run(projectId)
+    this.db.prepare('DELETE FROM knowledge_documents WHERE project_id = ?').run(projectId)
+  }
 }

@@ -35,6 +35,9 @@ importers:
       '@apc/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@apc/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
       '@apc/llm-wiki':
         specifier: workspace:*
         version: link:../../packages/llm-wiki
@@ -118,6 +121,9 @@ importers:
       '@apc/core':
         specifier: workspace:*
         version: link:../core
+      '@apc/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@apc/knowledge-harness':
         specifier: workspace:*
         version: link:../knowledge-harness

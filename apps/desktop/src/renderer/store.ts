@@ -24,7 +24,7 @@ type ApcStore = {
   dashboard: ProjectDashboardRes | null
   profiles: AgentProfile[]
   ingesting: boolean
-  lastIngest: { sources: number; sessions: number } | null
+  lastIngest: { sources: number; sessions: number; documents: number } | null
   error: string | null
   agentStatus: Record<AgentType, AgentRunStatus>
   preflighting: boolean

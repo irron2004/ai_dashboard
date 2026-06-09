@@ -107,8 +107,8 @@ describe('IPC handlers (no Electron)', () => {
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
     c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
     const h = handlers(c2)
-    const res = (await h[CH.ingestAll](undefined)) as { sources: number; sessions: number }
-    expect(res).toEqual({ sources: 1, sessions: 1 })
+    const res = (await h[CH.ingestAll](undefined)) as { sources: number; sessions: number; documents: number }
+    expect(res).toEqual({ sources: 1, sessions: 1, documents: 0 })
     expect(c2.searchIndex.search('control tower', { projectId: 'p1' })).toHaveLength(1)
   })
 

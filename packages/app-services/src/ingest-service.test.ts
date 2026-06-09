@@ -69,7 +69,7 @@ describe('IngestService', () => {
       turns: [{ role: 'user', text: 'design the ingest service', toolCalls: [] }], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     const result = await svc.ingestAll([new FakeAdapter(session)])
-    expect(result).toEqual({ sources: 1, sessions: 1 })
+    expect(result).toEqual({ sources: 1, sessions: 1, documents: 0 })
     expect(index.search('ingest service', { projectId: 'p1' })).toHaveLength(1)  // indexed under resolved project
     expect(cursors.get('claude:s1')).toBeDefined()                               // cursor saved
   })
@@ -93,8 +93,8 @@ describe('IngestService', () => {
     await Promise.resolve()
     expect(adapter.calls).toBe(1)
     adapter.releaseParse.resolve()
-    await expect(first).resolves.toEqual({ sources: 1, sessions: 1 })
-    await expect(second).resolves.toEqual({ sources: 0, sessions: 0 })
+    await expect(first).resolves.toEqual({ sources: 1, sessions: 1, documents: 0 })
+    await expect(second).resolves.toEqual({ sources: 0, sessions: 0, documents: 0 })
     expect(adapter.calls).toBe(2)
   })
 
@@ -102,6 +102,30 @@ describe('IngestService', () => {
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })
     await expect(svc.ingestAll([new ThrowingAdapter()])).rejects.toThrow(/parse failed/)
-    await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toEqual({ sources: 1, sessions: 1 })
+    await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toEqual({ sources: 1, sessions: 1, documents: 0 })
+  })
+
+  test('runs knowledge reindex after sessions and returns document count', async () => {
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
+      turns: [{ role: 'user', text: 'design the ingest service', toolCalls: [] }], filesTouched: [] }
+    let reindexCalls = 0
+    const knowledge = { reindexAll: () => { reindexCalls++; return { documents: 3 } } }
+    const svc = new IngestService({ registry, cursors, index, knowledge })
+    const result = await svc.ingestAll([new FakeAdapter(session)])
+    expect(reindexCalls).toBe(1)
+    expect(result).toEqual({ sources: 1, sessions: 1, documents: 3 })
+  })
+
+  test('lock is released after knowledge reindexAll failure', async () => {
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
+      turns: [{ role: 'user', text: 'design the ingest service', toolCalls: [] }], filesTouched: [] }
+    const throwingKnowledge = { reindexAll: (): { documents: number } => { throw new Error('vault unreadable') } }
+    const svc = new IngestService({ registry, cursors, index, knowledge: throwingKnowledge })
+    await expect(svc.ingestAll([new FakeAdapter(session)])).rejects.toThrow(/vault unreadable/)
+    // lock must have been released by the finally block — a second ingest (no knowledge) succeeds
+    const okSvc = new IngestService({ registry, cursors, index })
+    await expect(okSvc.ingestAll([new FakeAdapter(session)])).resolves.toMatchObject({ sources: 0 })
   })
 })
