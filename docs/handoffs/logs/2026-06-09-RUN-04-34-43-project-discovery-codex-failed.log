@@ -1,0 +1,7 @@
+RUN-2026-06-09T04-34-43-610Z → FAILED — project-discovery failed (codex): …_doc/bayesian/exp035_combo05_ensemble.py 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/analysis-report.md 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/figures/figure-02-exp046-hierarchy-stress.pdf 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/figures/figure-02-exp046-hierarchy-stress.png 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/figures/figure-01-exp043c-main-comparison.pdf 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/figures/figure-01-exp043c-main-comparison.png 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/figure-catalog.md 50_paper_d_sensor_doc/bayesian/analysis-output-2026-05-24/stats-appendix.md 50_paper_d_sensor_doc/bayesian/exp035b_ensemble_honest.md 50_paper_d_sensor_doc/bayesian/query_label_overlap.csv
+
+---
+Captured: 2026-06-09 (desktop app, 위키 생성 실행)
+Stage: PROJECT_SCANNED (project-discovery, engine=codex)
+Analysis: docs/handoffs/2026-06-09-harness-codex-discovery-failure.md
+Note: 표면화된 tail 800자는 codex가 열거한 파일 목록이며 실제 실패 사유(stderr)가 아님 — 분석 문서 §3 참조.
