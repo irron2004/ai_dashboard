@@ -28,6 +28,26 @@ describe('SshAgentRunner', () => {
     expect(res.ok).toBe(false)
     expect(res.raw).toBe('boom')
   })
+
+  test('preserves stderr/exitCode/command/duration and forwards onChunk to sshExec', async () => {
+    const exec: SshExec = async (_ssh, _cmd, opts) => {
+      opts?.onChunk?.('stdout', 'remote-out')
+      return { ok: false, stdout: 'listing', stderr: 'auth failed', exitCode: 1 }
+    }
+    const chunks: Array<[string, string]> = []
+    const res = await new SshAgentRunner(exec).run({
+      agent: 'codex', prompt: 'P', timeoutMs: 1000, cwd: 'ssh://me@host:22/p',
+      onChunk: (s, t) => chunks.push([s, t]),
+    })
+    expect(res.ok).toBe(false)
+    expect(res.exitCode).toBe(1)
+    expect(res.stderr).toBe('auth failed')
+    expect(res.command).toContain('me@host')
+    expect(typeof res.durationMs).toBe('number')
+    expect(res.raw).toContain('auth failed')
+    expect(res.raw).toContain('listing')
+    expect(chunks).toEqual([['stdout', 'remote-out']])
+  })
 })
 
 describe('RoutingAgentRunner', () => {

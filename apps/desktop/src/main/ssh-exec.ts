@@ -13,8 +13,12 @@ export function parseSsh(raw: string): SshTarget | null {
   } catch { return null }
 }
 
-export type SshExecResult = { ok: boolean; stdout: string; stderr: string }
-export type SshExec = (ssh: SshTarget, remoteCmd: string, opts?: { stdin?: string; timeoutMs?: number }) => Promise<SshExecResult>
+export type SshExecResult = { ok: boolean; stdout: string; stderr: string; exitCode?: number | null }
+export type SshExec = (
+  ssh: SshTarget,
+  remoteCmd: string,
+  opts?: { stdin?: string; timeoutMs?: number; onChunk?: (stream: 'stdout' | 'stderr', text: string) => void },
+) => Promise<SshExecResult>
 
 // Non-interactive ssh (BatchMode = key-auth only) running a remote command, optional stdin.
 // ConnectTimeout caps the TCP/handshake wait so an unreachable host fails in ~10s (matching the
@@ -22,7 +26,7 @@ export type SshExec = (ssh: SshTarget, remoteCmd: string, opts?: { stdin?: strin
 // during the (long) engine run so a mid-run network drop is detected within ~60s rather than
 // silently stalling until timeoutMs — a transient blip then surfaces fast instead of killing the
 // whole pipeline after a long hang.
-export function sshExec(ssh: SshTarget, remoteCmd: string, opts: { stdin?: string; timeoutMs?: number } = {}): Promise<SshExecResult> {
+export function sshExec(ssh: SshTarget, remoteCmd: string, opts: { stdin?: string; timeoutMs?: number; onChunk?: (stream: 'stdout' | 'stderr', text: string) => void } = {}): Promise<SshExecResult> {
   return new Promise((resolve) => {
     const args = [
       '-o', 'StrictHostKeyChecking=accept-new', '-o', 'BatchMode=yes',
@@ -31,11 +35,11 @@ export function sshExec(ssh: SshTarget, remoteCmd: string, opts: { stdin?: strin
     ]
     const child = spawn(process.platform === 'win32' ? 'ssh.exe' : 'ssh', args, { stdio: ['pipe', 'pipe', 'pipe'] })
     let stdout = '', stderr = ''
-    const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, stdout, stderr: stderr || 'timeout' }) }, opts.timeoutMs ?? 120000)
-    child.stdout.on('data', (d) => (stdout += d))
-    child.stderr.on('data', (d) => (stderr += d))
-    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, stdout: '', stderr: String(e) }) })
-    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr }) })
+    const timer = setTimeout(() => { child.kill('SIGKILL'); resolve({ ok: false, stdout, stderr: stderr || 'timeout', exitCode: null }) }, opts.timeoutMs ?? 120000)
+    child.stdout.on('data', (d) => { const t = String(d); stdout += t; opts.onChunk?.('stdout', t) })
+    child.stderr.on('data', (d) => { const t = String(d); stderr += t; opts.onChunk?.('stderr', t) })
+    child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, stdout: '', stderr: String(e), exitCode: null }) })
+    child.on('close', (code) => { clearTimeout(timer); resolve({ ok: code === 0, stdout, stderr, exitCode: code }) })
     if (opts.stdin != null) { try { child.stdin?.write(opts.stdin); child.stdin?.end() } catch { /* gone */ } }
   })
 }

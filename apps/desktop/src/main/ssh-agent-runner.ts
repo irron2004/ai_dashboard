@@ -15,8 +15,14 @@ export class SshAgentRunner implements AgentRunner {
     if (!ssh) return { ok: false, output: '', raw: 'SshAgentRunner: cwd is not an ssh:// target' }
     const cdPath = ssh.path.replace(/'/g, `'\\''`)
     const engineCmd = `cd '${cdPath}' && ${ENGINE_CMD[input.agent]}`
-    const r = await this.exec(ssh, loginShell(engineCmd), { stdin: input.prompt, timeoutMs: input.timeoutMs })
-    return { ok: r.ok, output: r.stdout, raw: r.stderr || r.stdout }
+    const startedAt = Date.now()
+    const r = await this.exec(ssh, loginShell(engineCmd), { stdin: input.prompt, timeoutMs: input.timeoutMs, onChunk: input.onChunk })
+    const raw = r.stderr && r.stdout ? `${r.stderr}\n--- stdout ---\n${r.stdout}` : (r.stderr || r.stdout)
+    return {
+      ok: r.ok, output: r.stdout, stderr: r.stderr, exitCode: r.exitCode ?? null, raw,
+      command: `ssh ${ssh.user}@${ssh.host}:${ssh.port} ${ENGINE_CMD[input.agent]}`,
+      durationMs: Date.now() - startedAt,
+    }
   }
 }
 
