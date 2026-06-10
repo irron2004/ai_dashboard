@@ -848,6 +848,12 @@ export function parseUnifiedDiff(patch: string): HarnessDiffFile[] {
   return files
 }
 
+/** live tail 누적: 마지막 `max`줄만 유지. 줄 중간에서 끊긴 chunk는 직전 마지막 줄에 이어 붙는다. */
+export function appendTailLines(prev: string[], chunk: string, max = 10): string[] {
+  const joined = (prev.length ? prev.join('\n') : '') + chunk
+  return joined.split(/\r?\n/).slice(-max)
+}
+
 export function buildTaskStepStatus(current: KhState, step: KhState): 'done' | 'current' | 'upcoming' | 'blocked' {
   const currentIdx = stateIndex(current)
   const stepIdx = stateIndex(step)

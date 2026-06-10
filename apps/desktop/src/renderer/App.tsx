@@ -100,6 +100,7 @@ export function App() {
   }
 
   useEffect(() => api.onHarnessProgress((e) => useStore.getState().setHarnessProgress(e.state)), [])
+  useEffect(() => api.onHarnessEngineLog((e) => useStore.getState().appendHarnessEngineLog(e)), [])
 
   useEffect(() => { loadProjects() }, [loadProjects])
 

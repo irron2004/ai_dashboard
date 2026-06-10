@@ -3,6 +3,7 @@ import type { Project, AgentProfile, AgentType } from '@apc/shared'
 import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 import {
+  appendTailLines,
   createDefaultHarnessConfig,
   loadHarnessConfig,
   loadHarnessRuns,
@@ -41,6 +42,8 @@ type ApcStore = {
   /** canonical proposals for the selected run; each currentHash captured when this list was fetched
    * (= the "last read" the hash-gate compares against when the user later clicks promote). */
   harnessCanonicalProposals: HarnessCanonicalProposalsRes
+  harnessLiveLabel: string | null
+  harnessLiveTail: string[]
 
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
   prepareGenerate(): Promise<void>
@@ -70,6 +73,7 @@ type ApcStore = {
   updateHarnessPrompt(key: HarnessAgentPromptKey, value: string): void
   clearHarnessMessage(): void
   setHarnessProgress(state: string | null): void
+  appendHarnessEngineLog(e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }): void
   attachProfileToActiveTask(profileId: string): Promise<void>
 }
 
@@ -115,6 +119,8 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessLoading: false,
   harnessMessage: null,
   harnessProgress: null,
+  harnessLiveLabel: null,
+  harnessLiveTail: [],
   harnessConfigs: {},
 
   setAgentStatus(agent, status) {
@@ -261,7 +267,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [] })
     try {
       const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
@@ -412,6 +418,9 @@ export const useStore = create<ApcStore>((set, get) => ({
 
   clearHarnessMessage() { set({ harnessMessage: null }) },
   setHarnessProgress(state) { set({ harnessProgress: state }) },
+  appendHarnessEngineLog(e) {
+    set((s) => ({ harnessLiveLabel: e.label, harnessLiveTail: appendTailLines(s.harnessLiveTail, e.chunk) }))
+  },
 
   async attachProfileToActiveTask(profileId: string) {
     const dashboard = get().dashboard

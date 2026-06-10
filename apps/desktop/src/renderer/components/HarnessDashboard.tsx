@@ -28,7 +28,7 @@ function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): bo
 
 export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const {
-    selectedProjectId, dashboard, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage, harnessProgress, harnessConfigs,
+    selectedProjectId, dashboard, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage, harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
     harnessCanonicalProposals,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun, promoteHarnessRun,
     promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
@@ -129,7 +129,14 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             {tab === 'flow' && <TaskFlowView run={currentRun} />}
             {tab === 'coverage' && (
               harnessLoading
-                ? <div className="harness-dashboard__placeholder">⏳ 위키 생성 중… {harnessProgress ? `(현재 단계: ${harnessProgress})` : '(시작 중…)'}</div>
+                ? <div className="harness-dashboard__placeholder">
+                    <div>⏳ 위키 생성 중… {harnessProgress ? `(현재 단계: ${harnessProgress})` : '(시작 중…)'}</div>
+                    {harnessLiveLabel && (
+                      <pre className="harness-dashboard__live-tail">
+                        {`[${harnessLiveLabel}]\n${harnessLiveTail.join('\n')}`}
+                      </pre>
+                    )}
+                  </div>
                 : coverageData
                   ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
                   : currentRun?.runState.state === 'FAILED'

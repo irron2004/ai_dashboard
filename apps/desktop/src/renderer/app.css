@@ -1138,6 +1138,20 @@ textarea {
 .coverage__unmapped { border-top: 1px solid #2c2c2c; padding-top: 8px; }
 .coverage__empty { opacity: 0.6; font-size: 0.82rem; }
 .harness-dashboard__placeholder--error { color: #f87171; white-space: pre-wrap; }
+.harness-dashboard__live-tail {
+  margin-top: 12px;
+  padding: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  opacity: 0.85;
+}
 
 /* ── Quality panel ───────────────────────────────────── */
 .quality { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 10px; }
