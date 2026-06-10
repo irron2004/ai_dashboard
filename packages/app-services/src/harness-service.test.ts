@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { RunLock, RunArtifactStore } from '@apc/knowledge-harness'
+import type { AgentIngestAdapter } from '@apc/agents'
+import type { AgentSource, NormalizedSession } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
 
 // repo root from packages/app-services/src/
@@ -316,5 +318,42 @@ describe('HarnessService engine logging', () => {
     const events: Array<{ label: string; stream: string; chunk: string }> = []
     await svc.run({ projectId: 'p1', engine: 'codex' }, undefined, (e) => events.push(e))
     expect(events).toEqual([{ label: 'PROJECT_SCANNED-project-discovery', stream: 'stdout', chunk: 'scanning…' }])
+  })
+})
+
+describe('HarnessService conversation materialization', () => {
+  test('materialize:true with conversationAdapters writes raw/conversations Q&A files', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hs-conv-'))
+    const vaultRoot = join(tmp, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    const repo = join(tmp, 'repo'); mkdirSync(repo, { recursive: true })
+    const session: NormalizedSession = {
+      id: 'sess-1', agentType: 'claude', repoPath: repo, endedAt: '2026-06-11T00:00:00Z',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
+      turns: [
+        { role: 'user', text: '질문', toolCalls: [] },
+        { role: 'assistant', text: '답변', toolCalls: [] },
+      ],
+      filesTouched: [],
+    }
+    const adapter: AgentIngestAdapter = {
+      agentKind: 'claude',
+      discoverSources: async () => [{ id: 'claude:0', agentKind: 'claude', kind: 'jsonl-file', locator: '/x', discoveredAt: '2026-06-11T00:00:00Z' } as AgentSource],
+      parseSource: async () => ({ session, position: '' }),
+    }
+    const svc = new HarnessService({ runner: new FakeAgentRunner([]), vaultRoot, runsRoot: join(tmp, 'runs'), conversationAdapters: [adapter] })
+    await svc.run({ projectId: 'p1', engine: 'codex', materialize: true, repoPaths: [repo] })
+    const file = join(vaultRoot, 'raw', 'conversations', 'claude', 'sess-1', '001q_a.txt')
+    expect(existsSync(file)).toBe(true)
+    expect(readFileSync(file, 'utf8')).toContain('질문')
+  })
+
+  test('materialize:true without adapters still works (backward compatible)', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hs-noconv-'))
+    const vaultRoot = join(tmp, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    const repo = join(tmp, 'repo'); mkdirSync(repo, { recursive: true })
+    const svc = new HarnessService({ runner: new FakeAgentRunner([]), vaultRoot, runsRoot: join(tmp, 'runs') })
+    const res = await svc.run({ projectId: 'p1', engine: 'codex', materialize: true, repoPaths: [repo] })
+    expect(res.runId).toBeTruthy()
+    expect(existsSync(join(vaultRoot, 'raw', 'conversations'))).toBe(false)
   })
 })

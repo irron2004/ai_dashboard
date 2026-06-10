@@ -5,8 +5,10 @@ import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
+import type { AgentIngestAdapter } from '@apc/agents'
 import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
 import { materializeProjectDocs } from './source-materializer.js'
+import { materializeConversations } from './conversation-materializer.js'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
@@ -17,6 +19,8 @@ export type EngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk
 
 export type HarnessServiceDeps = {
   runner: AgentRunner
+  /** 대화 세션 → Q&A raw 청킹에 쓸 인제스트 어댑터들 (없으면 청킹 생략). */
+  conversationAdapters?: AgentIngestAdapter[]
   vaultRoot: string
   runsRoot: string
   /** path to feature-gates.yml; defaults to the shipped harness/feature-gates.yml. */
@@ -90,6 +94,13 @@ export class HarnessService {
   async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
     if (input.materialize && input.repoPaths?.length) {
       materializeProjectDocs(input.repoPaths, this.deps.vaultRoot)
+      if (this.deps.conversationAdapters?.length) {
+        await materializeConversations({
+          adapters: this.deps.conversationAdapters,
+          repoPaths: input.repoPaths,
+          vaultRoot: this.deps.vaultRoot,
+        })
+      }
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
