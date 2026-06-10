@@ -1,3 +1,6 @@
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { AgentIngestAdapter } from '@apc/agents'
 import type { NormalizedSession, NormalizedTurn, NormalizedToolCall } from '@apc/shared'
 
 export type QaUnit = { q: NormalizedTurn; answers: NormalizedTurn[] }
@@ -67,4 +70,55 @@ export function sessionMatchesProject(session: NormalizedSession, repoPaths: str
     if (c === r || c.startsWith(`${r}/`)) return true
   }
   return false
+}
+
+/**
+ * 현재 프로젝트에서 진행된 에이전트 세션을 Q&A 단위 파일로 materialize한다:
+ * `<vaultRoot>/raw/conversations/<engine>/<sessionId>/NNNq_a.txt`.
+ * 멱등(시작 시 conversations/ 전체 삭제 — materializeProjectDocs와 동일 패턴),
+ * 어댑터/세션/파일 단위 실패는 skipped에 기록하고 계속한다(절대 run을 죽이지 않음).
+ * 인제스트 커서와 독립적으로 항상 전체 세션을 보도록 cursorFor는 undefined를 돌려준다.
+ * SourceReader가 raw/ 전체를 LLM 입력으로 넣으므로 최신 maxSessions개만 유지한다.
+ */
+export async function materializeConversations(opts: {
+  adapters: AgentIngestAdapter[]
+  repoPaths: string[]
+  vaultRoot: string
+  maxSessions?: number
+}): Promise<ConversationManifest> {
+  const destRoot = join(opts.vaultRoot, 'raw', 'conversations')
+  rmSync(destRoot, { recursive: true, force: true })
+  const skipped: string[] = []
+  const matched: NormalizedSession[] = []
+  for (const adapter of opts.adapters) {
+    let sources
+    try { sources = await adapter.discoverSources(() => undefined) }
+    catch (e) { skipped.push(`${adapter.agentKind}: discover failed: ${String(e)}`); continue }
+    for (const source of sources) {
+      try {
+        const { session } = await adapter.parseSource(source)
+        if (sessionMatchesProject(session, opts.repoPaths)) matched.push(session)
+      } catch (e) { skipped.push(`${source.id}: parse failed: ${String(e)}`) }
+    }
+  }
+  matched.sort((a, b) => (b.endedAt ?? '').localeCompare(a.endedAt ?? ''))
+  const taken = matched.slice(0, opts.maxSessions ?? 10)
+  let files = 0
+  const usedDirs = new Set<string>()
+  for (const session of taken) {
+    const safeId = session.id.replace(/[^A-Za-z0-9._-]/g, '_')
+    let dirName = safeId
+    for (let n = 2; usedDirs.has(`${session.agentType}/${dirName}`); n++) dirName = `${safeId}-${n}`
+    usedDirs.add(`${session.agentType}/${dirName}`)
+    const dir = join(destRoot, session.agentType, dirName)
+    groupQaUnits(session.turns).forEach((unit, i) => {
+      const abs = join(dir, `${String(i + 1).padStart(3, '0')}q_a.txt`)
+      try {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(abs, formatQaFile(unit))
+        files++
+      } catch (e) { skipped.push(`${abs}: write failed: ${String(e)}`) }
+    })
+  }
+  return { sessions: taken.length, files, skipped }
 }

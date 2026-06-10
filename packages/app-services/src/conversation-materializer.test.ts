@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest'
+import { mkdtempSync, readdirSync, readFileSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { NormalizedTurn, NormalizedSession } from '@apc/shared'
-import { groupQaUnits, formatQaFile, sessionMatchesProject } from './conversation-materializer.js'
+import type { AgentIngestAdapter } from '@apc/agents'
+import type { AgentSource } from '@apc/shared'
+import { groupQaUnits, formatQaFile, sessionMatchesProject, materializeConversations } from './conversation-materializer.js'
 
 const t = (over: Partial<NormalizedTurn>): NormalizedTurn => ({ role: 'user', text: '', toolCalls: [], ...over })
 
@@ -123,5 +128,90 @@ describe('sessionMatchesProject', () => {
   })
   test('falls back to worktreePath when repoPath is absent', () => {
     expect(sessionMatchesProject(sess({ worktreePath: '/mnt/c/u/proj/.worktrees/x' }), ['/mnt/c/u/proj'])).toBe(true)
+  })
+})
+
+function fakeAdapter(kind: 'claude' | 'codex', sessions: NormalizedSession[]): AgentIngestAdapter {
+  const sources = sessions.map((s, i) => ({
+    id: `${kind}:${i}`, agentKind: kind, kind: 'jsonl-file', locator: `/fake/${i}`, discoveredAt: '2026-06-11T00:00:00Z',
+  } as AgentSource))
+  return {
+    agentKind: kind,
+    discoverSources: async () => sources,
+    parseSource: async (src) => ({ session: sessions[Number(src.id.split(':')[1])], position: '' }),
+  }
+}
+
+describe('materializeConversations', () => {
+  const repo = '/mnt/c/u/proj'
+  const mkSession = (id: string, over: Partial<NormalizedSession> = {}): NormalizedSession => sess({
+    id, repoPath: repo, endedAt: '2026-06-10T00:00:00Z',
+    turns: [t({ role: 'user', text: `q-${id}` }), t({ role: 'assistant', text: `a-${id}` })],
+    ...over,
+  })
+
+  test('writes NNNq_a.txt only for sessions matching the project', async () => {
+    const vault = mkdtempSync(join(tmpdir(), 'conv-'))
+    const adapter = fakeAdapter('claude', [
+      mkSession('match-1'),
+      mkSession('other', { repoPath: '/mnt/c/u/elsewhere' }),
+    ])
+    const m = await materializeConversations({ adapters: [adapter], repoPaths: [repo], vaultRoot: vault })
+    expect(m.sessions).toBe(1)
+    expect(m.files).toBe(1)
+    const file = join(vault, 'raw', 'conversations', 'claude', 'match-1', '001q_a.txt')
+    expect(readFileSync(file, 'utf8')).toContain('q-match-1')
+    expect(existsSync(join(vault, 'raw', 'conversations', 'claude', 'other'))).toBe(false)
+  })
+
+  test('numbers multiple Q&A units 001, 002 in turn order', async () => {
+    const vault = mkdtempSync(join(tmpdir(), 'conv-'))
+    const s = mkSession('s1', { turns: [
+      t({ role: 'user', text: 'first' }), t({ role: 'assistant', text: 'a1' }),
+      t({ role: 'user', text: 'second' }), t({ role: 'assistant', text: 'a2' }),
+    ] })
+    await materializeConversations({ adapters: [fakeAdapter('claude', [s])], repoPaths: [repo], vaultRoot: vault })
+    const dir = join(vault, 'raw', 'conversations', 'claude', 's1')
+    expect(readdirSync(dir).sort()).toEqual(['001q_a.txt', '002q_a.txt'])
+    expect(readFileSync(join(dir, '001q_a.txt'), 'utf8')).toContain('first')
+    expect(readFileSync(join(dir, '002q_a.txt'), 'utf8')).toContain('second')
+  })
+
+  test('is idempotent: previous output is removed on re-run', async () => {
+    const vault = mkdtempSync(join(tmpdir(), 'conv-'))
+    await materializeConversations({ adapters: [fakeAdapter('claude', [mkSession('old')])], repoPaths: [repo], vaultRoot: vault })
+    await materializeConversations({ adapters: [fakeAdapter('claude', [mkSession('new')])], repoPaths: [repo], vaultRoot: vault })
+    const root = join(vault, 'raw', 'conversations', 'claude')
+    expect(readdirSync(root)).toEqual(['new'])
+  })
+
+  test('keeps only the newest maxSessions sessions by endedAt', async () => {
+    const vault = mkdtempSync(join(tmpdir(), 'conv-'))
+    const sessions = [
+      mkSession('oldest', { endedAt: '2026-06-01T00:00:00Z' }),
+      mkSession('newest', { endedAt: '2026-06-10T00:00:00Z' }),
+      mkSession('middle', { endedAt: '2026-06-05T00:00:00Z' }),
+    ]
+    const m = await materializeConversations({ adapters: [fakeAdapter('claude', sessions)], repoPaths: [repo], vaultRoot: vault, maxSessions: 2 })
+    expect(m.sessions).toBe(2)
+    expect(readdirSync(join(vault, 'raw', 'conversations', 'claude')).sort()).toEqual(['middle', 'newest'])
+  })
+
+  test('adapter failures are recorded as skipped, never thrown', async () => {
+    const vault = mkdtempSync(join(tmpdir(), 'conv-'))
+    const broken: AgentIngestAdapter = {
+      agentKind: 'codex',
+      discoverSources: async () => { throw new Error('db locked') },
+      parseSource: async () => { throw new Error('unreachable') },
+    }
+    const m = await materializeConversations({ adapters: [broken, fakeAdapter('claude', [mkSession('ok')])], repoPaths: [repo], vaultRoot: vault })
+    expect(m.skipped.some((s) => s.includes('db locked'))).toBe(true)
+    expect(m.files).toBe(1)
+  })
+
+  test('sanitizes unsafe session ids for directory names', async () => {
+    const vault = mkdtempSync(join(tmpdir(), 'conv-'))
+    await materializeConversations({ adapters: [fakeAdapter('claude', [mkSession('a/b:c d')])], repoPaths: [repo], vaultRoot: vault })
+    expect(readdirSync(join(vault, 'raw', 'conversations', 'claude'))).toEqual(['a_b_c_d'])
   })
 })
