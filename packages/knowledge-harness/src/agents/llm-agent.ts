@@ -1,6 +1,7 @@
-import type { ZodType, ZodTypeDef } from 'zod'
+import type { ZodType, ZodTypeDef, ZodTypeAny } from 'zod'
 import type { AgentType } from '@apc/shared'
 import { type AgentRunner, unwrapAgentJson, parseStructured } from '@apc/llm-wiki'
+import { zodToJsonSchema } from './zod-to-json-schema.js'
 
 // Leave the Zod Input param unconstrained: with `.default()` fields a schema's input type differs
 // from its output type, so `ZodType<O>` (which ties Input===Output===O) would mis-infer O as the
@@ -23,7 +24,13 @@ export class LlmAgent<O> {
       JSON.stringify(input, null, 2),
       '```',
       '## Output',
-      'Respond with ONLY a single JSON object matching the required schema. No prose.',
+      // The model previously invented field names (e.g. `projectId` for the required `project_id`)
+      // because the schema was never shown. Embed it so the keys are unambiguous.
+      'Respond with ONLY a single JSON object that conforms to this JSON Schema. Use these EXACT field',
+      'names (note: snake_case) and include every field listed under "required". No prose, no markdown fences.',
+      '```json',
+      JSON.stringify(zodToJsonSchema(this.cfg.schema as unknown as ZodTypeAny), null, 2),
+      '```',
     ].join('\n\n')
   }
 

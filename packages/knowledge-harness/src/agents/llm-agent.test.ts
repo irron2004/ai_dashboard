@@ -21,6 +21,17 @@ describe('LlmAgent', () => {
     expect(runner.calls[0].agent).toBe('codex')
   })
 
+  test('embeds the output JSON Schema (exact field names + required) so the model cannot invent keys', async () => {
+    const Schema = z.object({ project_id: z.string(), generated_by: z.string(), summary: z.string().default('') })
+    const agent = new LlmAgent({ name: 'project-discovery', role: 'r', schema: Schema, preamble: 'P' })
+    const prompt = agent.buildPrompt({ projectId: 'p1' })
+    expect(prompt).toContain('"project_id"')
+    expect(prompt).toContain('"generated_by"')
+    expect(prompt).toContain('"required"')
+    // required must list the no-default fields, not the defaulted `summary`
+    expect(prompt).toMatch(/"required":\s*\[\s*"project_id",\s*"generated_by"\s*\]/)
+  })
+
   test('throws when the runner reports not-ok', async () => {
     const runner = new FakeAgentRunner([])  // first call returns ok:false
     const agent = new LlmAgent({ name: 't', role: 'r', schema: Out, preamble: 'P' })
