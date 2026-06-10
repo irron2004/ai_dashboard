@@ -19,9 +19,29 @@ import type {
   GeneratePreflightCategoryId,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  HarnessEngineLogEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
+
+/** Coalesces chunks for the same label/stream into 50ms batches so a chatty engine cannot flood the renderer. */
+function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: HarnessEngineLogEvent) => void) | undefined {
+  if (!emit) return undefined
+  let pending = new Map<string, HarnessEngineLogEvent>()
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return (e) => {
+    const key = `${e.label} ${e.stream}`
+    const prev = pending.get(key)
+    if (prev) prev.chunk += e.chunk
+    else pending.set(key, { ...e })
+    if (!timer) {
+      timer = setTimeout(() => {
+        const batch = [...pending.values()]; pending = new Map(); timer = null
+        for (const ev of batch) emit(ev)
+      }, 50)
+    }
+  }
+}
 
 export type Container = {
   db: ReturnType<typeof openDb>
@@ -98,6 +118,7 @@ export function buildContainer(opts: {
   /** runs/ root for harness artifacts; defaults to <vaultRoot>/.harness-runs. */
   harnessRunsRoot?: string
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
+  emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -212,6 +233,7 @@ export function buildContainer(opts: {
     return harness.run(
       { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [] },
       (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
+      batchEngineLog(opts.emitHarnessEngineLog),
     )
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)

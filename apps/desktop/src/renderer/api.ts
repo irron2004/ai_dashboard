@@ -21,6 +21,7 @@ declare global {
       onPtyData(cb: (id: string, data: string) => void): () => void
       onPtyExit(cb: (id: string, code: number) => void): () => void
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
+      onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
     }
   }
 }
@@ -117,5 +118,8 @@ export const api = {
   onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
   onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void {
     return window.apc.onHarnessProgress(cb)
+  },
+  onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void {
+    return window.apc.onHarnessEngineLog(cb)
   },
 }

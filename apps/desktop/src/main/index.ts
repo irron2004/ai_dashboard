@@ -24,6 +24,7 @@ function createWindow(): void {
     dbFile: join(userData, 'apc.db'),
     vaultRoot: join(userData, 'vault'),
     emitHarnessProgress: (e) => win.webContents.send(CH.harnessProgress, e),
+    emitHarnessEngineLog: (e) => win.webContents.send(CH.harnessEngineLog, e),
   })
 
   registerIpc(ipcMain, container)

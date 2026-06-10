@@ -26,4 +26,9 @@ contextBridge.exposeInMainWorld('apc', {
     ipcRenderer.on(CH.harnessProgress, handler)
     return () => ipcRenderer.removeListener(CH.harnessProgress, handler)
   },
+  onHarnessEngineLog: (cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void) => {
+    const handler = (_e: unknown, ev: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => cb(ev)
+    ipcRenderer.on(CH.harnessEngineLog, handler)
+    return () => ipcRenderer.removeListener(CH.harnessEngineLog, handler)
+  },
 })
