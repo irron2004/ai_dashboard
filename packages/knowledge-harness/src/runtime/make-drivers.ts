@@ -96,14 +96,14 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
   return {
     PROJECT_SCANNED: async (ctx) => {
-      const data = await discovery.run({ ...run, engine: engineOf(ctx), input: { projectId: ctx.projectId } })
+      const data = await discovery.run({ ...run, engine: engineOf(ctx), label: `PROJECT_SCANNED-${discovery.name}`, input: { projectId: ctx.projectId } })
       return { artifacts: [{ name: ARTIFACTS.projectDiscovery, data }] }
     },
 
     SOURCES_EXTRACTED: async (ctx) => {
       // A1: materialize the real raw/ source text so the reader reasons over actual content, not just the
       // (LLM-generated) discovery report.
-      const data = await reader.run({ ...run, engine: engineOf(ctx), input: {
+      const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
         sources: sources.read(),
       } })
@@ -111,12 +111,12 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     DOCUMENTS_CLASSIFIED: async (ctx) => {
-      const data = await classifier.run({ ...run, engine: engineOf(ctx), input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery) } })
+      const data = await classifier.run({ ...run, engine: engineOf(ctx), label: `DOCUMENTS_CLASSIFIED-${classifier.name}`, input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery) } })
       return { artifacts: [{ name: ARTIFACTS.documentIntent, data }] }
     },
 
     NODE_PROPOSALS_CREATED: async (ctx) => {
-      const data = await extractor.run({ ...run, engine: engineOf(ctx), input: {
+      const data = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
         history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
         sources: sources.read(),  // A1: extractor cites paths/quotes from real source text
@@ -142,7 +142,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     LEAD_MERGED: async (ctx) => {
-      const out = await lead.run({ ...run, engine: engineOf(ctx), input: { proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals) } })
+      const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: { proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals) } })
       return { artifacts: [
         { name: ARTIFACTS.graphUpdatePlan, data: out.graph_update_plan },
         { name: ARTIFACTS.sharedPromotionPlan, data: out.shared_promotion_plan },

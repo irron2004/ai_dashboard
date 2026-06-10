@@ -44,12 +44,32 @@ describe('LlmAgent failure + cwd', () => {
     expect(calls[0].cwd).toBe('/my/proj')
   })
 
-  test('surfaces the TAIL of a long engine error (banner first, real error last)', async () => {
-    // Engine CLIs (codex/claude/opencode) print a startup banner first and the actual failure LAST;
-    // head-truncation would only show the useless banner.
-    const longRaw = 'OpenAI Codex v0.137.0 banner '.repeat(60) + 'REAL_ERROR_AT_THE_END'
+  test('shows BOTH head and tail of a long error (defect B: error may be at either end)', async () => {
+    const longRaw = 'HEAD_REAL_ERROR ' + 'noise '.repeat(300) + 'TAIL_REAL_ERROR'
     const failing: AgentRunner = { run: async () => ({ ok: false, output: '', raw: longRaw }) }
-    await expect(tinyAgent().run({ runner: failing, engine: 'codex', input: {} }))
-      .rejects.toThrow(/REAL_ERROR_AT_THE_END/)
+    const err = await tinyAgent().run({ runner: failing, engine: 'codex', input: {} }).catch((e: Error) => e)
+    expect(String(err)).toContain('HEAD_REAL_ERROR')
+    expect(String(err)).toContain('TAIL_REAL_ERROR')
+  })
+
+  test('prefers stderr over raw when present', async () => {
+    const failing: AgentRunner = { run: async () => ({ ok: false, output: '', raw: 'file-listing-noise', stderr: 'codex: not authenticated' }) }
+    const err = await tinyAgent().run({ runner: failing, engine: 'codex', input: {} }).catch((e: Error) => e)
+    expect(String(err)).toContain('not authenticated')
+    expect(String(err)).not.toContain('file-listing-noise')
+  })
+
+  test('includes exit code and log dir pointer when provided', async () => {
+    const failing: AgentRunner = { run: async () => ({ ok: false, output: '', raw: 'boom', exitCode: 2, logDir: '/runs/R/logs/01-X' }) }
+    const err = await tinyAgent().run({ runner: failing, engine: 'codex', input: {} }).catch((e: Error) => e)
+    expect(String(err)).toContain('exit 2')
+    expect(String(err)).toContain('/runs/R/logs/01-X')
+  })
+
+  test('forwards label to the runner', async () => {
+    const calls: RunInput[] = []
+    const rec: AgentRunner = { run: async (i) => { calls.push(i); return { ok: false, output: '', raw: '' } } }
+    await tinyAgent().run({ runner: rec, engine: 'codex', input: {}, label: 'STATE-agent' }).catch(() => {})
+    expect(calls[0].label).toBe('STATE-agent')
   })
 })
