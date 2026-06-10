@@ -1,0 +1,15 @@
+# Normalize line endings: store everything as LF in git, check out as LF on all
+# platforms. Prevents the whole tree from flipping to CRLF under WSL/Windows editors
+# (which produces diffs where every line shows as changed and review is impossible).
+* text=auto eol=lf
+
+# Binary assets git must never touch.
+*.png binary
+*.pdf binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.node binary
