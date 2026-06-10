@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import type { AgentType, RunState } from '@apc/shared'
-import type { AgentRunner } from '@apc/llm-wiki'
+import { LoggingAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
 } from '@apc/knowledge-harness'
@@ -11,6 +11,9 @@ import { materializeProjectDocs } from './source-materializer.js'
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
 export type HarnessRunResult = { ok: boolean; runId: string; finalState: RunState['state']; reason?: string }
+
+/** 엔진 출력 스트리밍 이벤트 — UI live tail용. label = '<STATE>-<agent>'. */
+export type EngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
 
 export type HarnessServiceDeps = {
   runner: AgentRunner
@@ -49,10 +52,19 @@ export class HarnessService {
 
   private stagingDir(runId: string): string { return join(this.deps.runsRoot, runId, 'vault-staging') }
 
-  /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock). */
-  private runnerFor(runId: string, projectId: string, projectCwd?: string): HarnessRunner {
+  /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
+   * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
+   * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
+  private runnerFor(runId: string, projectId: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void): HarnessRunner {
+    const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
+    const runner: AgentRunner = !onEngineLog ? logging : {
+      run: (i) => logging.run({
+        ...i,
+        onChunk: (stream, text) => { i.onChunk?.(stream, text); onEngineLog({ label: i.label ?? i.agent, stream, chunk: text }) },
+      }),
+    }
     const drivers = makeDrivers({
-      runner: this.deps.runner, vaultRoot: this.deps.vaultRoot,
+      runner, vaultRoot: this.deps.vaultRoot,
       stagingRoot: this.stagingDir(runId), preamble: this.preamble, projectCwd,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
@@ -75,13 +87,13 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
     if (input.materialize && input.repoPaths?.length) {
       materializeProjectDocs(input.repoPaths, this.deps.vaultRoot)
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const runner = this.runnerFor(runId, input.projectId, input.repoPaths?.[0])
+    const runner = this.runnerFor(runId, input.projectId, input.repoPaths?.[0], onEngineLog)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     return this.advanceSafely(runId, runner, store, onProgress)
   }

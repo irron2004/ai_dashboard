@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
-import { FakeAgentRunner } from '@apc/llm-wiki'
+import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { RunLock, RunArtifactStore } from '@apc/knowledge-harness'
 import { HarnessService } from './harness-service.js'
 
@@ -285,5 +285,36 @@ describe('HarnessService', () => {
     expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')  // op body clean → run completes for review
     expect(svc.promote({ runId: r.runId }).ok).toBe(false)                 // ...but the merged secret blocks promotion
     expect(svc.promote({ runId: r.runId, allowSecrets: true }).ok).toBe(true)  // explicit human override
+  })
+})
+
+describe('HarnessService engine logging', () => {
+  test('a failed first step still leaves prompt/meta logs in runs/<id>/logs', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hs-log-'))
+    const vaultRoot = join(tmp, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    const runsRoot = join(tmp, 'runs')
+    const svc = new HarnessService({ runner: new FakeAgentRunner([]), vaultRoot, runsRoot })
+    const res = await svc.run({ projectId: 'p1', engine: 'codex' })
+    expect(res.ok).toBe(false)
+    const logRoot = join(runsRoot, res.runId, 'logs')
+    const dirs = readdirSync(logRoot)
+    expect(dirs).toEqual(['01-PROJECT_SCANNED-project-discovery'])
+    expect(existsSync(join(logRoot, dirs[0], 'prompt.txt'))).toBe(true)
+    const meta = JSON.parse(readFileSync(join(logRoot, dirs[0], 'meta.json'), 'utf8'))
+    expect(meta.ok).toBe(false)
+    // 실패 메시지가 로그 위치를 가리킨다
+    expect(res.reason).toContain('full logs:')
+  })
+
+  test('onEngineLog receives streamed chunks with the call label', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hs-chunk-'))
+    const vaultRoot = join(tmp, 'vault'); mkdirSync(vaultRoot, { recursive: true })
+    const streaming: AgentRunner = {
+      run: async (i) => { i.onChunk?.('stdout', 'scanning…'); return { ok: false, output: '', raw: 'dead' } },
+    }
+    const svc = new HarnessService({ runner: streaming, vaultRoot, runsRoot: join(tmp, 'runs') })
+    const events: Array<{ label: string; stream: string; chunk: string }> = []
+    await svc.run({ projectId: 'p1', engine: 'codex' }, undefined, (e) => events.push(e))
+    expect(events).toEqual([{ label: 'PROJECT_SCANNED-project-discovery', stream: 'stdout', chunk: 'scanning…' }])
   })
 })
