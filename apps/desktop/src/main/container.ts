@@ -227,6 +227,8 @@ export function buildContainer(opts: {
     runner: opts.agentRunner ?? new RoutingAgentRunner(),
     vaultRoot: opts.vaultRoot,
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+    // "전 문서로 위키 생성"의 materialize 단계가 이 프로젝트의 에이전트 대화도 Q&A 단위로 청킹하도록.
+    conversationAdapters: ingestAdapters,
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)
