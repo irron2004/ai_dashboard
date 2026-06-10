@@ -11,8 +11,10 @@
 **Spec:** `docs/superpowers/specs/2026-06-10-harness-structured-logging-design.md`
 
 **검증 명령 (모든 태스크 공통):**
+- **PATH 선행 (비대화형 shell에 nvm 미적용):** 모든 명령 앞에 `export PATH="$HOME/.nvm/versions/node/v20.19.5/bin:$PATH"`
 - 패키지 테스트: 루트에서 `pnpm vitest run <파일경로>` (desktop은 `pnpm --filter @apc/desktop exec vitest run <src 상대경로>`)
-- 타입체크: `pnpm --filter <패키지명> exec tsc --noEmit`
+- 타입체크: **루트에서 `pnpm run typecheck`** (`tsc -p tsconfig.typecheck.json && tsc -p apps/desktop/tsconfig.json --noEmit`). 패키지별 `tsc --noEmit`은 개별 tsconfig가 없어 동작하지 않으니 쓰지 말 것.
+- 환경 주의: 레포가 `/mnt/c`(Windows FS)에 있어 node_modules가 Windows용. linux rollup/esbuild 바이너리는 설치 완료. 네이티브 모듈(better-sqlite3·node-pty)은 Windows 빌드이므로 **`pnpm install`을 새로 돌리지 말 것**(Windows 빌드를 덮어씀).
 
 ---
 
