@@ -80,6 +80,55 @@ describe('CliAgentRunner', () => {
   test('throws for an engine with no configured template', async () => {
     await expect(new CliAgentRunner({}).run({ agent: 'opencode', prompt: 'x', timeoutMs: 100 })).rejects.toThrow(/no command template/i)
   })
+
+  test('preserves stderr, exit code, command and duration on non-zero exit (defect A)', async () => {
+    const mockChild = createMockChild()
+    mockSpawn.mockReturnValue(mockChild)
+    const templates: EngineTemplates = { codex: { command: 'codex', args: ['exec'] } }
+    const promise = new CliAgentRunner(templates).run({ agent: 'codex', prompt: 'x', timeoutMs: 10000 })
+    mockChild.stdout.emit('data', 'file-listing-noise')
+    mockChild.stderr.emit('data', 'ERROR: not authenticated')
+    mockChild.emit('close', 1)
+    const res = await promise
+    expect(res.ok).toBe(false)
+    expect(res.exitCode).toBe(1)
+    expect(res.stderr).toBe('ERROR: not authenticated')
+    expect(res.command).toBe('codex exec')
+    expect(typeof res.durationMs).toBe('number')
+    // raw는 stdout만으로 stderr를 가리면 안 된다 — 둘 다 담는다
+    expect(res.raw).toContain('ERROR: not authenticated')
+    expect(res.raw).toContain('file-listing-noise')
+  })
+
+  test('invokes onChunk per stream as data arrives', async () => {
+    const mockChild = createMockChild()
+    mockSpawn.mockReturnValue(mockChild)
+    const templates: EngineTemplates = { claude: { command: 'claude', args: ['-p'] } }
+    const chunks: Array<[string, string]> = []
+    const promise = new CliAgentRunner(templates).run({
+      agent: 'claude', prompt: 'x', timeoutMs: 10000,
+      onChunk: (stream, text) => chunks.push([stream, text]),
+    })
+    mockChild.stdout.emit('data', 'out-1')
+    mockChild.stderr.emit('data', 'err-1')
+    mockChild.emit('close', 0)
+    await promise
+    expect(chunks).toEqual([['stdout', 'out-1'], ['stderr', 'err-1']])
+  })
+
+  test('timeout result carries exitCode:null and partial stderr', async () => {
+    vi.useFakeTimers()
+    const mockChild = createMockChild()
+    mockSpawn.mockReturnValue(mockChild)
+    const templates: EngineTemplates = { claude: { command: 'claude', args: ['-p'] } }
+    const promise = new CliAgentRunner(templates).run({ agent: 'claude', prompt: 'x', timeoutMs: 300 })
+    mockChild.stderr.emit('data', 'partial diagnostics')
+    vi.advanceTimersByTime(300)
+    const res = await promise
+    expect(res.ok).toBe(false)
+    expect(res.exitCode).toBeNull()
+    expect(res.stderr).toBe('partial diagnostics')
+  })
 })
 
 describe('CliAgentRunner (real process)', () => {
