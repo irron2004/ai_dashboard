@@ -5,6 +5,8 @@ import { api } from '../api.js'
 type Props = {
   projects: Project[]
   selectedProjectId: string | null
+  collapsed: boolean
+  onToggleCollapse: () => void
   onSelect: (projectId: string) => void
   onAdd: (name: string, projectType: string, repoPath: string) => void
   onUpdate: (id: string, name: string, projectType: string, repoPath: string) => void
@@ -23,7 +25,7 @@ function groupByStatus(projects: Project[]): Record<string, Project[]> {
 type PathMode = 'local' | 'ssh'
 type Menu = { id: string; x: number; y: number }
 
-export function ProjectSidebar({ projects, selectedProjectId, onSelect, onAdd, onUpdate, onDelete }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggleCollapse, onSelect, onAdd, onUpdate, onDelete }: Props) {
   const groups = groupByStatus(projects)
   const [showDialog, setShowDialog] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -118,34 +120,85 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelect, onAdd, o
   }
 
   return (
-    <nav className="project-sidebar">
-      <h2>Projects</h2>
-      {projects.length === 0 && (
-        <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 8 }}>No projects yet</p>
-      )}
-      {Object.entries(groups).map(([status, projs]) => (
-        <section key={status} className="project-sidebar__group">
-          <h3 className="project-sidebar__group-title">{status}</h3>
-          <ul className="project-sidebar__list">
-            {projs.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className={`project-sidebar__item${p.id === selectedProjectId ? ' project-sidebar__item--selected' : ''}`}
-                  onClick={() => onSelect(p.id)}
-                  onContextMenu={(e) => { e.preventDefault(); setMenu({ id: p.id, x: e.clientX, y: e.clientY }) }}
-                  title="우클릭: 편집 / 삭제"
-                >
-                  {p.name}
-                </button>
-              </li>
+    <>
+      {collapsed ? (
+        <nav className="project-sidebar project-sidebar--rail">
+          <button
+            type="button"
+            className="project-sidebar__rail-toggle"
+            onClick={onToggleCollapse}
+            title="사이드바 펼치기"
+            aria-label="사이드바 펼치기"
+          >
+            ▸
+          </button>
+          <div className="project-sidebar__rail-list">
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`project-sidebar__rail-dot${p.id === selectedProjectId ? ' project-sidebar__rail-dot--selected' : ''}`}
+                onClick={() => onSelect(p.id)}
+                onContextMenu={(e) => { e.preventDefault(); setMenu({ id: p.id, x: e.clientX, y: e.clientY }) }}
+                title={`${p.name} · ${p.status}`}
+                aria-label={p.name}
+              >
+                {p.name.trim().charAt(0).toUpperCase() || '·'}
+              </button>
             ))}
-          </ul>
-        </section>
-      ))}
-      <button type="button" className="project-sidebar__add-btn" onClick={openAdd}>
-        + Add Project
-      </button>
+          </div>
+          <button
+            type="button"
+            className="project-sidebar__rail-add"
+            onClick={openAdd}
+            title="새 프로젝트"
+            aria-label="새 프로젝트"
+          >
+            +
+          </button>
+        </nav>
+      ) : (
+        <nav className="project-sidebar">
+          <div className="project-sidebar__header">
+            <h2>Projects</h2>
+            <button
+              type="button"
+              className="project-sidebar__collapse-btn"
+              onClick={onToggleCollapse}
+              title="사이드바 접기"
+              aria-label="사이드바 접기"
+            >
+              ◂
+            </button>
+          </div>
+          {projects.length === 0 && (
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 8 }}>No projects yet</p>
+          )}
+          {Object.entries(groups).map(([status, projs]) => (
+            <section key={status} className="project-sidebar__group">
+              <h3 className="project-sidebar__group-title">{status}</h3>
+              <ul className="project-sidebar__list">
+                {projs.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      className={`project-sidebar__item${p.id === selectedProjectId ? ' project-sidebar__item--selected' : ''}`}
+                      onClick={() => onSelect(p.id)}
+                      onContextMenu={(e) => { e.preventDefault(); setMenu({ id: p.id, x: e.clientX, y: e.clientY }) }}
+                      title="우클릭: 편집 / 삭제"
+                    >
+                      {p.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+          <button type="button" className="project-sidebar__add-btn" onClick={openAdd}>
+            + Add Project
+          </button>
+        </nav>
+      )}
 
       {/* Right-click context menu (편집 / 삭제) */}
       {menu && (() => {
@@ -260,7 +313,7 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelect, onAdd, o
           </div>
         </div>
       )}
-    </nav>
+    </>
   )
 }
 

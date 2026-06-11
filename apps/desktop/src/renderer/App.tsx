@@ -34,13 +34,23 @@ export function App() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
-  const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track)
+  const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('apc:sidebarCollapsed') === '1' } catch { return false }
+  })
+  const RAIL_W = 56                                        // collapsed icon-rail width
   const termRef = useRef<HTMLDivElement | null>(null)
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
     { open: false, running: false, log: '', ok: false },
   )
   const dragRef = useRef<{ onMove: (e: MouseEvent) => void; onUp: (e: MouseEvent) => void } | null>(null)
-  const appLayoutStyle: CSSProperties & Record<'--sidebar-width', string> = { '--sidebar-width': `${sidebarW}px` }
+  const effectiveSidebarW = sidebarCollapsed ? RAIL_W : sidebarW
+  const appLayoutStyle: CSSProperties & Record<'--sidebar-width', string> = { '--sidebar-width': `${effectiveSidebarW}px` }
+  const toggleSidebar = () => setSidebarCollapsed((prev) => {
+    const next = !prev
+    try { localStorage.setItem('apc:sidebarCollapsed', next ? '1' : '0') } catch { /* ignore */ }
+    return next
+  })
 
   useEffect(() => {
     return () => {
@@ -229,10 +239,12 @@ export function App() {
         {upd.running ? 'Updating…' : '⭳ Update'}
       </button>
 
-      <aside className="app-layout__sidebar">
+      <aside className={`app-layout__sidebar${sidebarCollapsed ? ' app-layout__sidebar--rail' : ''}`}>
         <ProjectSidebar
           projects={projects}
           selectedProjectId={selectedProjectId}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
           onSelect={selectProject}
           onAdd={addProject}
           onUpdate={updateProject}
@@ -240,12 +252,14 @@ export function App() {
         />
       </aside>
 
-      {/* draggable sidebar/main divider */}
-      <div
-        onMouseDown={startSidebarDrag}
-        title="드래그하여 사이드바 크기 조정"
-        style={{ position: 'fixed', top: 0, left: sidebarW - 2, width: 5, height: '100vh', cursor: 'col-resize', zIndex: 50 }}
-      />
+      {/* draggable sidebar/main divider — only when expanded (rail width is fixed) */}
+      {!sidebarCollapsed && (
+        <div
+          onMouseDown={startSidebarDrag}
+          title="드래그하여 사이드바 크기 조정"
+          style={{ position: 'fixed', top: 0, left: sidebarW - 2, width: 5, height: '100vh', cursor: 'col-resize', zIndex: 50 }}
+        />
+      )}
 
       <main className="app-layout__main">
         <header className="app-layout__toolbar">

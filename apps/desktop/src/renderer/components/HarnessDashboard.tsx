@@ -12,6 +12,7 @@ import { CoverageMatrix } from './CoverageMatrix.js'
 import { QualityPanel } from './QualityPanel.js'
 import { ProposalsPanel } from './ProposalsPanel.js'
 import { AgentConfigEditorPanel } from './AgentConfigEditorPanel.js'
+import { WikiProgress } from './WikiProgress.js'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 
 type Props = {
@@ -129,14 +130,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             {tab === 'flow' && <TaskFlowView run={currentRun} />}
             {tab === 'coverage' && (
               harnessLoading
-                ? <div className="harness-dashboard__placeholder">
-                    <div>⏳ 위키 생성 중… {harnessProgress ? `(현재 단계: ${harnessProgress})` : '(시작 중…)'}</div>
-                    {harnessLiveLabel && (
-                      <pre className="harness-dashboard__live-tail">
-                        {`[${harnessLiveLabel}]\n${harnessLiveTail.join('\n')}`}
-                      </pre>
-                    )}
-                  </div>
+                ? <WikiProgress state={harnessProgress} liveLabel={harnessLiveLabel} liveTail={harnessLiveTail} />
                 : coverageData
                   ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
                   : currentRun?.runState.state === 'FAILED'
