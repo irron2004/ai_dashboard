@@ -30,12 +30,20 @@ function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): bo
 export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const {
     selectedProjectId, dashboard, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage, harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
-    harnessCanonicalProposals,
+    harnessCanonicalProposals, harnessPromoteBlockedReason,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun, promoteHarnessRun,
     promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
   } = useStore()
   const [tab, setTab] = useState<Tab>('markdown')
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null)
+  const [runsCollapsed, setRunsCollapsed] = useState(() => {
+    try { return localStorage.getItem('apc:runsCollapsed') === '1' } catch { return false }
+  })
+  const toggleRuns = () => setRunsCollapsed((prev) => {
+    const next = !prev
+    try { localStorage.setItem('apc:runsCollapsed', next ? '1' : '0') } catch { /* ignore */ }
+    return next
+  })
 
   useEffect(() => {
     if (selectedProjectId) hydrateHarnessProject(selectedProjectId)
@@ -65,7 +73,8 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
     if (!currentRun) return
     const candidate = currentRun.artifacts.find((artifact) => artifact.path === (node.data as { path?: string } | undefined)?.path)
       ?? currentRun.artifacts.find((artifact) => artifactMatchesTarget(artifact, node.id.replace(/^artifact:/, '')))
-    if (candidate) setSelectedArtifactPath(candidate.path)
+    // Jump to the Markdown viewer so the clicked node's document is actually shown (not left on the graph tab).
+    if (candidate) { setSelectedArtifactPath(candidate.path); setTab('markdown') }
   }
 
   return (
@@ -93,11 +102,13 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
         </div>
       </header>
 
-      <div className="harness-dashboard__grid">
+      <div className={`harness-dashboard__grid${runsCollapsed ? ' harness-dashboard__grid--runs-collapsed' : ''}`}>
         <HarnessRunList
           runs={harnessRuns}
           selectedRunId={selectedHarnessRunId}
           loading={harnessLoading}
+          collapsed={runsCollapsed}
+          onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
           onStartRun={() => void startHarnessRun()}
@@ -175,6 +186,8 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
         <AgentConfigPanel
           config={config}
           loading={harnessLoading}
+          running={harnessLoading}
+          activeState={harnessProgress}
           message={harnessMessage}
           profiles={profiles}
           onSelectProfile={onSelectProfile}
@@ -184,6 +197,8 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
           onPromptChange={(key, value) => updateHarnessPrompt(key, value)}
           onRefresh={() => void refreshHarnessRun()}
           onPromote={() => void promoteHarnessRun()}
+          onForcePromote={() => void promoteHarnessRun(undefined, true)}
+          promoteBlockedReason={harnessPromoteBlockedReason}
           canPromote={canPromote}
         />
       </div>
