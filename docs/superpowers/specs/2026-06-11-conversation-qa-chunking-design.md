@@ -126,7 +126,7 @@ export async function materializeConversations(opts: {
 | 매칭 세션 0개 | `raw/conversations/` 빈 채로 정상 진행 (위키는 project-docs만으로 생성) |
 | sessionId 충돌(치환 후 동일) | 뒤에 `-2`, `-3` 접미 |
 
-시크릿: 어댑터가 이미 `redact()` 적용 — 본 레이어는 추가 처리 없음.
+시크릿: turn text/resultText는 어댑터가 redact하지만 tool_use.input은 raw — 본 레이어가 툴 요약 라인에 redact()를 적용한다.
 
 ## 4. 테스트 (TDD)
 
@@ -156,6 +156,7 @@ packages/app-services/src/conversation-materializer.test.ts   # 신설
 packages/app-services/src/harness-service.ts                  # deps + materialize 블록 확장
 packages/app-services/src/harness-service.test.ts             # 배선 테스트 추가
 apps/desktop/src/main/container.ts                            # conversationAdapters: ingestAdapters 주입
-packages/agents/src/{claude,codex,opencode}-adapter.ts        # 재사용 (수정 없음)
+packages/agents/src/claude-adapter.ts                         # claude-adapter: string content 정규화 + isMeta 스킵 (실데이터 파싱 결함 수정)
+packages/agents/src/{codex,opencode}-adapter.ts               # 재사용 (수정 없음)
 packages/knowledge-harness/src/runtime/source-reader.ts       # 재사용 (수정 없음)
 ```

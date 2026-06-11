@@ -2,13 +2,36 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ClaudeAdapter } from './claude-adapter.js'
+import { ClaudeAdapter, parseClaudeJsonl } from './claude-adapter.js'
 
 function writeSession(base: string, dir: string, file: string, lines: object[]) {
   const d = join(base, dir)
   mkdirSync(d, { recursive: true })
   writeFileSync(join(d, file), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
 }
+
+describe('parseClaudeJsonl', () => {
+  test('parses string message.content (real Claude Code user prompts) as turn text', () => {
+    const raw = [
+      JSON.stringify({ type: 'user', timestamp: '2026-06-11T00:00:00Z', sessionId: 's1', message: { role: 'user', content: '위키 생성이 안 돼요' } }),
+      JSON.stringify({ type: 'assistant', timestamp: '2026-06-11T00:00:01Z', message: { role: 'assistant', content: [{ type: 'text', text: '고치겠습니다' }] } }),
+    ].join('\n')
+    const session = parseClaudeJsonl(raw)
+    expect(session.turns[0].role).toBe('user')
+    expect(session.turns[0].text).toContain('위키 생성이 안 돼요')
+    expect(session.turns[1].text).toContain('고치겠습니다')
+  })
+
+  test('skips isMeta lines (injected skill preambles are not user questions)', () => {
+    const raw = [
+      JSON.stringify({ type: 'user', isMeta: true, message: { role: 'user', content: 'Base directory for this skill: /x' } }),
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'real question' } }),
+    ].join('\n')
+    const session = parseClaudeJsonl(raw)
+    expect(session.turns).toHaveLength(1)
+    expect(session.turns[0].text).toContain('real question')
+  })
+})
 
 describe('ClaudeAdapter', () => {
   let base: string

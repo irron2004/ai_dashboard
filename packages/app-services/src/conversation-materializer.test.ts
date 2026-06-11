@@ -102,6 +102,23 @@ describe('formatQaFile', () => {
     const unit = { q: t({ role: 'user', text: 'q' }), answers: [t({ role: 'assistant', text: 'a', toolCalls: [{ name: 'WebSearch' }] })] }
     expect(formatQaFile(unit)).toContain('- WebSearch')
   })
+
+  test('redacts secrets in tool input summaries', () => {
+    const unit = {
+      q: t({ role: 'user', text: 'q' }),
+      answers: [t({ role: 'assistant', text: 'a', toolCalls: [{ name: 'Bash', input: { command: 'curl -H "Authorization: Bearer abc123SECRETtoken"' } }] })],
+    }
+    const out = formatQaFile(unit)
+    expect(out).not.toContain('abc123SECRETtoken')
+  })
+
+  test('collapses multi-line commands into a single list line', () => {
+    const unit = {
+      q: t({ role: 'user', text: 'q' }),
+      answers: [t({ role: 'assistant', text: 'a', toolCalls: [{ name: 'Bash', input: { command: 'line1\nline2' } }] })],
+    }
+    expect(formatQaFile(unit)).toContain('- Bash: line1 line2')
+  })
 })
 
 const sess = (over: Partial<NormalizedSession>): NormalizedSession => ({

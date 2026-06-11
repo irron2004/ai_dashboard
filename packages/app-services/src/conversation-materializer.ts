@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { redact } from '@apc/agents'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { NormalizedSession, NormalizedTurn, NormalizedToolCall } from '@apc/shared'
 
@@ -36,7 +37,8 @@ function summarizeToolCall(call: NormalizedToolCall): string | null {
   if (FILE_TOOLS.has(call.name) && typeof input.file_path === 'string') line = `${call.name} ${input.file_path}`
   else if (call.name === 'Bash' && typeof input.command === 'string') line = `Bash: ${input.command.slice(0, 80)}`
   else line = call.name
-  return call.isError ? `${line} (error)` : line
+  const flat = (call.isError ? `${line} (error)` : line).replace(/\s+/g, ' ')
+  return redact(flat)
 }
 
 /** 스타일 B: Q 전문 + A 텍스트 + `### tools` 요약. tool_result 본문(노이즈)은 싣지 않는다. */
@@ -67,6 +69,7 @@ export function sessionMatchesProject(session: NormalizedSession, repoPaths: str
   for (const repoPath of repoPaths) {
     if (repoPath.startsWith('ssh://')) continue
     const r = normalizePath(repoPath)
+    if (!r) continue
     if (c === r || c.startsWith(`${r}/`)) return true
   }
   return false

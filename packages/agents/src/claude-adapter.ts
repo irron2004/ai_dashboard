@@ -28,11 +28,13 @@ export function parseClaudeJsonl(raw: string, opts: { id?: string; transcriptPat
     if (obj.gitBranch && !branch && obj.gitBranch !== 'HEAD') branch = obj.gitBranch
     if (obj.timestamp) { if (!startedAt) startedAt = obj.timestamp; endedAt = obj.timestamp }
 
-    if ((obj.type === 'user' || obj.type === 'assistant') && obj.message?.content) {
+    if ((obj.type === 'user' || obj.type === 'assistant') && obj.message?.content && !obj.isMeta) {
       const role = obj.message.role === 'assistant' ? 'assistant' : 'user'
       const texts: string[] = []
       const toolCalls: NormalizedTurn['toolCalls'] = []
-      for (const block of obj.message.content) {
+      // Claude Code writes typed user prompts as a plain string; tool results/blocks come as arrays.
+      const blocks = typeof obj.message.content === 'string' ? [{ type: 'text', text: obj.message.content }] : obj.message.content
+      for (const block of blocks) {
         if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text)
         else if (block.type === 'tool_use') {
           toolCalls.push({ id: block.id, name: block.name, input: block.input })
