@@ -29,8 +29,14 @@ export type DriverDeps = {
   stagingRoot: string
   preamble: string
   projectCwd?: string
+  /** Per-LLM-step timeout (ms). Agentic CLI steps (project-discovery, node-extractor via claude-opus)
+   * routinely exceed the old 180s default and got SIGKILLed mid-run; default 600s gives headroom. */
+  stepTimeoutMs?: number
   // Phase 3 will add: policy, validators
 }
+
+/** Default per-step LLM timeout — 10 min. Overridable via DriverDeps.stepTimeoutMs. */
+const DEFAULT_STEP_TIMEOUT_MS = 600_000
 
 /**
  * Canonical artifact base names (#17). The writer (driver return `name`) and the reader (artifactByName
@@ -92,7 +98,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
   const links = new ObsidianLinkValidator()
-  const run = { runner: deps.runner, cwd: deps.projectCwd }
+  const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS }
 
   return {
     PROJECT_SCANNED: async (ctx) => {

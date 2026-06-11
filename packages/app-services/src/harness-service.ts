@@ -23,6 +23,8 @@ export type HarnessServiceDeps = {
   conversationAdapters?: AgentIngestAdapter[]
   vaultRoot: string
   runsRoot: string
+  /** 단계별 LLM 타임아웃(ms). 미설정 시 make-drivers 기본값(600s). */
+  stepTimeoutMs?: number
   /** path to feature-gates.yml; defaults to the shipped harness/feature-gates.yml. */
   gatesPath?: string
   preamble?: string
@@ -70,6 +72,7 @@ export class HarnessService {
     const drivers = makeDrivers({
       runner, vaultRoot: this.deps.vaultRoot,
       stagingRoot: this.stagingDir(runId), preamble: this.preamble, projectCwd,
+      stepTimeoutMs: this.deps.stepTimeoutMs,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
     return new HarnessRunner({ gates: this.featureGate(), drivers, now: this.now, lock })

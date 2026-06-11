@@ -81,6 +81,26 @@ describe('makeDrivers (real agents, faked LLM)', () => {
     expect(existsSync(join(ws, 'runs', 'RUN-1', 'final-report.md'))).toBe(true)
   })
 
+  test('passes a default per-step timeout of 600s to the runner (agentic claude-opus needs >180s)', async () => {
+    const fake = new FakeAgentRunner(cannedOutputs())
+    const store = new RunArtifactStore(join(ws, 'runs', 'RUN-T'))
+    const drivers = makeDrivers({ runner: fake, vaultRoot: join(ws, 'vault'), stagingRoot: join(ws, 'vault-staging-t'), preamble: 'RULES' })
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now: () => '2026-06-02T00:00:00Z' })
+    runner.createRun(store, { runId: 'RUN-T', projectId: 'p1', engine: 'claude' })
+    await runner.advance(store)
+    expect(fake.calls[0].timeoutMs).toBe(600000)
+  })
+
+  test('stepTimeoutMs overrides the default per-step timeout', async () => {
+    const fake = new FakeAgentRunner(cannedOutputs())
+    const store = new RunArtifactStore(join(ws, 'runs', 'RUN-TO'))
+    const drivers = makeDrivers({ runner: fake, vaultRoot: join(ws, 'vault'), stagingRoot: join(ws, 'vault-staging-to'), preamble: 'RULES', stepTimeoutMs: 900000 })
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now: () => '2026-06-02T00:00:00Z' })
+    runner.createRun(store, { runId: 'RUN-TO', projectId: 'p1', engine: 'claude' })
+    await runner.advance(store)
+    expect(fake.calls[0].timeoutMs).toBe(900000)
+  })
+
   test('a pre-existing vault secret never blocks a clean run; VALIDATED scans only run-authored files (#22 scoping)', async () => {
     // A pre-existing vault file with a secret-shaped string must NOT trip the gate — only THIS run's
     // authored files are scanned, otherwise a legacy secret would permanently block all promotions.
