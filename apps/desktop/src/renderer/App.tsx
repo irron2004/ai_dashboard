@@ -227,18 +227,25 @@ export function App() {
     void generate(selectedGenerateEngine, selectedCategoryIds)
   }
 
-  return (
-    <div className="app-layout" style={appLayoutStyle}>
-      {/* Update button — fixed at the top-right of the window */}
-      <button
-        disabled={upd.running}
-        onClick={runUpdate}
-        title="git pull + pnpm install"
-        style={{ position: 'fixed', top: 6, right: 8, zIndex: 60 }}
-      >
+  // Toolbar actions live inline in the main tab row (when a project is open) instead of claiming a full row.
+  const toolbarActions = (
+    <>
+      <button disabled={ingesting} onClick={() => ingest()}>
+        {ingesting ? 'Ingesting...' : 'Ingest now'}
+      </button>
+      <button disabled={preflighting || generating || !selectedProjectId} onClick={openGeneratePreflight} title="문서/소스 범위 확인 후 current.md 제안 생성">
+        {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
+      </button>
+      <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)">🔎 Search</button>
+      {lastIngest && <span className="app-layout__ingest-note">ingested {lastIngest.sessions} session(s)</span>}
+      <button disabled={upd.running} onClick={runUpdate} title="git pull + pnpm install">
         {upd.running ? 'Updating…' : '⭳ Update'}
       </button>
+    </>
+  )
 
+  return (
+    <div className="app-layout" style={appLayoutStyle}>
       <aside className={`app-layout__sidebar${sidebarCollapsed ? ' app-layout__sidebar--rail' : ''}`}>
         <ProjectSidebar
           projects={projects}
@@ -262,19 +269,6 @@ export function App() {
       )}
 
       <main className="app-layout__main">
-        <header className="app-layout__toolbar">
-          <button disabled={ingesting} onClick={() => ingest()}>
-            {ingesting ? 'Ingesting...' : 'Ingest now'}
-          </button>
-          <button disabled={preflighting || generating || !selectedProjectId} onClick={openGeneratePreflight} title="문서/소스 범위 확인 후 current.md 제안 생성">
-            {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
-          </button>
-          <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)">🔎 Search</button>
-          {lastIngest && <span>ingested {lastIngest.sessions} session(s)</span>}
-          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', opacity: 0.55 }}>
-            Ctrl+1..9 project · Shift+1/2/3 agent
-          </span>
-        </header>
         {dashboard ? (
           <MainPanel
             tab={mainTab}
@@ -282,11 +276,15 @@ export function App() {
             dashboard={dashboard}
             profiles={profiles}
             onSelectProfile={handleSelectProfile}
+            actions={toolbarActions}
           />
         ) : (
-          <div className="app-layout__placeholder">
-            {selectedProjectId ? 'Loading...' : 'Select a project or add one'}
-          </div>
+          <>
+            <header className="app-layout__toolbar">{toolbarActions}</header>
+            <div className="app-layout__placeholder">
+              {selectedProjectId ? 'Loading...' : 'Select a project or add one'}
+            </div>
+          </>
         )}
       </main>
 

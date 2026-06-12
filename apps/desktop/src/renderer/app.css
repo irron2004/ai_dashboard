@@ -642,6 +642,39 @@ textarea {
 .harness-dashboard__grid--runs-collapsed {
   grid-template-columns: 52px minmax(0, 1fr) minmax(300px, 360px);
 }
+.harness-dashboard__grid--config-collapsed {
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) 44px;
+}
+.harness-dashboard__grid--runs-collapsed.harness-dashboard__grid--config-collapsed {
+  grid-template-columns: 52px minmax(0, 1fr) 44px;
+}
+
+/* canonical proposals (hash-gated promote) */
+.harness-dashboard__canonical {
+  border-top: 1px solid var(--line);
+  padding: 12px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.harness-dashboard__canonical > h3 { color: var(--muted); }
+.harness-dashboard__canonical ul { display: flex; flex-direction: column; gap: 6px; }
+.harness-dashboard__canonical-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+.harness-dashboard__canonical-item > span { min-width: 0; word-break: break-word; }
+.harness-dashboard__canonical-item button { flex: 0 0 auto; padding: 5px 11px; font-size: 0.78rem; white-space: nowrap; }
+.harness-dashboard__canonical-force {
+  color: #ffd9a8;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: linear-gradient(180deg, rgba(251, 191, 36, 0.16), rgba(30, 26, 18, 0.96));
+}
+.harness-dashboard__canonical-force:hover:not(:disabled) { border-color: rgba(251, 191, 36, 0.7); }
 
 .harness-dashboard__main {
   min-height: 0;
@@ -1285,6 +1318,55 @@ textarea {
 .agent-config-panel__gate--forward-declared .agent-config-panel__gate-mark { background: transparent; border: 1px solid var(--subtle); }
 
 .agent-config-panel__disabled { opacity: 0.62; }
+
+/* collapse / collapsed rail */
+.agent-config-panel__header { align-items: center; }
+.agent-config-panel__collapse-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+}
+.agent-config-panel__collapse-btn:hover:not(:disabled) { color: var(--text); }
+
+.agent-config-panel--rail {
+  overflow: hidden;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 6px;
+}
+.agent-config-panel__rail-toggle {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--muted);
+}
+.agent-config-panel__rail-toggle:hover:not(:disabled) { color: var(--text); border-color: rgba(117, 199, 255, 0.4); }
+.agent-config-panel__rail-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
+.agent-config-panel__rail-dot--live { background: var(--success); animation: agent-live-blink 1.3s ease-in-out infinite; }
+.agent-config-panel__rail-dot--warn { background: var(--warning); }
+.agent-config-panel__rail-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  margin-top: 2px;
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--subtle);
+}
 .agent-config-panel__prompts {
   display: grid;
   gap: 10px;
@@ -1428,7 +1510,19 @@ textarea {
 
 /* ── PM Home ─────────────────────────────────────────── */
 .main-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; }
-.main-panel__tabs { display: flex; gap: 4px; padding: 4px 6px 0; flex: 0 0 auto; }
+.main-panel__tabs { display: flex; align-items: flex-end; gap: 4px; padding: 4px 6px 0; flex: 0 0 auto; }
+.main-panel__tab-actions {
+  margin-left: auto;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.main-panel__tab-actions button { padding: 4px 11px; font-size: 0.8rem; }
+.app-layout__ingest-note { font-size: 0.74rem; color: var(--muted); }
 .main-panel__tab { background: #161616; border: 1px solid #2c2c2c; border-bottom: none; border-radius: 4px 4px 0 0; padding: 4px 12px; font-size: 0.8rem; color: #ccc; cursor: pointer; }
 .main-panel__tab--active { background: #23311f; border-color: #4a8a4a; color: #fff; }
 .main-panel__content { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid #2c2c2c; }

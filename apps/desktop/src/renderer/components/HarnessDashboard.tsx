@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentProfile } from '@apc/shared'
 import { useStore } from '../store.js'
-import { createDefaultHarnessConfig, buildHarnessGraphData, type HarnessRunArtifact } from '../harness-utils.js'
+import { createDefaultHarnessConfig, buildHarnessGraphData, isMarkdownArtifact, artifactLabel, type HarnessRunArtifact } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { MarkdownViewer } from './MarkdownViewer.js'
 import { GraphVisualization } from './GraphVisualization.js'
@@ -30,7 +30,7 @@ function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): bo
 export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const {
     selectedProjectId, dashboard, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage, harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
-    harnessCanonicalProposals, harnessPromoteBlockedReason,
+    harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun, promoteHarnessRun,
     promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
   } = useStore()
@@ -42,6 +42,14 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const toggleRuns = () => setRunsCollapsed((prev) => {
     const next = !prev
     try { localStorage.setItem('apc:runsCollapsed', next ? '1' : '0') } catch { /* ignore */ }
+    return next
+  })
+  const [configCollapsed, setConfigCollapsed] = useState(() => {
+    try { return localStorage.getItem('apc:configCollapsed') === '1' } catch { return false }
+  })
+  const toggleConfig = () => setConfigCollapsed((prev) => {
+    const next = !prev
+    try { localStorage.setItem('apc:configCollapsed', next ? '1' : '0') } catch { /* ignore */ }
     return next
   })
 
@@ -69,10 +77,28 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
     if (found) setSelectedArtifactPath(found.path)
   }
 
-  const handleNodeClick = (node: { id: string; data?: unknown }) => {
+  const handleNodeClick = (node: { id: string; label?: string; data?: unknown }) => {
     if (!currentRun) return
-    const candidate = currentRun.artifacts.find((artifact) => artifact.path === (node.data as { path?: string } | undefined)?.path)
-      ?? currentRun.artifacts.find((artifact) => artifactMatchesTarget(artifact, node.id.replace(/^artifact:/, '')))
+    const arts = currentRun.artifacts
+    // Only these render as a document in the Markdown viewer; prefer them so a click actually shows content.
+    const viewable = arts.filter((a) => isMarkdownArtifact(a) || a.name === 'git-diff-report' || a.name === 'eval-report' || a.name === 'final-policy-report')
+    const nodePath = (node.data as { path?: string } | undefined)?.path
+    const base = (p: string) => p.split(/[\\/]/).pop() ?? p
+    const idTarget = node.id.replace(/^(artifact|file|task|evidence|run):/, '')
+    const label = (node.label ?? '').toLowerCase()
+    const pick = (pool: HarnessRunArtifact[]): HarnessRunArtifact | undefined => {
+      if (nodePath) {
+        const np = nodePath.toLowerCase()
+        const hit = pool.find((a) => a.path === nodePath)
+          ?? pool.find((a) => a.path.toLowerCase().endsWith(np) || a.path.toLowerCase().endsWith(`/${np}`))
+          ?? pool.find((a) => base(a.path).toLowerCase() === base(nodePath).toLowerCase())
+        if (hit) return hit
+      }
+      return pool.find((a) => artifactMatchesTarget(a, idTarget))
+        ?? (label ? pool.find((a) => artifactLabel(a.name).toLowerCase() === label || base(a.path).replace(/\.md$/i, '').toLowerCase() === label) : undefined)
+    }
+    // Prefer a viewable (markdown/report) artifact; fall back to any artifact match.
+    const candidate = pick(viewable) ?? pick(arts)
     // Jump to the Markdown viewer so the clicked node's document is actually shown (not left on the graph tab).
     if (candidate) { setSelectedArtifactPath(candidate.path); setTab('markdown') }
   }
@@ -102,7 +128,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
         </div>
       </header>
 
-      <div className={`harness-dashboard__grid${runsCollapsed ? ' harness-dashboard__grid--runs-collapsed' : ''}`}>
+      <div className={`harness-dashboard__grid${runsCollapsed ? ' harness-dashboard__grid--runs-collapsed' : ''}${configCollapsed ? ' harness-dashboard__grid--config-collapsed' : ''}`}>
         <HarnessRunList
           runs={harnessRuns}
           selectedRunId={selectedHarnessRunId}
@@ -165,19 +191,34 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
             <div className="harness-dashboard__canonical">
               <h3>Canonical proposals (hash-gated)</h3>
               <ul>
-                {harnessCanonicalProposals.map((p) => (
-                  <li key={p.proposalRelPath} className="harness-dashboard__canonical-item">
-                    <span>{p.canonicalPath}{p.currentHash === null ? ' (new)' : ''}</span>
-                    <button
-                      type="button"
-                      disabled={harnessLoading || !canPromote}
-                      title={canPromote ? undefined : '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 promote할 수 있습니다'}
-                      onClick={() => void promoteCanonicalDoc(p.proposalRelPath, p.currentHash ?? '')}
-                    >
-                      Promote to {p.canonicalPath}
-                    </button>
-                  </li>
-                ))}
+                {harnessCanonicalProposals.map((p) => {
+                  const blocked = harnessCanonicalBlock?.proposalRelPath === p.proposalRelPath
+                  return (
+                    <li key={p.proposalRelPath} className="harness-dashboard__canonical-item">
+                      <span>{p.canonicalPath}{p.currentHash === null ? ' (new)' : ''}</span>
+                      {blocked ? (
+                        <button
+                          type="button"
+                          className="harness-dashboard__canonical-force"
+                          disabled={harnessLoading}
+                          title={harnessCanonicalBlock?.reason}
+                          onClick={() => void promoteCanonicalDoc(p.proposalRelPath, p.currentHash ?? '', true)}
+                        >
+                          ⚠ 검증 무시하고 promote
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={harnessLoading || !canPromote}
+                          title={canPromote ? undefined : '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 promote할 수 있습니다'}
+                          onClick={() => void promoteCanonicalDoc(p.proposalRelPath, p.currentHash ?? '')}
+                        >
+                          Promote to {p.canonicalPath}
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
             </div>
           )}
@@ -188,6 +229,8 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
           loading={harnessLoading}
           running={harnessLoading}
           activeState={harnessProgress}
+          collapsed={configCollapsed}
+          onToggleCollapse={toggleConfig}
           message={harnessMessage}
           profiles={profiles}
           onSelectProfile={onSelectProfile}

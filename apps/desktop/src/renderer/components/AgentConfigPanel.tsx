@@ -25,6 +25,9 @@ type Props = {
   /** Set when promote was blocked by a validation gate that allowInvalid can override; shows the force UI. */
   promoteBlockedReason?: string | null
   canPromote?: boolean
+  /** Collapse the whole panel to a thin rail so the graph/markdown column gets more room. */
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }
 
 const ENGINE_OPTIONS: AgentType[] = ['claude', 'opencode', 'codex']
@@ -43,8 +46,27 @@ type AgentActivity = 'done' | 'active' | 'idle'
 
 export function AgentConfigPanel({
   config, loading, running = false, activeState, message, profiles, onSelectProfile, onModelChange,
-  onRefresh, onPromote, onForcePromote, promoteBlockedReason, canPromote = true,
+  onRefresh, onPromote, onForcePromote, promoteBlockedReason, canPromote = true, collapsed = false, onToggleCollapse,
 }: Props) {
+  if (collapsed) {
+    return (
+      <aside className="panel agent-config-panel agent-config-panel--rail">
+        <button
+          type="button"
+          className="agent-config-panel__rail-toggle"
+          onClick={onToggleCollapse}
+          title="Agent Configuration 펼치기"
+          aria-label="Agent Configuration 펼치기"
+        >
+          ◂
+        </button>
+        {running && <span className="agent-config-panel__rail-dot agent-config-panel__rail-dot--live" title="실행 중" />}
+        {promoteBlockedReason && <span className="agent-config-panel__rail-dot agent-config-panel__rail-dot--warn" title="Promote 차단됨 — 펼쳐서 확인" />}
+        <span className="agent-config-panel__rail-label">CONFIG</span>
+      </aside>
+    )
+  }
+
   // Honesty (C1/C2): only Engine reaches the run. Gates reflect the shipped policy read-only; temperature/
   // max-tokens/prompts/safety map to no backend knob in the MVP and are shown disabled + labeled.
 
@@ -86,6 +108,17 @@ export function AgentConfigPanel({
           <h2>Agent Configuration</h2>
           <p>위키 생성이 따르는 현재 정책입니다. <b>Engine만 변경 가능</b>하고 나머지는 읽기 전용 표시입니다.</p>
         </div>
+        {onToggleCollapse && (
+          <button
+            type="button"
+            className="agent-config-panel__collapse-btn"
+            onClick={onToggleCollapse}
+            title="Agent Configuration 접기"
+            aria-label="Agent Configuration 접기"
+          >
+            ▸
+          </button>
+        )}
       </header>
 
       {/* The one real control */}

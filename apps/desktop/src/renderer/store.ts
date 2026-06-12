@@ -47,6 +47,9 @@ type ApcStore = {
   /** Set when promote was blocked by a validation gate that `allowInvalid` can override; null otherwise.
    * Drives the "검증 무시하고 promote" force-override affordance in the UI. */
   harnessPromoteBlockedReason: string | null
+  /** Same, but for a CANONICAL proposal promote — tracks which proposal was blocked so the per-doc
+   * force button can retry exactly that one with allowInvalid. */
+  harnessCanonicalBlock: { proposalRelPath: string; lastReadHash: string; reason: string } | null
 
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
   prepareGenerate(): Promise<void>
@@ -69,7 +72,7 @@ type ApcStore = {
   resumeHarnessRun(runId?: string): Promise<void>
   promoteHarnessRun(runId?: string, allowInvalid?: boolean): Promise<void>
   loadCanonicalProposals(runId?: string): Promise<void>
-  promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string): Promise<void>
+  promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string, allowInvalid?: boolean): Promise<void>
   updateHarnessModel(patch: Partial<HarnessConfig['model']>): void
   updateHarnessSafety(patch: Partial<HarnessConfig['safety']>): void
   toggleHarnessGate(key: HarnessFeatureGateKey): void
@@ -125,6 +128,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessLiveLabel: null,
   harnessLiveTail: [],
   harnessPromoteBlockedReason: null,
+  harnessCanonicalBlock: null,
   harnessConfigs: {},
 
   setAgentStatus(agent, status) {
@@ -257,6 +261,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       harnessMessage: null,
       harnessCanonicalProposals: [],  // hashes are run-specific; clear until the next refresh re-captures
       harnessPromoteBlockedReason: null,
+      harnessCanonicalBlock: null,
     }))
   },
 
@@ -264,7 +269,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) return
     // canonical hashes belong to the previously-selected run — clear so we never promote against the wrong run
-    set({ selectedHarnessRunId: runId, harnessCanonicalProposals: [], harnessPromoteBlockedReason: null })
+    set({ selectedHarnessRunId: runId, harnessCanonicalProposals: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     saveHarnessSelectedRun(projectId, runId)
   },
 
@@ -272,7 +277,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessPromoteBlockedReason: null })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
       const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
@@ -310,7 +315,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       if (!shown.ok || !shown.runState) throw new Error(shown.reason ?? 'Run not found')
       const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
       const runs = upsertRun(get().harnessRuns, bundle)
-      set({ harnessRuns: runs, selectedHarnessRunId: targetRunId, harnessMessage: `Refreshed ${targetRunId}`, harnessPromoteBlockedReason: null })
+      set({ harnessRuns: runs, selectedHarnessRunId: targetRunId, harnessMessage: `Refreshed ${targetRunId}`, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
       persistProjectRuns(projectId, runs, targetRunId)
       await get().loadCanonicalProposals(targetRunId)  // capture canonical hashes as of this view
     } catch (e) {
@@ -376,14 +381,29 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
-  async promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string) {
+  async promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string, allowInvalid = false) {
     const targetRunId = get().selectedHarnessRunId
     if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
     try {
-      const r = await api.harnessPromoteCanonical({ runId: targetRunId, proposalRelPath, lastReadHash })
-      if (!r.ok) { set({ harnessMessage: `Canonical promote failed: ${r.reason ?? 'unknown'}` }); return }
+      const r = await api.harnessPromoteCanonical(
+        allowInvalid
+          ? { runId: targetRunId, proposalRelPath, lastReadHash, allowInvalid: true }
+          : { runId: targetRunId, proposalRelPath, lastReadHash },
+      )
+      if (!r.ok) {
+        const reason = r.reason ?? 'unknown'
+        const overridable = !allowInvalid && /pass allowInvalid to override/i.test(reason)
+        set({
+          harnessMessage: `Canonical promote failed: ${reason}`,
+          harnessCanonicalBlock: overridable ? { proposalRelPath, lastReadHash, reason } : null,
+        })
+        return
+      }
       await get().refreshHarnessRun(targetRunId)  // re-captures hashes after the write (sets its own message)
-      set({ harnessMessage: r.status === 'conflict' ? `Conflict written: ${r.conflictPath}` : `Promoted ${r.canonicalPath}` })
+      set({
+        harnessMessage: r.status === 'conflict' ? `Conflict written: ${r.conflictPath}` : `Promoted ${r.canonicalPath}${allowInvalid ? ' (검증 무시)' : ''}`,
+        harnessCanonicalBlock: null,
+      })
     } catch (e) {
       set({ error: `Canonical promote failed: ${e}` })
     }
