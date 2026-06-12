@@ -923,6 +923,38 @@ export const STRUCTURE_STAGES: StructureStage[] = [
   { id: 'humanReview', kind: 'review', icon: '👤', name: '인간 리뷰 → Promote', desc: 'staging에만 자동 쓰기, 실 vault는 promote로만' },
 ]
 
+export type GraphNodeRef = { id: string; label?: string; data?: unknown }
+
+function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): boolean {
+  const normalized = target.trim().toLowerCase()
+  return artifact.path.toLowerCase().includes(normalized)
+    || artifact.name.toLowerCase() === normalized
+    || artifact.path.toLowerCase().endsWith(`/${normalized}`)
+}
+
+/** 그래프 노드를 run 아티팩트로 해석: data.path 정확일치 → endsWith → basename → id-target → label/stem.
+ *  viewable(markdown/report) 아티팩트를 우선하고, 없으면 전체에서 찾는다. 못 찾으면 undefined —
+ *  호출측은 fs:readDoc 폴백을 시도한다. */
+export function pickNodeArtifact(arts: HarnessRunArtifact[], node: GraphNodeRef): HarnessRunArtifact | undefined {
+  const viewable = arts.filter((a) => isMarkdownArtifact(a) || a.name === 'git-diff-report' || a.name === 'eval-report' || a.name === 'final-policy-report')
+  const nodePath = (node.data as { path?: string } | undefined)?.path
+  const base = (p: string) => p.split(/[\\/]/).pop() ?? p
+  const idTarget = node.id.replace(/^(artifact|file|task|evidence|run|document):/, '')
+  const label = (node.label ?? '').toLowerCase()
+  const pick = (pool: HarnessRunArtifact[]): HarnessRunArtifact | undefined => {
+    if (nodePath) {
+      const np = nodePath.toLowerCase()
+      const hit = pool.find((a) => a.path === nodePath)
+        ?? pool.find((a) => a.path.toLowerCase().endsWith(np) || a.path.toLowerCase().endsWith(`/${np}`))
+        ?? pool.find((a) => base(a.path).toLowerCase() === base(nodePath).toLowerCase())
+      if (hit) return hit
+    }
+    return pool.find((a) => artifactMatchesTarget(a, idTarget))
+      ?? (label ? pool.find((a) => artifactLabel(a.name).toLowerCase() === label || base(a.path).replace(/\.md$/i, '').toLowerCase() === label) : undefined)
+  }
+  return pick(viewable) ?? pick(arts)
+}
+
 /** 진행 상태(KhState) → 구조도 단계. 실행 중 현재 단계 하이라이트와 본문 스테퍼가 같은 매핑을 쓴다. */
 export function stageForState(state: KhState): StructureStageId {
   switch (state) {

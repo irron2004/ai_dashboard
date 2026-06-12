@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES } from './harness-utils.js'
+import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact } from './harness-utils.js'
+import type { HarnessRunArtifact } from './harness-utils.js'
 
 describe('appendTailLines', () => {
   test('keeps only the last `max` lines', () => {
@@ -53,5 +54,31 @@ describe('run mode / resumable / stage helpers', () => {
       'knowledgeNodeExtractor', 'wikiGraphLead', 'policyGuard', 'humanReview',
     ])
     expect(STRUCTURE_STAGES.find((s) => s.id === 'policyGuard')?.kind).toBe('gate')
+  })
+})
+
+describe('pickNodeArtifact', () => {
+  const arts: HarnessRunArtifact[] = [
+    { state: 'STAGING_WRITTEN', name: 'wiki-architecture', path: '/runs/R1/staging/wiki/architecture.md', data: { markdown: '# arch' } },
+    { state: 'VALIDATED', name: 'git-diff-report', path: '/runs/R1/git-diff.json', data: { patch: '' } },
+  ]
+
+  test('matches by exact node data.path', () => {
+    const hit = pickNodeArtifact(arts, { id: 'file:x', data: { path: '/runs/R1/staging/wiki/architecture.md' } })
+    expect(hit?.name).toBe('wiki-architecture')
+  })
+
+  test('matches by basename when paths differ', () => {
+    const hit = pickNodeArtifact(arts, { id: 'doc:y', data: { path: 'vault/wiki/architecture.md' } })
+    expect(hit?.name).toBe('wiki-architecture')
+  })
+
+  test('matches by label/file-stem', () => {
+    const hit = pickNodeArtifact(arts, { id: 'document:architecture', label: 'architecture' })
+    expect(hit?.name).toBe('wiki-architecture')
+  })
+
+  test('returns undefined when nothing matches', () => {
+    expect(pickNodeArtifact(arts, { id: 'document:unknown', label: '없는문서' })).toBeUndefined()
   })
 })

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentProfile } from '@apc/shared'
 import { useStore } from '../store.js'
-import { createDefaultHarnessConfig, buildHarnessGraphData, isMarkdownArtifact, artifactLabel, type HarnessRunArtifact } from '../harness-utils.js'
+import { createDefaultHarnessConfig, buildHarnessGraphData, pickNodeArtifact } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { MarkdownViewer } from './MarkdownViewer.js'
 import { GraphVisualization } from './GraphVisualization.js'
@@ -21,11 +21,6 @@ type Props = {
 }
 
 type Tab = 'markdown' | 'graph' | 'flow' | 'coverage' | 'quality' | 'proposals' | 'config'
-
-function artifactMatchesTarget(artifact: HarnessRunArtifact, target: string): boolean {
-  const normalized = target.trim().toLowerCase()
-  return artifact.path.toLowerCase().includes(normalized) || artifact.name.toLowerCase() === normalized || artifact.path.toLowerCase().endsWith(`/${normalized}`)
-}
 
 export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
   const {
@@ -73,32 +68,13 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
 
   const handleOpenWikiLink = (target: string) => {
     if (!currentRun) return
-    const found = currentRun.artifacts.find((artifact) => artifactMatchesTarget(artifact, target))
+    const found = pickNodeArtifact(currentRun.artifacts, { id: `document:${target}`, label: target })
     if (found) setSelectedArtifactPath(found.path)
   }
 
   const handleNodeClick = (node: { id: string; label?: string; data?: unknown }) => {
     if (!currentRun) return
-    const arts = currentRun.artifacts
-    // Only these render as a document in the Markdown viewer; prefer them so a click actually shows content.
-    const viewable = arts.filter((a) => isMarkdownArtifact(a) || a.name === 'git-diff-report' || a.name === 'eval-report' || a.name === 'final-policy-report')
-    const nodePath = (node.data as { path?: string } | undefined)?.path
-    const base = (p: string) => p.split(/[\\/]/).pop() ?? p
-    const idTarget = node.id.replace(/^(artifact|file|task|evidence|run):/, '')
-    const label = (node.label ?? '').toLowerCase()
-    const pick = (pool: HarnessRunArtifact[]): HarnessRunArtifact | undefined => {
-      if (nodePath) {
-        const np = nodePath.toLowerCase()
-        const hit = pool.find((a) => a.path === nodePath)
-          ?? pool.find((a) => a.path.toLowerCase().endsWith(np) || a.path.toLowerCase().endsWith(`/${np}`))
-          ?? pool.find((a) => base(a.path).toLowerCase() === base(nodePath).toLowerCase())
-        if (hit) return hit
-      }
-      return pool.find((a) => artifactMatchesTarget(a, idTarget))
-        ?? (label ? pool.find((a) => artifactLabel(a.name).toLowerCase() === label || base(a.path).replace(/\.md$/i, '').toLowerCase() === label) : undefined)
-    }
-    // Prefer a viewable (markdown/report) artifact; fall back to any artifact match.
-    const candidate = pick(viewable) ?? pick(arts)
+    const candidate = pickNodeArtifact(currentRun.artifacts, node)
     // Jump to the Markdown viewer so the clicked node's document is actually shown (not left on the graph tab).
     if (candidate) { setSelectedArtifactPath(candidate.path); setTab('markdown') }
   }
