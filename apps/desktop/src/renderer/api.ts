@@ -7,6 +7,7 @@ import type {
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
+  FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
 
@@ -107,6 +108,12 @@ export const api = {
   },
   configRollback(req: ConfigRollbackReq): Promise<ConfigRollbackRes> {
     return window.apc.invoke(CH.configRollback, req) as Promise<ConfigRollbackRes>
+  },
+  fsReadDoc(req: FsReadDocReq): Promise<FsReadDocRes> {
+    return window.apc.invoke(CH.fsReadDoc, req) as Promise<FsReadDocRes>
+  },
+  fsListDocs(req: FsListDocsReq): Promise<FsListDocsRes> {
+    return window.apc.invoke(CH.fsListDocs, req) as Promise<FsListDocsRes>
   },
 
   // PTY (event-based)

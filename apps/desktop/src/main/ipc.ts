@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { join } from 'node:path'
 import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
@@ -8,6 +9,7 @@ import type {
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
+import { readProjectDoc, listProjectDocs } from './project-files.js'
 
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
@@ -172,6 +174,22 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = payload as SelectProfileReq
       container.taskProfiles.select(req.taskId, req.profileId)
       return { ok: true }
+    },
+
+    [CH.fsReadDoc]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), relPath: z.string() }).strict().parse(payload)
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found' }
+      // vault의 프로젝트 영역(current.md 등) → repo들 → 등록된 vaultPaths 순으로 해석
+      const roots = [join(container.vaultRoot, 'projects', project.id), ...project.repoPaths, ...project.vaultPaths]
+      return readProjectDoc(roots, req.relPath)
+    },
+
+    [CH.fsListDocs]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      const project = container.registry.get(req.projectId)
+      if (!project) return { docs: [] }
+      return { docs: listProjectDocs(project.repoPaths) }
     },
   }
 }

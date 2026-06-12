@@ -44,6 +44,7 @@ function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: Harness
 }
 
 export type Container = {
+  vaultRoot: string
   db: ReturnType<typeof openDb>
   registry: ProjectRegistry
   tasks: TaskStore
@@ -245,6 +246,7 @@ export function buildContainer(opts: {
   const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
 
   return {
+    vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,

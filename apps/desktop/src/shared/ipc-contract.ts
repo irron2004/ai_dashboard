@@ -41,6 +41,9 @@ export const CH = {
   configPreview: 'c:configPreview',
   configApply: 'c:configApply',
   configRollback: 'c:configRollback',
+  // read-only project file access (Knowledge/Home tabs)
+  fsReadDoc: 'q:fsReadDoc',
+  fsListDocs: 'q:fsListDocs',
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
@@ -120,3 +123,8 @@ export type ConfigPreviewRes = { ok: boolean; errors: string[]; diff: string }
 export type ConfigApplyRes = { ok: boolean; errors: string[]; snapshotPath?: string }
 export type ConfigRollbackReq = { rawConfigPath: string }
 export type ConfigRollbackRes = { ok: boolean; restoredFrom?: string; error?: string }
+
+export type FsReadDocReq = { projectId: string; relPath: string }
+export type FsReadDocRes = { ok: boolean; content?: string; reason?: string }
+export type FsListDocsReq = { projectId: string }
+export type FsListDocsRes = { docs: { relPath: string; mtimeMs: number }[] }

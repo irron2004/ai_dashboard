@@ -217,4 +217,27 @@ describe('IPC handlers (no Electron)', () => {
     await expect(h[CH.harnessPromote]({})).rejects.toThrow()                          // missing runId
     await expect(h[CH.harnessPromote]({ runId: 5 })).rejects.toThrow()               // non-string runId
   })
+
+  test('q:fsReadDoc reads a doc under the project vault dir and rejects traversal', async () => {
+    const h = handlers(container)
+    const projDir = join(vaultDir, 'projects', 'p1')
+    mkdirSync(projDir, { recursive: true })
+    writeFileSync(join(projDir, 'current.md'), '# now')
+
+    const ok = await h[CH.fsReadDoc]({ projectId: 'p1', relPath: 'current.md' })
+    expect(ok).toEqual({ ok: true, content: '# now' })
+
+    const bad = await h[CH.fsReadDoc]({ projectId: 'p1', relPath: '../../etc/passwd.md' })
+    expect((bad as { ok: boolean }).ok).toBe(false)
+  })
+
+  test('q:fsListDocs lists docs from existing repo roots', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'apc-repo-'))
+    writeFileSync(join(repo, 'notes.md'), 'n')
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: [repo] })
+    const h = handlers(container)
+    const res = await h[CH.fsListDocs]({ projectId: 'p1' }) as { docs: { relPath: string }[] }
+    expect(res.docs.map((d) => d.relPath)).toContain('notes.md')
+    rmSync(repo, { recursive: true, force: true })
+  })
 })
