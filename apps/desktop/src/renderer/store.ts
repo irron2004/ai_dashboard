@@ -90,6 +90,7 @@ function persistProjectRuns(projectId: string, runs: HarnessRunBundle[], selecte
 
 function upsertRun(runs: HarnessRunBundle[], bundle: HarnessRunBundle): HarnessRunBundle[] {
   const prev = runs.find((item) => item.runState.runId === bundle.runState.runId)
+  // Preserve mode from the existing entry: refreshHarnessRun builds bundles without mode.
   const merged = { ...bundle, mode: bundle.mode ?? prev?.mode }
   const next = [merged, ...runs.filter((item) => item.runState.runId !== bundle.runState.runId)]
   return next.sort((a, b) => {

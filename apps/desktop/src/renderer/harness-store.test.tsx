@@ -161,4 +161,19 @@ describe('harness store actions (api mocked)', () => {
     const bundle = useStore.getState().harnessRuns.find((b) => b.runState.runId === 'RUN-MODE-2')
     expect(bundle?.mode).toBe('recent-sessions')
   })
+
+  test('refreshHarnessRun preserves the mode recorded by startHarnessRun', async () => {
+    const cfg = createDefaultHarnessConfig()
+    useStore.setState({ harnessConfigs: { p1: cfg } })
+    mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-MODE-3', finalState: 'HUMAN_REVIEW_REQUIRED' })
+    mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-MODE-3' }, artifacts: [] })
+    await useStore.getState().startHarnessRun(true)
+    // Switch selection to RUN-MODE-3 so refreshHarnessRun's stale guard passes.
+    useStore.setState({ selectedHarnessRunId: 'RUN-MODE-3' })
+    // Simulate a refresh bundle that lacks mode (as refreshHarnessRun always builds).
+    mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-MODE-3' }, artifacts: [] })
+    await useStore.getState().refreshHarnessRun('RUN-MODE-3')
+    const bundle = useStore.getState().harnessRuns.find((b) => b.runState.runId === 'RUN-MODE-3')
+    expect(bundle?.mode).toBe('full-docs')
+  })
 })
