@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId } from '../shared/ipc-contract.js'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
@@ -8,6 +7,7 @@ import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
+import { GeneratePreflightModal } from './components/GeneratePreflightModal.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -23,9 +23,9 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 export function App() {
   const {
     projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus,
-    preflighting, generatePreflight, generating, generation, harnessLoading,
+    preflighting, generating, harnessLoading,
     loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
-    prepareGenerate, generate, clearGeneratePreflight, clearGeneration,
+    prepareGenerate, clearGeneration,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
   const [mainTab, setMainTab] = useState<MainTab>(() => {
@@ -37,9 +37,6 @@ export function App() {
   })
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [selectedGenerateEngine, setSelectedGenerateEngine] = useState<AgentType>('claude')
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
-  const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -182,11 +179,6 @@ export function App() {
     setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
   }, [agent])
 
-  useEffect(() => {
-    if (!generatePreflight?.categories) return
-    setSelectedCategoryIds(generatePreflight.categories.filter((category) => category.selectedByDefault).map((category) => category.id))
-  }, [generatePreflight])
-
   const project = projects.find((p) => p.id === selectedProjectId)
   const cwd = project?.repoPaths[0] ?? '.'
 
@@ -206,50 +198,10 @@ export function App() {
     }
   }
 
-  const handlePromote = async () => {
-    if (!selectedProjectId) return
-    try {
-      const res = (await api.promoteCurrent({ projectId: selectedProjectId, lastReadHash: '' })) as
-        { status: string; conflictPath?: string; canonicalPath?: string }
-      if (res.status === 'conflict') setPromoteMsg(`충돌: ${res.conflictPath} 생성됨 (current.md 유지).`)
-      else setPromoteMsg(`current.md에 반영됨 (${res.canonicalPath}).`)
-    } catch (e) {
-      setPromoteMsg(`Promote 실패: ${e}`)
-    }
-  }
-
   const openGeneratePreflight = () => {
     setGenerateModalOpen(true)
-    setPromoteMsg(null)
     clearGeneration()
     void prepareGenerate()
-  }
-
-  const closeGenerateModal = () => {
-    if (generating) return
-    setGenerateModalOpen(false)
-    setPromoteMsg(null)
-    clearGeneratePreflight()
-    clearGeneration()
-  }
-
-  const toggleGenerateCategory = (categoryId: GeneratePreflightCategoryId) => {
-    const category = generatePreflight?.categories?.find((item) => item.id === categoryId)
-    if (category?.required) return
-    setSelectedCategoryIds((current) => (
-      current.includes(categoryId) ? current.filter((id) => id !== categoryId) : [...current, categoryId]
-    ))
-  }
-
-  const selectedGenerateCount = generatePreflight?.categories
-    ?.filter((category) => selectedCategoryIds.includes(category.id))
-    .reduce((sum, category) => sum + category.count, 0) ?? 0
-  const requiredGenerateCategoriesSelected = generatePreflight?.categories
-    ?.filter((category) => category.required)
-    .every((category) => selectedCategoryIds.includes(category.id)) ?? false
-
-  const runGenerateFromPreflight = () => {
-    void generate(selectedGenerateEngine, selectedCategoryIds)
   }
 
   // 임시(Phase 4까지): Ingest/Generate는 Home 탭이 생기면 그쪽으로 이사한다.
@@ -423,134 +375,7 @@ export function App() {
         </div>
       )}
 
-      {generateModalOpen && (
-        <div className="add-project-overlay" onClick={closeGenerateModal}>
-          <div className="add-project-dialog generate-preflight" onClick={(e) => e.stopPropagation()}>
-            <div className="generate-preflight__header">
-              <div>
-                <h2>Generate preflight</h2>
-                <p>{generatePreflight?.projectName ? `${generatePreflight.projectName} source scan` : 'Scan project sources before generation.'}</p>
-              </div>
-              <span className="generate-preflight__badge">
-                {generating ? 'Generating' : preflighting ? 'Scanning' : `${selectedGenerateCount} selected`}
-              </span>
-            </div>
-
-            {preflighting && <div className="generate-preflight__status">Scanning documents, tasks, runs, and local LLM CLI sources…</div>}
-
-            {!preflighting && generatePreflight && !generatePreflight.ok && (
-              <div className="generate-preflight__status generate-preflight__status--error">
-                {generatePreflight.reason ?? 'Preflight failed.'}
-              </div>
-            )}
-
-            {!preflighting && generatePreflight?.ok && !generation && (
-              <>
-                <div className="generate-preflight__summary">
-                  <span>Total found: {generatePreflight.totalCount ?? 0}</span>
-                  <span>{generatePreflight.status}</span>
-                </div>
-                <div className="generate-preflight__grid">
-                  {generatePreflight.categories?.map((category) => {
-                    const checked = selectedCategoryIds.includes(category.id)
-                    return (
-                      <label key={category.id} className={`generate-preflight__card${checked ? ' selected' : ''}${category.required ? ' required' : ''}`}>
-                        <span className="generate-preflight__card-top">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            disabled={generating || category.required}
-                            onChange={() => toggleGenerateCategory(category.id)}
-                          />
-                          <span>{category.label}</span>
-                          <b>{category.count}</b>
-                        </span>
-                        <small>{category.description}</small>
-                        {category.required && <em>Required for the current session-based generator</em>}
-                      </label>
-                    )
-                  })}
-                </div>
-
-                <div className="generate-preflight__confirm">
-                  <label>
-                    Engine
-                    <select value={selectedGenerateEngine} disabled={generating} onChange={(e) => setSelectedGenerateEngine(e.target.value as AgentType)}>
-                      {AGENTS.map((item) => <option key={item} value={item}>{item}</option>)}
-                    </select>
-                  </label>
-                  <p>진행하시겠습니까? 정확한 퍼센트 대신 현재 단계와 결과를 표시합니다.</p>
-                </div>
-              </>
-            )}
-
-            {generating && (
-              <div className="generate-preflight__status">
-                Generating with {selectedGenerateEngine}. The app is summarizing the latest matching LLM CLI session and writing a proposal…
-              </div>
-            )}
-
-            {generation && (
-              generation.ok ? (
-              <>
-                <h2>Generated ✓</h2>
-                <p style={{ fontSize: '0.85rem' }}><b>Summary:</b> {generation.generation?.workSummary}</p>
-                {!!generation.generation?.filesTouched.length && (
-                  <p style={{ fontSize: '0.8rem' }}><b>Files:</b> {generation.generation.filesTouched.join(', ')}</p>
-                )}
-                {!!generation.generation?.openProblems.length && (
-                  <p style={{ fontSize: '0.8rem' }}><b>Open problems:</b> {generation.generation.openProblems.join('; ')}</p>
-                )}
-                {!!generation.generation?.nextTasks.length && (
-                  <div style={{ fontSize: '0.8rem' }}>
-                    <b>Next tasks:</b>
-                    <ul style={{ marginLeft: 16 }}>
-                      {generation.generation.nextTasks.map((t, i) => <li key={i}>{t.title}</li>)}
-                    </ul>
-                  </div>
-                )}
-                <p style={{ fontSize: '0.8rem', marginTop: 6 }}><b>current.md proposal:</b></p>
-                <pre style={{ background: '#111', color: '#cfc', padding: 10, borderRadius: 6, maxHeight: 240, overflow: 'auto', fontSize: '0.78rem', whiteSpace: 'pre-wrap', margin: 0 }}>
-                  {generation.generation?.currentProposalMarkdown || '(no proposal)'}
-                </pre>
-                {promoteMsg && <p style={{ fontSize: '0.8rem', color: '#9cf' }}>{promoteMsg}</p>}
-                <div className="add-project-dialog__actions">
-                  <button type="button" onClick={closeGenerateModal}>Close</button>
-                  <button type="button" disabled={!generation.proposalPath} onClick={handlePromote} style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}>
-                    Promote current
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2>Generate ✗</h2>
-                <p style={{ fontSize: '0.85rem' }}>{generation.reason ?? 'failed'}</p>
-              </>
-              )
-            )}
-
-            {!generation && (
-              <div className="add-project-dialog__actions">
-                <button type="button" disabled={generating} onClick={closeGenerateModal}>Cancel</button>
-                <button
-                  type="button"
-                  disabled={preflighting || generating || !generatePreflight?.ok || selectedCategoryIds.length === 0 || !requiredGenerateCategoriesSelected}
-                  onClick={runGenerateFromPreflight}
-                  style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}
-                >
-                  {generating ? 'Generating…' : 'Proceed'}
-                </button>
-              </div>
-            )}
-
-            {generation && !generation.ok && (
-              <div className="add-project-dialog__actions">
-                <button type="button" onClick={closeGenerateModal}>Close</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <GeneratePreflightModal open={generateModalOpen} onClose={() => setGenerateModalOpen(false)} />
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
 
