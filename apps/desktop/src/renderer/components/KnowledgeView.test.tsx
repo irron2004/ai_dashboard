@@ -42,8 +42,10 @@ describe('KnowledgeView', () => {
 
   test('문서 mode: tree shows wiki artifacts and project docs', async () => {
     render(<KnowledgeView />)
-    expect(await screen.findByText(/overview/)).toBeDefined()
-    expect(await screen.findByText('docs/plan.md')).toBeDefined()
+    // tree items are buttons (artifactLabel → "Wiki Overview"); the viewer header <h2> shows the
+    // same title via the fallback, so target the button role to assert on the tree specifically.
+    expect(await screen.findByRole('button', { name: 'Wiki Overview' })).toBeDefined()
+    expect(await screen.findByRole('button', { name: 'docs/plan.md' })).toBeDefined()
   })
 
   test('clicking a project doc loads it via fs:readDoc', async () => {
@@ -59,5 +61,17 @@ describe('KnowledgeView', () => {
     fireEvent.click(screen.getByText('GRAPH-STUB'))
     expect(await screen.findByText('from disk')).toBeDefined()
     expect(screen.getByRole('button', { name: /문서로 열기/ })).toBeDefined()
+  })
+
+  test('그래프 peek → 문서로 열기 jumps to the disk file in 문서 mode', async () => {
+    render(<KnowledgeView />)
+    fireEvent.click(screen.getByRole('button', { name: '그래프' }))
+    fireEvent.click(screen.getByText('GRAPH-STUB'))
+    fireEvent.click(await screen.findByRole('button', { name: /문서로 열기/ }))
+    // back in 문서 mode the viewer loads the peeked file via fs:readDoc (not the wiki fallback)
+    await waitFor(() => expect(fsReadDoc).toHaveBeenCalledWith({ projectId: 'p1', relPath: 'docs/plan.md' }))
+    expect(await screen.findByText('from disk')).toBeDefined()
+    // the disk file's relPath is now the active viewer title
+    expect(screen.getByRole('heading', { name: 'docs/plan.md' })).toBeDefined()
   })
 })

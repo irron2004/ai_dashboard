@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { useStore } from '../store.js'
 import {
@@ -11,6 +11,8 @@ import { MarkdownContent } from './MarkdownContent.js'
 type Mode = 'docs' | 'graph'
 /** 트리/뷰어가 가리키는 문서: run 아티팩트이거나 디스크의 md. */
 type DocRef = { kind: 'artifact'; path: string } | { kind: 'file'; relPath: string }
+/** 그래프 노드 미리보기. relPath가 있으면 디스크 폴백으로 연 파일(→ 문서 모드로 점프 가능). */
+type Peek = { title: string; relPath?: string; markdown?: string; error?: string }
 
 function latestWikiRun(runs: HarnessRunBundle[]): HarnessRunBundle | null {
   return runs.find((r) => ['MERGED', 'HUMAN_REVIEW_REQUIRED', 'VALIDATED'].includes(r.runState.state)) ?? runs[0] ?? null
@@ -22,7 +24,9 @@ export function KnowledgeView() {
   const [selectedDoc, setSelectedDoc] = useState<DocRef | null>(null)
   const [fileContent, setFileContent] = useState<{ relPath: string; content: string } | { relPath: string; error: string } | null>(null)
   const [projectDocs, setProjectDocs] = useState<{ relPath: string; mtimeMs: number }[]>([])
-  const [peek, setPeek] = useState<{ title: string; markdown?: string; error?: string } | null>(null)
+  const [peek, setPeek] = useState<Peek | null>(null)
+  // 노드를 빠르게 연속 클릭할 때 늦게 도착한 디스크 응답이 최신 선택을 덮어쓰지 않도록.
+  const peekReq = useRef(0)
 
   const run = useMemo(() => latestWikiRun(harnessRuns), [harnessRuns])
   const wikiArtifacts = useMemo(() => (run?.artifacts ?? []).filter(isMarkdownArtifact), [run])
@@ -52,9 +56,11 @@ export function KnowledgeView() {
   const selectedArtifact = selectedDoc?.kind === 'artifact'
     ? wikiArtifacts.find((a) => a.path === selectedDoc.path) ?? null
     : null
+  // 선택한 파일과 로드된 내용의 relPath가 일치할 때만 사용 (전환 중 이전 파일 내용이 새는 것 방지).
+  const loadedFile = selectedDoc?.kind === 'file' && fileContent?.relPath === selectedDoc.relPath ? fileContent : null
   const viewerMarkdown = selectedArtifact
     ? artifactToMarkdown(selectedArtifact)
-    : (fileContent && 'content' in fileContent ? fileContent.content : null)
+    : (loadedFile && 'content' in loadedFile ? loadedFile.content : null)
   const viewerTitle = selectedArtifact
     ? artifactLabel(selectedArtifact.name)
     : selectedDoc?.kind === 'file' ? selectedDoc.relPath : wikiArtifacts[0] ? artifactLabel(wikiArtifacts[0].name) : '문서를 선택하세요'
@@ -66,6 +72,7 @@ export function KnowledgeView() {
   }
 
   const handleNodeClick = (node: GraphNodeRef) => {
+    const reqId = ++peekReq.current
     const title = node.label ?? node.id
     const hit = run ? pickNodeArtifact(run.artifacts, node) : undefined
     if (hit && (isMarkdownArtifact(hit) || hit.name === 'git-diff-report' || hit.name === 'eval-report' || hit.name === 'final-policy-report')) {
@@ -75,19 +82,31 @@ export function KnowledgeView() {
     const nodePath = (node.data as { path?: string } | undefined)?.path
     if (nodePath && selectedProjectId && /\.(md|mdx|txt)$/i.test(nodePath)) {
       void api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath }).then((res) => {
-        setPeek(res.ok && res.content !== undefined ? { title, markdown: res.content } : { title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
+        if (reqId !== peekReq.current) return
+        setPeek(res.ok && res.content !== undefined ? { title, relPath: nodePath, markdown: res.content } : { title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
       })
       return
     }
     setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
   }
 
+  const openPeekAsDoc = (p: Peek) => {
+    setMode('docs')
+    if (p.relPath) {
+      setSelectedDoc({ kind: 'file', relPath: p.relPath })
+    } else {
+      const hit = run ? pickNodeArtifact(run.artifacts, { id: `document:${p.title}`, label: p.title }) : undefined
+      if (hit) setSelectedDoc({ kind: 'artifact', path: hit.path })
+    }
+    setPeek(null)
+  }
+
   return (
     <section className="knowledge">
       <div className="knowledge__modebar">
         <div className="knowledge__seg">
-          <button type="button" aria-selected={mode === 'docs'} className={mode === 'docs' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('docs')}>문서</button>
-          <button type="button" aria-selected={mode === 'graph'} className={mode === 'graph' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('graph')}>그래프</button>
+          <button type="button" aria-pressed={mode === 'docs'} className={mode === 'docs' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('docs')}>문서</button>
+          <button type="button" aria-pressed={mode === 'graph'} className={mode === 'graph' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('graph')}>그래프</button>
         </div>
       </div>
 
@@ -100,7 +119,7 @@ export function KnowledgeView() {
               <button key={a.path} type="button"
                 className={selectedDoc?.kind === 'artifact' && selectedDoc.path === a.path ? 'knowledge__tree-item knowledge__tree-item--on' : 'knowledge__tree-item'}
                 onClick={() => setSelectedDoc({ kind: 'artifact', path: a.path })}>
-                {a.name.replace(/-/g, ' ')}
+                {artifactLabel(a.name)}
               </button>
             ))}
             <div className="knowledge__tree-group">프로젝트 문서</div>
@@ -117,9 +136,11 @@ export function KnowledgeView() {
             <div className="knowledge__viewer-body">
               {viewerMarkdown ?? fallbackMarkdown
                 ? <MarkdownContent markdown={(viewerMarkdown ?? fallbackMarkdown)!} onOpenWikiLink={openWikiLink} />
-                : fileContent && 'error' in fileContent
-                  ? <div className="knowledge__error">⚠ {fileContent.error}</div>
-                  : <div className="knowledge__empty">왼쪽에서 문서를 선택하세요.</div>}
+                : loadedFile && 'error' in loadedFile
+                  ? <div className="knowledge__error">⚠ {loadedFile.error}</div>
+                  : selectedDoc?.kind === 'file'
+                    ? <div className="knowledge__empty">로드 중…</div>
+                    : <div className="knowledge__empty">왼쪽에서 문서를 선택하세요.</div>}
             </div>
           </main>
         </div>
@@ -134,12 +155,7 @@ export function KnowledgeView() {
                 <h2>{peek.title}</h2>
                 <div>
                   {peek.markdown && (
-                    <button type="button" onClick={() => {
-                      const hit = run ? pickNodeArtifact(run.artifacts, { id: `document:${peek.title}`, label: peek.title }) : undefined
-                      setMode('docs')
-                      if (hit) setSelectedDoc({ kind: 'artifact', path: hit.path })
-                      setPeek(null)
-                    }}>문서로 열기 ↗</button>
+                    <button type="button" onClick={() => openPeekAsDoc(peek)}>문서로 열기 ↗</button>
                   )}
                   <button type="button" onClick={() => setPeek(null)} aria-label="미리보기 닫기">✕</button>
                 </div>
