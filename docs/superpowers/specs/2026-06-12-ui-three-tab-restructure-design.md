@@ -33,12 +33,14 @@
 
 **비목표 (후속)**
 - 그래프 누적 뷰(per-run → 전 run 누적, 날짜별 추가분 필터) — 보류 이력 있음
-  (`docs/handoffs/2026-06-12-…` §3). 이번엔 per-run 그래프 유지.
+  (`docs/handoffs/2026-06-12-config-collapse-node-doc-canonical-toolbar.md` §3).
+  이번엔 per-run 그래프 유지.
 - 세션 로그 기반 "어느 에이전트가 이 파일을 만들었나" 배지(git+세션 결합) — 변경분
   피드는 git만으로 시작.
 - 파일 워처 기반 실시간 변경분 — `/mnt/c`에서 워처 불안정(HMR도 미동작하는 환경).
   폴링/수동 갱신으로 시작.
-- main 프로세스 파이프라인 로직 변경 — 신규 IPC 2개 외에는 렌더러 재배치만.
+- main 프로세스 파이프라인 로직 변경 — 신규 읽기 전용 IPC 4개(§7) 외에는 렌더러
+  재배치만.
 
 ## 2. 전체 셸
 
@@ -75,13 +77,16 @@
 - `✨ 갱신 제안` = 기존 Generate preflight 모달 흐름 그대로(App.tsx의
   generateModalOpen 블록을 Home으로 이관). Promote 흐름(handlePromote) 유지.
 - 변경분 피드에서 파일 클릭 시 이 뷰어가 그 파일로 전환: 헤더가
-  `↩ current.md` + 경로 + (미반영 md면) `Ingest now`로 바뀜. md는 렌더,
-  코드 파일은 git diff 미리보기(기존 DiffViewer 재사용), 삭제 파일은 안내문.
+  `↩ current.md` + 경로 + (미반영 md면) `Ingest now`로 바뀜. md는 렌더(`fs:readDoc`),
+  코드 파일은 git diff 미리보기(`changes:diff`로 patch 조회 → 기존 DiffViewer 재사용),
+  삭제 파일은 안내문.
 
 **우측 변경분 피드**
 - 데이터: 신규 `changes:list` IPC(§7). 그룹 3개: **새 문서**(untracked/added md) /
   **수정된 문서**(modified md) / **코드**(나머지). 행 = 상태(+/±/−) + 경로 +
-  상대시각(mtime), md 행에는 **미반영 배지**(마지막 ingest 시각보다 mtime이 새로움).
+  상대시각(mtime), md 행에는 **미반영 배지** — 기준: 해당 프로젝트 소스들의
+  `ingest_cursors.updated_at` 최댓값보다 mtime이 새로움(ingest 이력이 없으면 전부
+  미반영).
 - 헤더: `변경분` + `git · N files` + `Ingest now`(전체 일괄 — 기존 ingest()) + `⟳`.
 - 갱신 시점: Home 탭 진입 시 + ⟳ 클릭 + ingest 완료 후. 워처 없음(비목표).
 
@@ -96,8 +101,8 @@
 
 **문서 모드**: 좌(0.55) 문서 트리 / 우(1.8) Markdown 뷰어.
 - 트리 = 두 그룹: **위키(생성됨)** — 최신 성공 run의 markdown 아티팩트(기존
-  MarkdownViewer가 쓰던 소스), **프로젝트 문서** — repoPath의 md 파일 목록
-  (`changes:list`와 같은 main-측 스캔 재사용 또는 단순 glob).
+  MarkdownViewer가 쓰던 소스), **프로젝트 문서** — `fs:listDocs` IPC(§7)가 돌려주는
+  repoPath 하위 md 목록.
 - 뷰어 = 기존 MarkdownViewer 렌더 재사용. 위키 링크(`[[…]]`) 클릭 → 트리에서 해당
   문서 열기(기존 handleOpenWikiLink 확장: 아티팩트 매칭 실패 시 `fs:readDoc` 폴백).
 
@@ -166,12 +171,17 @@
 1. **`changes:list`** `{ projectId } → { files: { path, status: 'new'|'modified'|'deleted', isMarkdown, mtimeMs, unreflected }[] }`
    - repoPath들에서 `git status --porcelain=v1` 실행 + mtime stat. `unreflected` =
      md이고 mtime > 마지막 ingest 시각. git 저장소가 아니면 `{ ok:false, reason }`.
-2. **`fs:readDoc`** `{ projectId, relPath } → { ok, content?, reason? }`
+2. **`changes:diff`** `{ projectId, relPath } → { ok, patch?, reason? }`
+   - 해당 파일의 `git diff`(unstaged+staged, untracked는 `--no-index /dev/null` 비교)
+     patch 텍스트 반환. Home에서 코드 파일 클릭 시에만 호출.
+3. **`fs:readDoc`** `{ projectId, relPath } → { ok, content?, reason? }`
    - **프로젝트 repoPath 내부로 정규화·검증**(realpath 후 prefix 확인 — traversal
      차단), 텍스트/md만, 512KB 상한, 초과·바이너리·부재 시 reason 반환.
+4. **`fs:listDocs`** `{ projectId } → { docs: { relPath, mtimeMs }[] }`
+   - repoPath 하위 md 파일 glob(node_modules/.git 등 제외), Knowledge 문서 트리용.
 
-둘 다 기존 ipc-contract 패턴(요청/응답 zod 스키마)으로 추가. 파이프라인·서비스 로직
-변경 없음.
+전부 기존 ipc-contract 패턴(요청/응답 zod 스키마)의 읽기 전용 핸들러로 추가.
+파이프라인·서비스 로직 변경 없음.
 
 ## 8. 에러 처리
 
@@ -202,9 +212,9 @@
    임시로 Knowledge=현 HarnessDashboard, Home=현 PmHome인 채로도 앱이 돌아감)
 2. **Wiki Gen 탭**: HarnessDashboard에서 생성·검수·이력·설정을 분리 이전, 버튼 통합
    (`▶ 위키 생성 ▾`), 설정 슬라이드 패널(구조도). — 기존 컴포넌트 이동 위주로 가장 쌈.
-3. **Knowledge 탭**: [문서|그래프] + `fs:readDoc` IPC + 노드 peek.
-4. **Home 탭**: `changes:list` IPC + 변경분 피드 + 문서 뷰어 전환 + Ingest 동선 +
-   PM strip.
+3. **Knowledge 탭**: [문서|그래프] + `fs:readDoc`/`fs:listDocs` IPC + 노드 peek.
+4. **Home 탭**: `changes:list`/`changes:diff` IPC + 변경분 피드 + 문서 뷰어 전환 +
+   Ingest 동선 + PM strip.
 5. **마무리**: 구 컴포넌트/CSS 정리, 테스트 수선·신규, 실물 검증.
 
 ## 11. 참고
