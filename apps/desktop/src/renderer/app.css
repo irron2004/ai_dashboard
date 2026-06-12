@@ -1773,3 +1773,15 @@ textarea {
 .search-modal__excerpt { grid-column: 1 / -1; font-size: 0.72rem; opacity: 0.7; }
 .search-modal__empty, .search-modal__error { opacity: 0.6; font-size: 0.82rem; }
 .search-modal__error { color: #f87171; }
+
+/* 3-tab shell */
+.main-panel__tab-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: #4ade80; margin-left: 6px; vertical-align: middle;
+  animation: apc-pulse 1.2s ease-in-out infinite;
+}
+@keyframes apc-pulse { 50% { opacity: 0.25; } }
+.main-panel__placeholder {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: #666; font-size: 0.9rem;
+}

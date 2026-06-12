@@ -22,12 +22,18 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 export function App() {
   const {
     projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus,
-    preflighting, generatePreflight, generating, generation,
+    preflighting, generatePreflight, generating, generation, harnessLoading,
     loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
     prepareGenerate, generate, clearGeneratePreflight, clearGeneration,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
-  const [mainTab, setMainTab] = useState<MainTab>('pm')
+  const [mainTab, setMainTab] = useState<MainTab>(() => {
+    try {
+      const saved = localStorage.getItem('apc:mainTab')
+      if (saved === 'home' || saved === 'knowledge' || saved === 'wikigen') return saved
+    } catch { /* ignore */ }
+    return 'home'
+  })
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [selectedGenerateEngine, setSelectedGenerateEngine] = useState<AgentType>('claude')
@@ -272,11 +278,12 @@ export function App() {
         {dashboard ? (
           <MainPanel
             tab={mainTab}
-            onTab={setMainTab}
+            onTab={(t) => { setMainTab(t); try { localStorage.setItem('apc:mainTab', t) } catch { /* ignore */ } }}
             dashboard={dashboard}
             profiles={profiles}
             onSelectProfile={handleSelectProfile}
             actions={toolbarActions}
+            wikiGenRunning={harnessLoading}
           />
         ) : (
           <>

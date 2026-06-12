@@ -4,7 +4,7 @@ import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { PmHome } from './PmHome.js'
 import { HarnessDashboard } from './HarnessDashboard.js'
 
-export type MainTab = 'pm' | 'harness'
+export type MainTab = 'home' | 'knowledge' | 'wikigen'
 
 type Props = {
   tab: MainTab
@@ -14,14 +14,17 @@ type Props = {
   onSelectProfile: (profileId: string) => void
   /** Right-aligned toolbar actions rendered inline in the tab row (so they don't claim a whole row). */
   actions?: ReactNode
+  /** True while a wiki generation run is in flight — shows a pulsing dot on the Wiki Gen tab. */
+  wikiGenRunning?: boolean
 }
 
 const TABS: { id: MainTab; label: string }[] = [
-  { id: 'pm', label: 'PM Home' },
-  { id: 'harness', label: 'Knowledge Harness' },
+  { id: 'home', label: '🏠 Home' },
+  { id: 'knowledge', label: '📖 Knowledge' },
+  { id: 'wikigen', label: '⚙ Wiki Gen' },
 ]
 
-export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, actions }: Props) {
+export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, actions, wikiGenRunning }: Props) {
   return (
     <div className="main-panel">
       <nav className="main-panel__tabs">
@@ -34,14 +37,17 @@ export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, ac
             onClick={() => onTab(id)}
           >
             {label}
+            {id === 'wikigen' && wikiGenRunning && (
+              <span className="main-panel__tab-dot" data-testid="wikigen-running-dot" aria-label="생성 진행 중" />
+            )}
           </button>
         ))}
         {actions && <div className="main-panel__tab-actions">{actions}</div>}
       </nav>
       <div className="main-panel__content">
-        {tab === 'pm'
-          ? <PmHome dashboard={dashboard} />
-          : <HarnessDashboard profiles={profiles} onSelectProfile={onSelectProfile} />}
+        {tab === 'home' && <PmHome dashboard={dashboard} />}
+        {tab === 'knowledge' && <HarnessDashboard profiles={profiles} onSelectProfile={onSelectProfile} />}
+        {tab === 'wikigen' && <div className="main-panel__placeholder">⚙ Wiki Gen — Phase 2에서 구현</div>}
       </div>
     </div>
   )
