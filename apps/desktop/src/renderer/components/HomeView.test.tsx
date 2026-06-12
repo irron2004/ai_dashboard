@@ -60,6 +60,9 @@ describe('HomeView', () => {
 
   test('PM strip shows goal and expands details', async () => {
     render(<HomeView dashboard={dashboard} />)
+    // let the mount's async loads (fsReadDoc/changesList) settle before asserting, so React state
+    // updates are flushed inside act() rather than firing after synchronous assertions
+    await screen.findByText('현재 상태')
     expect(screen.getByText(/ship MVP/)).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: /자세히/ }))
     expect(screen.getByText('Task Board')).toBeDefined()
