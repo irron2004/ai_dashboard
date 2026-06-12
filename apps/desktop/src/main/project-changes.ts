@@ -74,6 +74,7 @@ export function diffProjectFile(repoPaths: readonly string[], relPath: string): 
       if (tracked.trim()) return { ok: true, patch: tracked }
     } catch { /* HEAD 없음(빈 repo) 등 — untracked 경로로 폴백 */ }
     try {
+      // Git for Windows maps the literal '/dev/null' to the NUL device internally, so this is portable.
       execFileSync('git', ['diff', '--no-index', '--', '/dev/null', relPath], { cwd: repo, encoding: 'utf8', timeout: 15_000 })
       return { ok: true, patch: '' }  // exit 0 = 차이 없음(빈 파일)
     } catch (e) {
