@@ -919,7 +919,7 @@ export const STRUCTURE_STAGES: StructureStage[] = [
   { id: 'documentIntent', kind: 'agent', icon: '🏷', name: 'document-intent', desc: 'md를 canonical/reference/scratch로 분류', promptKey: 'documentIntent' },
   { id: 'knowledgeNodeExtractor', kind: 'agent', icon: '🧩', name: 'node-extractor', desc: '노드 제안·주장·근거 추출', promptKey: 'knowledgeNodeExtractor' },
   { id: 'wikiGraphLead', kind: 'agent', icon: '🕸', name: 'wiki-graph-lead', desc: '제안 병합 → 그래프 + 쓰기 계획', promptKey: 'wikiGraphLead' },
-  { id: 'policyGuard', kind: 'gate', icon: '🛡', name: 'policy-guard', desc: 'secret scan · evidence · canonical 인간리뷰 게이트', promptKey: 'policyGuard' },
+  { id: 'policyGuard', kind: 'gate', icon: '🛡', name: 'policy-guard', desc: '스캔·증거·canonical 인간리뷰 게이트', promptKey: 'policyGuard' },
   { id: 'humanReview', kind: 'review', icon: '👤', name: '인간 리뷰 → Promote', desc: 'staging에만 자동 쓰기, 실 vault는 promote로만' },
 ]
 

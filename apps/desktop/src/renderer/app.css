@@ -1832,3 +1832,26 @@ textarea {
   margin-left: auto; font-size: 0.7rem; padding: 1px 7px;
   background: #2a3a4a; border: 1px solid #3a5a7a; border-radius: 4px; color: #9cf;
 }
+
+/* structure (settings) slide-over panel */
+.structure-panel { display: flex; flex-direction: column; min-height: 0; border-left: 2px solid #6ea8fe; }
+.structure-panel__header { display: flex; justify-content: space-between; align-items: center; }
+.structure-panel__pipe { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; }
+.structure-panel__card {
+  display: flex; flex-direction: column; gap: 2px; text-align: left;
+  background: #1c1f26; border: 1px solid #2c2f38; border-radius: 6px;
+  padding: 7px 10px; cursor: pointer; color: #c5c9d3;
+}
+.structure-panel__card--gate { border-left: 3px solid #8a6a2a; }
+.structure-panel__card--selected { border-color: #6ea8fe; background: #1e242e; }
+.structure-panel__card--now { outline: 2px solid #4ade80; }
+.structure-panel__card-name { color: #ddd; font-weight: 600; font-size: 0.82rem; display: flex; gap: 6px; align-items: center; }
+.structure-panel__engine { margin-left: auto; font-style: normal; font-size: 0.65rem; padding: 1px 7px; border-radius: 8px; background: #2a3a4a; color: #9cf; font-weight: 400; }
+.structure-panel__card-desc { color: #777; font-size: 0.72rem; }
+.structure-panel__edit { border-top: 1px solid #2c2f38; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem; }
+.structure-panel__edit label { display: flex; flex-direction: column; gap: 3px; color: #8a8f9a; }
+.structure-panel__edit textarea { background: #0f1114; border: 1px solid #2c2f38; border-radius: 4px; color: #c5c9d3; font-family: monospace; font-size: 0.75rem; padding: 6px; }
+.structure-panel__gates { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; }
+.structure-panel__gates label { flex-direction: row; align-items: center; gap: 6px; font-size: 0.74rem; }
+.structure-panel__gates small { color: #666; margin-left: auto; }
+.structure-panel__note { color: #8a8f9a; font-size: 0.76rem; margin: 0; }
