@@ -7,6 +7,7 @@ import { ProjectSidebar } from './components/ProjectSidebar.js'
 import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { SearchModal } from './components/SearchModal.js'
+import { GlobalMenu } from './components/GlobalMenu.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -238,7 +239,7 @@ export function App() {
     void generate(selectedGenerateEngine, selectedCategoryIds)
   }
 
-  // Toolbar actions live inline in the main tab row (when a project is open) instead of claiming a full row.
+  // 임시(Phase 4까지): Ingest/Generate는 Home 탭이 생기면 그쪽으로 이사한다.
   const toolbarActions = (
     <>
       <button disabled={ingesting} onClick={() => ingest()}>
@@ -247,11 +248,9 @@ export function App() {
       <button disabled={preflighting || generating || !selectedProjectId} onClick={openGeneratePreflight} title="문서/소스 범위 확인 후 current.md 제안 생성">
         {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
       </button>
-      <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)">🔎 Search</button>
       {lastIngest && <span className="app-layout__ingest-note">ingested {lastIngest.sessions} session(s)</span>}
-      <button disabled={upd.running} onClick={runUpdate} title="git pull + pnpm install">
-        {upd.running ? 'Updating…' : '⭳ Update'}
-      </button>
+      <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)">🔎</button>
+      <GlobalMenu items={[{ label: upd.running ? 'Updating…' : '⭳ Update (git pull + pnpm install)', onClick: runUpdate, disabled: upd.running }]} />
     </>
   )
 
