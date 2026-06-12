@@ -130,7 +130,7 @@ textarea {
 .app-layout {
   display: grid;
   grid-template-columns: var(--sidebar-width, 240px) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 280px;
+  grid-template-rows: minmax(0, 1fr) var(--dock-height, 280px);
   grid-template-areas:
     "sidebar main"
     "sidebar terminal";
@@ -1800,3 +1800,15 @@ textarea {
 }
 .global-menu__item:hover:not(:disabled) { background: #2e3340; }
 .global-menu__item:disabled { opacity: 0.5; cursor: default; }
+
+/* collapsible agent dock */
+.dock-bar {
+  display: flex; align-items: center; gap: 14px; padding: 4px 12px;
+  background: #14161a; border: 1px solid #2c2f38; border-radius: 4px 4px 0 0;
+  font-size: 0.78rem; color: #8a8f9a; cursor: pointer; flex: 0 0 auto; user-select: none;
+}
+.dock-bar__chev { color: #777; }
+.dock-bar__agent { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.dock-bar__agent:hover { color: #ddd; }
+.dock-bar__dot { font-size: 0.8rem; line-height: 1; }
+.dock-bar__dot--blink { animation: apc-pulse 1s ease-in-out infinite; }

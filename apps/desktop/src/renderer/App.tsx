@@ -45,6 +45,16 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:sidebarCollapsed') === '1' } catch { return false }
   })
+  const [dockCollapsed, setDockCollapsed] = useState(() => {
+    try { return localStorage.getItem('apc:dockCollapsed') === '1' } catch { return false }
+  })
+  const toggleDock = (next?: boolean) => setDockCollapsed((prev) => {
+    const v = next ?? !prev
+    try { localStorage.setItem('apc:dockCollapsed', v ? '1' : '0') } catch { /* ignore */ }
+    // xterm fit-addon은 layout 변경을 모름 — 펼친 직후 리사이즈 이벤트로 강제 핏
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
+    return v
+  })
   const RAIL_W = 56                                        // collapsed icon-rail width
   const termRef = useRef<HTMLDivElement | null>(null)
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
@@ -52,7 +62,10 @@ export function App() {
   )
   const dragRef = useRef<{ onMove: (e: MouseEvent) => void; onUp: (e: MouseEvent) => void } | null>(null)
   const effectiveSidebarW = sidebarCollapsed ? RAIL_W : sidebarW
-  const appLayoutStyle: CSSProperties & Record<'--sidebar-width', string> = { '--sidebar-width': `${effectiveSidebarW}px` }
+  const appLayoutStyle: CSSProperties & Record<'--sidebar-width' | '--dock-height', string> = {
+    '--sidebar-width': `${effectiveSidebarW}px`,
+    '--dock-height': dockCollapsed ? '30px' : '280px',
+  }
   const toggleSidebar = () => setSidebarCollapsed((prev) => {
     const next = !prev
     try { localStorage.setItem('apc:sidebarCollapsed', next ? '1' : '0') } catch { /* ignore */ }
@@ -143,6 +156,7 @@ export function App() {
       if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && n >= 1 && n <= AGENTS.length) {
         e.preventDefault(); e.stopPropagation()
         setAgent(AGENTS[n - 1])
+        toggleDock(false)   // 접혀 있으면 펼치면서 해당 에이전트 포커스
         return
       }
       if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && n >= 1 && n <= 9 && projects[n - 1]) {
@@ -300,54 +314,73 @@ export function App() {
       </main>
 
       {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
-      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'row', minHeight: 0 }}>
-        {selectedProjectId ? (
-          AGENTS.map((a, i) => (
-            <Fragment key={a}>
-              {i > 0 && (
-                <div
-                  onMouseDown={startColDrag(i - 1)}
-                  title="드래그하여 크기 조정"
-                  style={{ width: 6, cursor: 'col-resize', background: '#333', flex: '0 0 auto' }}
-                />
-              )}
-              <div
-                style={{
-                  flex: sizes[i], display: 'flex', flexDirection: 'column', minWidth: 0,
-                  border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
-                  borderRadius: 4, overflow: 'hidden',
-                }}
-              >
-                <div
-                  onClick={() => setAgent(a)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                    padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
-                    background: a === agent ? '#23311f' : '#161616',
-                  }}
-                  title={`Shift+${i + 1}`}
-                >
-                  <span style={{ color: STATUS_COLOR[agentStatus[a]], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
-                  <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{i + 1}</span>
-                </div>
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <AgentTerminal
-                    key={`${selectedProjectId}:${a}`}
-                    sessionId={`${selectedProjectId}:${a}`}
-                    command={a}
-                    args={[]}
-                    cwd={cwd}
-                    onStatus={(s) => setAgentStatus(a, s)}
-                    onActivate={() => setAgent(a)}
+      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div className="dock-bar" onClick={() => toggleDock()} title={dockCollapsed ? '터미널 펼치기' : '터미널 접기'}>
+          <span className="dock-bar__chev">{dockCollapsed ? '▲' : '▼'} agents</span>
+          {AGENTS.map((a, i) => (
+            <span
+              key={a}
+              className="dock-bar__agent"
+              onClick={(e) => { e.stopPropagation(); toggleDock(false); setAgent(a) }}
+              title={`Shift+${i + 1}`}
+            >
+              <span
+                className={agentStatus[a] === 'attention' ? 'dock-bar__dot dock-bar__dot--blink' : 'dock-bar__dot'}
+                style={{ color: STATUS_COLOR[agentStatus[a]] }}
+              >●</span>
+              {a}
+            </span>
+          ))}
+        </div>
+        <div style={{ flex: 1, minHeight: 0, display: dockCollapsed ? 'none' : 'flex', flexDirection: 'row' }}>
+          {selectedProjectId ? (
+            AGENTS.map((a, i) => (
+              <Fragment key={a}>
+                {i > 0 && (
+                  <div
+                    onMouseDown={startColDrag(i - 1)}
+                    title="드래그하여 크기 조정"
+                    style={{ width: 6, cursor: 'col-resize', background: '#333', flex: '0 0 auto' }}
                   />
+                )}
+                <div
+                  style={{
+                    flex: sizes[i], display: 'flex', flexDirection: 'column', minWidth: 0,
+                    border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
+                    borderRadius: 4, overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    onClick={() => setAgent(a)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                      padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
+                      background: a === agent ? '#23311f' : '#161616',
+                    }}
+                    title={`Shift+${i + 1}`}
+                  >
+                    <span style={{ color: STATUS_COLOR[agentStatus[a]], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
+                    <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{i + 1}</span>
+                  </div>
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <AgentTerminal
+                      key={`${selectedProjectId}:${a}`}
+                      sessionId={`${selectedProjectId}:${a}`}
+                      command={a}
+                      args={[]}
+                      cwd={cwd}
+                      onStatus={(s) => setAgentStatus(a, s)}
+                      onActivate={() => setAgent(a)}
+                    />
+                  </div>
                 </div>
-              </div>
-            </Fragment>
-          ))
-        ) : (
-          <div className="app-layout__placeholder">Select a project to open agent terminals</div>
-        )}
+              </Fragment>
+            ))
+          ) : (
+            <div className="app-layout__placeholder">Select a project to open agent terminals</div>
+          )}
+        </div>
       </div>
 
       {upd.open && (
