@@ -141,4 +141,24 @@ describe('harness store actions (api mocked)', () => {
     expect(useStore.getState().selectedHarnessRunId).toBe('RUN-B')
     expect(useStore.getState().harnessCanonicalProposals).toEqual([])
   })
+
+  test('startHarnessRun(true) records mode full-docs on the bundle', async () => {
+    const cfg = createDefaultHarnessConfig()
+    useStore.setState({ harnessConfigs: { p1: cfg } })
+    mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-MODE-1', finalState: 'HUMAN_REVIEW_REQUIRED' })
+    mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-MODE-1' }, artifacts: [] })
+    await useStore.getState().startHarnessRun(true)
+    const bundle = useStore.getState().harnessRuns.find((b) => b.runState.runId === 'RUN-MODE-1')
+    expect(bundle?.mode).toBe('full-docs')
+  })
+
+  test('startHarnessRun() records mode recent-sessions', async () => {
+    const cfg = createDefaultHarnessConfig()
+    useStore.setState({ harnessConfigs: { p1: cfg } })
+    mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-MODE-2', finalState: 'HUMAN_REVIEW_REQUIRED' })
+    mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-MODE-2' }, artifacts: [] })
+    await useStore.getState().startHarnessRun()
+    const bundle = useStore.getState().harnessRuns.find((b) => b.runState.runId === 'RUN-MODE-2')
+    expect(bundle?.mode).toBe('recent-sessions')
+  })
 })

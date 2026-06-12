@@ -89,7 +89,9 @@ function persistProjectRuns(projectId: string, runs: HarnessRunBundle[], selecte
 }
 
 function upsertRun(runs: HarnessRunBundle[], bundle: HarnessRunBundle): HarnessRunBundle[] {
-  const next = [bundle, ...runs.filter((item) => item.runState.runId !== bundle.runState.runId)]
+  const prev = runs.find((item) => item.runState.runId === bundle.runState.runId)
+  const merged = { ...bundle, mode: bundle.mode ?? prev?.mode }
+  const next = [merged, ...runs.filter((item) => item.runState.runId !== bundle.runState.runId)]
   return next.sort((a, b) => {
     const aAt = a.runState.history.at(-1)?.at ?? a.runState.history[0]?.at ?? ''
     const bAt = b.runState.history.at(-1)?.at ?? b.runState.history[0]?.at ?? ''
@@ -283,7 +285,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {
-        const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
+        const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [], mode: materialize ? 'full-docs' : 'recent-sessions' }
         const runs = upsertRun(get().harnessRuns, bundle)
         set((state) => ({
           ...updateHarnessConfig(state, projectId, config),
