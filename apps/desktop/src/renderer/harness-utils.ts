@@ -139,9 +139,14 @@ export type HarnessRunArtifact = {
   data: unknown
 }
 
+// localStorage에 저장된 옛 run에는 mode가 없다 — 모든 소비처는 undefined를 허용해야 한다.
+export type HarnessRunMode = 'full-docs' | 'recent-sessions'
+
 export type HarnessRunBundle = {
   runState: RunState
   artifacts: HarnessRunArtifact[]
+  /** 어떤 입력 모드로 시작된 run인지 (renderer가 시작 시점에 기록; resume·과거 run은 undefined). */
+  mode?: HarnessRunMode
 }
 
 export type HarnessGraphNodeType = 'run' | 'task' | 'evidence' | 'file' | 'document'
@@ -875,4 +880,60 @@ export function runCompletionLabel(state: KhState): string {
 
 function cryptoRandomId(): string {
   return `id-${Math.random().toString(36).slice(2, 9)}`
+}
+
+/** 이어하기(Resume) 버튼을 보여줄 상태: 실패했거나 파이프라인 중간에서 멈춘 run.
+ *  리뷰 대기/병합 완료는 resume 대상이 아니다. */
+export function isRunResumable(state: KhState): boolean {
+  return state !== 'HUMAN_REVIEW_REQUIRED' && state !== 'MERGED'
+}
+
+export function runModeLabel(mode: HarnessRunMode | undefined): string {
+  if (mode === 'full-docs') return '전체 문서'
+  if (mode === 'recent-sessions') return '최근 세션'
+  return ''
+}
+
+/** 구조도(=설정 패널)의 단계 정의. promptKey가 있으면 카드 클릭 시 그 프롬프트를 편집한다. */
+export type StructureStageId =
+  | 'materialize' | 'projectDiscovery' | 'conversationHistory' | 'documentIntent'
+  | 'knowledgeNodeExtractor' | 'wikiGraphLead' | 'policyGuard' | 'humanReview'
+
+export type StructureStage = {
+  id: StructureStageId
+  kind: 'builtin' | 'agent' | 'gate' | 'review'
+  icon: string
+  name: string
+  desc: string
+  promptKey?: HarnessAgentPromptKey
+}
+
+export const STRUCTURE_STAGES: StructureStage[] = [
+  { id: 'materialize', kind: 'builtin', icon: '📥', name: '수집 (materialize)', desc: '프로젝트 md + 최근 세션 Q&A 수집' },
+  { id: 'projectDiscovery', kind: 'agent', icon: '🔍', name: 'project-discovery', desc: 'canonical 문서 식별, vault 지도 요약', promptKey: 'projectDiscovery' },
+  { id: 'conversationHistory', kind: 'agent', icon: '💬', name: 'conversation-history', desc: '세션에서 결정·파일·미해결 문제 추출', promptKey: 'conversationHistory' },
+  { id: 'documentIntent', kind: 'agent', icon: '🏷', name: 'document-intent', desc: 'md를 canonical/reference/scratch로 분류', promptKey: 'documentIntent' },
+  { id: 'knowledgeNodeExtractor', kind: 'agent', icon: '🧩', name: 'node-extractor', desc: '노드 제안·주장·근거 추출', promptKey: 'knowledgeNodeExtractor' },
+  { id: 'wikiGraphLead', kind: 'agent', icon: '🕸', name: 'wiki-graph-lead', desc: '제안 병합 → 그래프 + 쓰기 계획', promptKey: 'wikiGraphLead' },
+  { id: 'policyGuard', kind: 'gate', icon: '🛡', name: 'policy-guard', desc: 'secret scan · evidence · canonical 인간리뷰 게이트', promptKey: 'policyGuard' },
+  { id: 'humanReview', kind: 'review', icon: '👤', name: '인간 리뷰 → Promote', desc: 'staging에만 자동 쓰기, 실 vault는 promote로만' },
+]
+
+/** 진행 상태(KhState) → 구조도 단계. 실행 중 현재 단계 하이라이트와 본문 스테퍼가 같은 매핑을 쓴다. */
+export function stageForState(state: KhState): StructureStageId {
+  switch (state) {
+    case 'PROJECT_SCANNED': return 'projectDiscovery'
+    case 'SOURCES_EXTRACTED': return 'conversationHistory'
+    case 'DOCUMENTS_CLASSIFIED': return 'documentIntent'
+    case 'NODE_PROPOSALS_CREATED': return 'knowledgeNodeExtractor'
+    case 'LEAD_MERGED':
+    case 'WRITE_PLAN_CREATED': return 'wikiGraphLead'
+    case 'STAGING_WRITTEN':
+    case 'VALIDATED': return 'policyGuard'
+    case 'HUMAN_REVIEW_REQUIRED':
+    case 'MERGED': return 'humanReview'
+    case 'CREATED':
+    case 'FAILED':
+    default: return 'materialize'
+  }
 }
