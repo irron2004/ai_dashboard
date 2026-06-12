@@ -7,7 +7,6 @@ import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
-import { GeneratePreflightModal } from './components/GeneratePreflightModal.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -22,10 +21,9 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 
 export function App() {
   const {
-    projects, selectedProjectId, dashboard, profiles, ingesting, lastIngest, error, agentStatus,
-    preflighting, generating, harnessLoading,
-    loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, ingest, clearError, setAgentStatus,
-    prepareGenerate, clearGeneration,
+    projects, selectedProjectId, dashboard, profiles, error, agentStatus,
+    harnessLoading,
+    loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, clearError, setAgentStatus,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
   const [mainTab, setMainTab] = useState<MainTab>(() => {
@@ -35,7 +33,6 @@ export function App() {
     } catch { /* ignore */ }
     return 'home'
   })
-  const [generateModalOpen, setGenerateModalOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
@@ -198,22 +195,8 @@ export function App() {
     }
   }
 
-  const openGeneratePreflight = () => {
-    setGenerateModalOpen(true)
-    clearGeneration()
-    void prepareGenerate()
-  }
-
-  // 임시(Phase 4까지): Ingest/Generate는 Home 탭이 생기면 그쪽으로 이사한다.
   const toolbarActions = (
     <>
-      <button disabled={ingesting} onClick={() => ingest()}>
-        {ingesting ? 'Ingesting...' : 'Ingest now'}
-      </button>
-      <button disabled={preflighting || generating || !selectedProjectId} onClick={openGeneratePreflight} title="문서/소스 범위 확인 후 current.md 제안 생성">
-        {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
-      </button>
-      {lastIngest && <span className="app-layout__ingest-note">ingested {lastIngest.sessions} session(s)</span>}
       <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)" aria-label="검색 (Ctrl+K)">🔎</button>
       <GlobalMenu items={[{ label: upd.running ? 'Updating…' : '⭳ Update (git pull + pnpm install)', onClick: runUpdate, disabled: upd.running }]} />
     </>
@@ -374,8 +357,6 @@ export function App() {
           </div>
         </div>
       )}
-
-      <GeneratePreflightModal open={generateModalOpen} onClose={() => setGenerateModalOpen(false)} />
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
 

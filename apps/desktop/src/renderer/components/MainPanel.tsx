@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { AgentProfile } from '@apc/shared'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
-import { PmHome } from './PmHome.js'
+import { HomeView } from './HomeView.js'
 import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
 
@@ -46,7 +46,7 @@ export function MainPanel({ tab, onTab, dashboard, actions, wikiGenRunning }: Pr
         {actions && <div className="main-panel__tab-actions">{actions}</div>}
       </nav>
       <div className="main-panel__content">
-        {tab === 'home' && <PmHome dashboard={dashboard} />}
+        {tab === 'home' && <HomeView dashboard={dashboard} />}
         {tab === 'knowledge' && <KnowledgeView />}
         {tab === 'wikigen' && <WikiGenDashboard />}
       </div>

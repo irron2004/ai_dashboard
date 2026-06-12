@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { MainPanel } from './MainPanel.js'
 
+vi.mock('./HomeView.js', () => ({ HomeView: () => <div>HOME-STUB</div> }))
 vi.mock('./KnowledgeView.js', () => ({ KnowledgeView: () => <div>KNOWLEDGE-STUB</div> }))
 
 vi.mock('./WikiGenDashboard.js', () => ({
@@ -22,9 +23,9 @@ describe('MainPanel', () => {
     expect(screen.getByRole('button', { name: /Wiki Gen/ })).toBeDefined()
   })
 
-  test('home tab renders PmHome content', () => {
+  test('home tab renders HomeView content', () => {
     render(<MainPanel tab="home" onTab={vi.fn()} dashboard={dashboard} profiles={[]} onSelectProfile={vi.fn()} />)
-    expect(screen.getByText('ship MVP')).toBeDefined()
+    expect(screen.getByText('HOME-STUB')).toBeDefined()
     expect(screen.queryByText('HARNESS-STUB')).toBeNull()
   })
 
