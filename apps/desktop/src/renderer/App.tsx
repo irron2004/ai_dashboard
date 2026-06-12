@@ -58,6 +58,11 @@ export function App() {
     return next
   })
 
+  const handleMainTab = (t: MainTab) => {
+    setMainTab(t)
+    try { localStorage.setItem('apc:mainTab', t) } catch { /* ignore */ }
+  }
+
   useEffect(() => {
     return () => {
       if (dragRef.current) {
@@ -278,7 +283,7 @@ export function App() {
         {dashboard ? (
           <MainPanel
             tab={mainTab}
-            onTab={(t) => { setMainTab(t); try { localStorage.setItem('apc:mainTab', t) } catch { /* ignore */ } }}
+            onTab={handleMainTab}
             dashboard={dashboard}
             profiles={profiles}
             onSelectProfile={handleSelectProfile}

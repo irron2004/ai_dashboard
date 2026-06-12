@@ -38,7 +38,7 @@ export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, ac
           >
             {label}
             {id === 'wikigen' && wikiGenRunning && (
-              <span className="main-panel__tab-dot" data-testid="wikigen-running-dot" aria-label="생성 진행 중" />
+              <span className="main-panel__tab-dot" data-testid="wikigen-running-dot" aria-hidden="true" />
             )}
           </button>
         ))}

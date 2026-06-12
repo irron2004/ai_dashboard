@@ -29,11 +29,12 @@ describe('MainPanel', () => {
   test('knowledge tab renders HarnessDashboard (temporary until Phase 3)', () => {
     render(<MainPanel tab="knowledge" onTab={vi.fn()} dashboard={dashboard} profiles={[]} onSelectProfile={vi.fn()} />)
     expect(screen.getByText('HARNESS-STUB')).toBeDefined()
+    expect(screen.queryByText('ship MVP')).toBeNull()
   })
 
   test('wikigen tab renders placeholder (until Phase 2)', () => {
     render(<MainPanel tab="wikigen" onTab={vi.fn()} dashboard={dashboard} profiles={[]} onSelectProfile={vi.fn()} />)
-    expect(screen.getAllByText(/Wiki Gen/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Phase 2/)).toBeDefined()
   })
 
   test('fires onTab with the new tab id', () => {
