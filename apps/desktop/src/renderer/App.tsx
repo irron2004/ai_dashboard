@@ -249,7 +249,7 @@ export function App() {
         {preflighting ? 'Scanning…' : generating ? 'Generating…' : '✨ Generate'}
       </button>
       {lastIngest && <span className="app-layout__ingest-note">ingested {lastIngest.sessions} session(s)</span>}
-      <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)">🔎</button>
+      <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)" aria-label="검색 (Ctrl+K)">🔎</button>
       <GlobalMenu items={[{ label: upd.running ? 'Updating…' : '⭳ Update (git pull + pnpm install)', onClick: runUpdate, disabled: upd.running }]} />
     </>
   )

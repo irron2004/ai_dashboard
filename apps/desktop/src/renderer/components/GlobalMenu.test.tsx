@@ -26,4 +26,11 @@ describe('GlobalMenu', () => {
     fireEvent.click(screen.getByText('⭳ Update'))
     expect(onClick).not.toHaveBeenCalled()
   })
+
+  test('clicking outside closes the menu', () => {
+    render(<GlobalMenu items={[{ label: '⭳ Update', onClick: vi.fn() }]} />)
+    fireEvent.click(screen.getByRole('button', { name: '메뉴' }))
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByText('⭳ Update')).toBeNull()
+  })
 })

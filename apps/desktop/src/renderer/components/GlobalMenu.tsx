@@ -16,9 +16,16 @@ export function GlobalMenu({ items }: { items: GlobalMenuItem[] }) {
     return () => window.removeEventListener('mousedown', onDown)
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
   return (
     <div className="global-menu" ref={ref}>
-      <button type="button" aria-label="메뉴" onClick={() => setOpen((v) => !v)}>⋯</button>
+      <button type="button" aria-label="메뉴" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>⋯</button>
       {open && (
         <div className="global-menu__list" role="menu">
           {items.map((item) => (
@@ -28,6 +35,7 @@ export function GlobalMenu({ items }: { items: GlobalMenuItem[] }) {
               role="menuitem"
               className="global-menu__item"
               disabled={item.disabled}
+              // `disabled` blocks click in browsers but not in fireEvent tests — guard is intentional
               onClick={() => { if (!item.disabled) { item.onClick(); setOpen(false) } }}
             >
               {item.label}
