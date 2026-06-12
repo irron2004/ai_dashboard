@@ -15,4 +15,10 @@ describe('MarkdownContent', () => {
     fireEvent.click(screen.getByText('arch'))
     expect(onOpen).toHaveBeenCalledWith('아키텍처')
   })
+
+  test('renders plain markdown links as anchors', () => {
+    render(<MarkdownContent markdown={'see [docs](https://example.com)'} onOpenWikiLink={vi.fn()} />)
+    const link = screen.getByRole('link', { name: 'docs' })
+    expect(link.getAttribute('href')).toBe('https://example.com')
+  })
 })
