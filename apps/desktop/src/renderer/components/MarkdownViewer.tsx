@@ -41,7 +41,7 @@ export function MarkdownViewer({ artifacts, selectedArtifactPath, onSelectArtifa
       </div>
 
       <div className="markdown-viewer__body">
-        {markdown ? <MarkdownContent markdown={markdown} onOpenWikiLink={onOpenWikiLink} /> : <div className="panel__empty"><p>Select an artifact to render.</p></div>}
+        {markdown.trim() ? <MarkdownContent markdown={markdown} onOpenWikiLink={onOpenWikiLink} /> : <div className="panel__empty"><p>Select an artifact to render.</p></div>}
       </div>
 
       {selected && extractWikiLinks(markdown).length > 0 && (
