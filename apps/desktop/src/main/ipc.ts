@@ -180,7 +180,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = z.object({ projectId: z.string(), relPath: z.string() }).strict().parse(payload)
       const project = container.registry.get(req.projectId)
       if (!project) return { ok: false, reason: 'project not found' }
-      // vault의 프로젝트 영역(current.md 등) → repo들 → 등록된 vaultPaths 순으로 해석
+      // Resolution order: vault project area (current.md etc.) → repoPaths → registered vaultPaths
       const roots = [join(container.vaultRoot, 'projects', project.id), ...project.repoPaths, ...project.vaultPaths]
       return readProjectDoc(roots, req.relPath)
     },
@@ -189,6 +189,8 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = z.object({ projectId: z.string() }).strict().parse(payload)
       const project = container.registry.get(req.projectId)
       if (!project) return { docs: [] }
+      // repoPaths only by design: vault-area docs (generated wiki, current.md) are surfaced via run
+      // artifacts and the Home tab, not this project-doc listing. fsReadDoc still serves vault paths.
       return { docs: listProjectDocs(project.repoPaths) }
     },
   }
