@@ -949,7 +949,7 @@ export function pickNodeArtifact(arts: HarnessRunArtifact[], node: GraphNodeRef)
         ?? pool.find((a) => base(a.path).toLowerCase() === base(nodePath).toLowerCase())
       if (hit) return hit
     }
-    return pool.find((a) => artifactMatchesTarget(a, idTarget))
+    return (idTarget ? pool.find((a) => artifactMatchesTarget(a, idTarget)) : undefined)
       ?? (label ? pool.find((a) => artifactLabel(a.name).toLowerCase() === label || base(a.path).replace(/\.md$/i, '').toLowerCase() === label) : undefined)
   }
   return pick(viewable) ?? pick(arts)

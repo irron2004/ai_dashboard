@@ -68,6 +68,7 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
 
   const handleOpenWikiLink = (target: string) => {
     if (!currentRun) return
+    // pickNodeArtifact prefers a viewable (markdown) artifact for the wiki target.
     const found = pickNodeArtifact(currentRun.artifacts, { id: `document:${target}`, label: target })
     if (found) setSelectedArtifactPath(found.path)
   }

@@ -81,4 +81,14 @@ describe('pickNodeArtifact', () => {
   test('returns undefined when nothing matches', () => {
     expect(pickNodeArtifact(arts, { id: 'document:unknown', label: '없는문서' })).toBeUndefined()
   })
+
+  test('prefers a viewable artifact over a non-viewable one when both match', () => {
+    const artsWithRaw: HarnessRunArtifact[] = [
+      { state: 'VALIDATED', name: 'raw-dump', path: '/runs/R1/architecture-raw.json', data: { raw: '{}' } },
+      { state: 'STAGING_WRITTEN', name: 'wiki-architecture', path: '/runs/R1/architecture.md', data: { markdown: '# arch' } },
+    ]
+    // id-target 'architecture' substring-matches BOTH paths; viewable pool (the .md) must win.
+    const hit = pickNodeArtifact(artsWithRaw, { id: 'document:architecture' })
+    expect(hit?.name).toBe('wiki-architecture')
+  })
 })
