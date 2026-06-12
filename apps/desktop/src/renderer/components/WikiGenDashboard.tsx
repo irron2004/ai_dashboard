@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AgentProfile, KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
+import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 import { useStore } from '../store.js'
 import { createDefaultHarnessConfig, runModeLabel, type HarnessRunBundle } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
@@ -10,11 +10,14 @@ import { QualityPanel } from './QualityPanel.js'
 import { ProposalsPanel } from './ProposalsPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
 
-type Props = { profiles: AgentProfile[] }
-
 type ReviewTab = 'summary' | 'coverage' | 'quality' | 'proposals' | 'flow'
 
-export function WikiGenDashboard({ profiles: _profiles }: Props) {
+const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
+  { id: 'summary', label: '요약' }, { id: 'coverage', label: 'Coverage' }, { id: 'quality', label: 'Quality' },
+  { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
+]
+
+export function WikiGenDashboard() {
   const {
     selectedProjectId, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
     harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
@@ -47,11 +50,6 @@ export function WikiGenDashboard({ profiles: _profiles }: Props) {
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
   const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
-
-  const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
-    { id: 'summary', label: '요약' }, { id: 'coverage', label: 'Coverage' }, { id: 'quality', label: 'Quality' },
-    { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
-  ]
 
   return (
     <section className="wikigen">
@@ -92,6 +90,7 @@ export function WikiGenDashboard({ profiles: _profiles }: Props) {
                     key={id}
                     type="button"
                     className={reviewTab === id ? 'wikigen__subtab wikigen__subtab--active' : 'wikigen__subtab'}
+                    aria-pressed={reviewTab === id}
                     onClick={() => setReviewTab(id)}
                   >
                     {label}
@@ -137,7 +136,7 @@ export function WikiGenDashboard({ profiles: _profiles }: Props) {
                     Promote run
                   </button>
                   {harnessPromoteBlockedReason && (
-                    <button type="button" className="wikigen__force" title={harnessPromoteBlockedReason} onClick={() => void promoteHarnessRun(undefined, true)}>
+                    <button type="button" className="wikigen__force" disabled={harnessLoading} title={harnessPromoteBlockedReason} onClick={() => void promoteHarnessRun(undefined, true)}>
                       ⚠ 검증 무시
                     </button>
                   )}

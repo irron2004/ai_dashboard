@@ -48,7 +48,7 @@ export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, ac
       <div className="main-panel__content">
         {tab === 'home' && <PmHome dashboard={dashboard} />}
         {tab === 'knowledge' && <HarnessDashboard profiles={profiles} onSelectProfile={onSelectProfile} />}
-        {tab === 'wikigen' && <WikiGenDashboard profiles={profiles} />}
+        {tab === 'wikigen' && <WikiGenDashboard />}
       </div>
     </div>
   )
