@@ -44,6 +44,9 @@ export const CH = {
   // read-only project file access (Knowledge/Home tabs)
   fsReadDoc: 'q:fsReadDoc',
   fsListDocs: 'q:fsListDocs',
+  // project working-tree changes (Changes tab)
+  changesList: 'q:changesList',
+  changesDiff: 'q:changesDiff',
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
@@ -128,3 +131,12 @@ export type FsReadDocReq = { projectId: string; relPath: string }
 export type FsReadDocRes = { ok: boolean; content?: string; reason?: string }
 export type FsListDocsReq = { projectId: string }
 export type FsListDocsRes = { docs: { relPath: string; mtimeMs: number }[] }
+
+export type ChangesListReq = { projectId: string }
+export type ChangesListRes = {
+  ok: boolean
+  reason?: string
+  files?: { path: string; status: 'new' | 'modified' | 'deleted'; isMarkdown: boolean; mtimeMs: number; unreflected?: boolean }[]
+}
+export type ChangesDiffReq = { projectId: string; relPath: string }
+export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }

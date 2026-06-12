@@ -8,6 +8,7 @@ import type {
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
+  ChangesListReq, ChangesListRes, ChangesDiffReq, ChangesDiffRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
 
@@ -114,6 +115,12 @@ export const api = {
   },
   fsListDocs(req: FsListDocsReq): Promise<FsListDocsRes> {
     return window.apc.invoke(CH.fsListDocs, req) as Promise<FsListDocsRes>
+  },
+  changesList(req: ChangesListReq): Promise<ChangesListRes> {
+    return window.apc.invoke(CH.changesList, req) as Promise<ChangesListRes>
+  },
+  changesDiff(req: ChangesDiffReq): Promise<ChangesDiffRes> {
+    return window.apc.invoke(CH.changesDiff, req) as Promise<ChangesDiffRes>
   },
 
   // PTY (event-based)

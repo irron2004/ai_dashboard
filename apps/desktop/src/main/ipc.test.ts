@@ -240,4 +240,13 @@ describe('IPC handlers (no Electron)', () => {
     expect(res.docs.map((d) => d.relPath)).toContain('notes.md')
     rmSync(repo, { recursive: true, force: true })
   })
+
+  test('q:changesList returns ok:false for a project whose repo is not a git dir', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-nongit2-'))
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: [dir] })
+    const h = handlers(container)
+    const res = await h[CH.changesList]({ projectId: 'p1' }) as { ok: boolean }
+    expect(res.ok).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
 })

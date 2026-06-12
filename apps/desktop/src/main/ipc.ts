@@ -10,6 +10,7 @@ import type {
 import type { AgentSource } from '@apc/shared'
 import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
+import { diffProjectFile, listProjectChanges } from './project-changes.js'
 
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
@@ -192,6 +193,21 @@ export function handlers(container: Container): Record<string, (payload: unknown
       // repoPaths only by design: vault-area docs (generated wiki, current.md) are surfaced via run
       // artifacts and the Home tab, not this project-doc listing. fsReadDoc still serves vault paths.
       return { docs: listProjectDocs(project.repoPaths) }
+    },
+
+    [CH.changesList]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found' }
+      const row = container.db.prepare('SELECT MAX(updated_at) AS at FROM ingest_cursors').get() as { at: string | null } | undefined
+      return listProjectChanges(project.repoPaths, row?.at ?? null)
+    },
+
+    [CH.changesDiff]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), relPath: z.string() }).strict().parse(payload)
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found' }
+      return diffProjectFile(project.repoPaths, req.relPath)
     },
   }
 }
