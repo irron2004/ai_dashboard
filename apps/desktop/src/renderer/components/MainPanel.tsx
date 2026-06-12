@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { AgentProfile } from '@apc/shared'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { PmHome } from './PmHome.js'
-import { HarnessDashboard } from './HarnessDashboard.js'
+import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
 
 export type MainTab = 'home' | 'knowledge' | 'wikigen'
@@ -25,7 +25,7 @@ const TABS: { id: MainTab; label: string }[] = [
   { id: 'wikigen', label: '⚙ Wiki Gen' },
 ]
 
-export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, actions, wikiGenRunning }: Props) {
+export function MainPanel({ tab, onTab, dashboard, actions, wikiGenRunning }: Props) {
   return (
     <div className="main-panel">
       <nav className="main-panel__tabs">
@@ -47,7 +47,7 @@ export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, ac
       </nav>
       <div className="main-panel__content">
         {tab === 'home' && <PmHome dashboard={dashboard} />}
-        {tab === 'knowledge' && <HarnessDashboard profiles={profiles} onSelectProfile={onSelectProfile} />}
+        {tab === 'knowledge' && <KnowledgeView />}
         {tab === 'wikigen' && <WikiGenDashboard />}
       </div>
     </div>

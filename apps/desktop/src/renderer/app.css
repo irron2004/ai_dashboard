@@ -1882,3 +1882,27 @@ textarea {
 .wikigen__canonical li span { color: #c5c9d3; }
 .wikigen__canonical li button { margin-left: auto; }
 .wikigen__force { background: #4a3a1a; border: 1px solid #8a6a2a; color: #fd6; border-radius: 4px; }
+
+/* knowledge tab */
+.knowledge { height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.knowledge__modebar { flex: 0 0 auto; }
+.knowledge__seg { display: inline-flex; border: 1px solid #3a3f4a; border-radius: 6px; overflow: hidden; }
+.knowledge__seg-btn { padding: 5px 16px; font-size: 0.8rem; background: #1c1f26; color: #8a8f9a; border: none; cursor: pointer; }
+.knowledge__seg-btn--on { background: #2e3340; color: #fff; }
+.knowledge__docs { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 10px; }
+.knowledge__tree { overflow-y: auto; padding: 8px 6px; display: flex; flex-direction: column; gap: 1px; }
+.knowledge__tree-group { padding: 8px 10px 3px; color: #8a8f9a; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; }
+.knowledge__tree-item { text-align: left; background: transparent; border: none; color: #c5c9d3; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+.knowledge__tree-item:hover { background: #20232b; }
+.knowledge__tree-item--on { background: #232a36; color: #fff; }
+.knowledge__tree-empty { padding: 4px 10px; color: #666; font-size: 0.74rem; }
+.knowledge__viewer { display: flex; flex-direction: column; min-height: 0; }
+.knowledge__viewer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; }
+.knowledge__empty, .knowledge__error { color: #666; font-size: 0.85rem; padding: 16px; }
+.knowledge__error { color: #e8a0a0; }
+.knowledge__graph { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.knowledge__graph--peek { grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr); }
+.knowledge__graph-canvas { min-height: 0; overflow: hidden; }
+.knowledge__peek { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid #2c2f38; }
+.knowledge__peek-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.knowledge__peek-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; }

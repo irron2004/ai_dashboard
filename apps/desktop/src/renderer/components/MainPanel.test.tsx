@@ -3,9 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { MainPanel } from './MainPanel.js'
 
-vi.mock('./HarnessDashboard.js', () => ({
-  HarnessDashboard: () => <div>HARNESS-STUB</div>,
-}))
+vi.mock('./KnowledgeView.js', () => ({ KnowledgeView: () => <div>KNOWLEDGE-STUB</div> }))
 
 vi.mock('./WikiGenDashboard.js', () => ({
   WikiGenDashboard: () => <div>WIKIGEN-STUB</div>,
@@ -30,9 +28,9 @@ describe('MainPanel', () => {
     expect(screen.queryByText('HARNESS-STUB')).toBeNull()
   })
 
-  test('knowledge tab renders HarnessDashboard (temporary until Phase 3)', () => {
+  test('knowledge tab renders KnowledgeView', () => {
     render(<MainPanel tab="knowledge" onTab={vi.fn()} dashboard={dashboard} profiles={[]} onSelectProfile={vi.fn()} />)
-    expect(screen.getByText('HARNESS-STUB')).toBeDefined()
+    expect(screen.getByText('KNOWLEDGE-STUB')).toBeDefined()
     expect(screen.queryByText('ship MVP')).toBeNull()
   })
 
