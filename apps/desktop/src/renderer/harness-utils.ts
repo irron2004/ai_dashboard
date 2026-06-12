@@ -883,9 +883,13 @@ function cryptoRandomId(): string {
 }
 
 /** 이어하기(Resume) 버튼을 보여줄 상태: 실패했거나 파이프라인 중간에서 멈춘 run.
- *  리뷰 대기/병합 완료는 resume 대상이 아니다. */
+ *  allowlist로 두어 미래에 종료 상태가 추가돼도 Resume이 잘못 노출되지 않는다(닫힘으로 실패). */
 export function isRunResumable(state: KhState): boolean {
-  return state !== 'HUMAN_REVIEW_REQUIRED' && state !== 'MERGED'
+  return state === 'CREATED' || state === 'FAILED'
+    || state === 'PROJECT_SCANNED' || state === 'SOURCES_EXTRACTED'
+    || state === 'DOCUMENTS_CLASSIFIED' || state === 'NODE_PROPOSALS_CREATED'
+    || state === 'LEAD_MERGED' || state === 'WRITE_PLAN_CREATED'
+    || state === 'STAGING_WRITTEN' || state === 'VALIDATED'
 }
 
 export function runModeLabel(mode: HarnessRunMode | undefined): string {

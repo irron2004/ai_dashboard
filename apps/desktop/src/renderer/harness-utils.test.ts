@@ -44,6 +44,7 @@ describe('run mode / resumable / stage helpers', () => {
     expect(stageForState('HUMAN_REVIEW_REQUIRED')).toBe('humanReview')
     expect(stageForState('MERGED')).toBe('humanReview')
     expect(stageForState('CREATED')).toBe('materialize')
+    expect(stageForState('FAILED')).toBe('materialize')
   })
 
   test('STRUCTURE_STAGES is ordered and includes the gate row', () => {
