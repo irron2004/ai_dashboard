@@ -7,6 +7,10 @@ vi.mock('./HarnessDashboard.js', () => ({
   HarnessDashboard: () => <div>HARNESS-STUB</div>,
 }))
 
+vi.mock('./WikiGenDashboard.js', () => ({
+  WikiGenDashboard: () => <div>WIKIGEN-STUB</div>,
+}))
+
 const dashboard: ProjectDashboardRes = {
   project: { id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', projectType: 'git', repoPaths: [], vaultPaths: [], sourcePaths: [] },
   activeTasks: [], reviewQueue: [], recentRuns: [], allTasks: [],
@@ -32,9 +36,9 @@ describe('MainPanel', () => {
     expect(screen.queryByText('ship MVP')).toBeNull()
   })
 
-  test('wikigen tab renders placeholder (until Phase 2)', () => {
+  test('wikigen tab renders WikiGenDashboard', () => {
     render(<MainPanel tab="wikigen" onTab={vi.fn()} dashboard={dashboard} profiles={[]} onSelectProfile={vi.fn()} />)
-    expect(screen.getByText(/Phase 2/)).toBeDefined()
+    expect(screen.getByText('WIKIGEN-STUB')).toBeDefined()
   })
 
   test('fires onTab with the new tab id', () => {

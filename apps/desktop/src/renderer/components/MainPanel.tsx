@@ -3,6 +3,7 @@ import type { AgentProfile } from '@apc/shared'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { PmHome } from './PmHome.js'
 import { HarnessDashboard } from './HarnessDashboard.js'
+import { WikiGenDashboard } from './WikiGenDashboard.js'
 
 export type MainTab = 'home' | 'knowledge' | 'wikigen'
 
@@ -47,7 +48,7 @@ export function MainPanel({ tab, onTab, dashboard, profiles, onSelectProfile, ac
       <div className="main-panel__content">
         {tab === 'home' && <PmHome dashboard={dashboard} />}
         {tab === 'knowledge' && <HarnessDashboard profiles={profiles} onSelectProfile={onSelectProfile} />}
-        {tab === 'wikigen' && <div className="main-panel__placeholder">⚙ Wiki Gen — Phase 2에서 구현</div>}
+        {tab === 'wikigen' && <WikiGenDashboard profiles={profiles} />}
       </div>
     </div>
   )
