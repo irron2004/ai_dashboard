@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentType } from '@apc/shared'
 import type { GeneratePreflightCategoryId } from '../shared/ipc-contract.js'
 import { useStore, type AgentRunStatus } from './store.js'
@@ -48,13 +48,12 @@ export function App() {
   const [dockCollapsed, setDockCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:dockCollapsed') === '1' } catch { return false }
   })
-  const toggleDock = (next?: boolean) => setDockCollapsed((prev) => {
+  const toggleDock = useCallback((next?: boolean) => setDockCollapsed((prev) => {
     const v = next ?? !prev
     try { localStorage.setItem('apc:dockCollapsed', v ? '1' : '0') } catch { /* ignore */ }
-    // xterm fit-addon은 layout 변경을 모름 — 펼친 직후 리사이즈 이벤트로 강제 핏
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
+    if (!v) setTimeout(() => window.dispatchEvent(new Event('resize')), 50) // Fix 3: only on expand
     return v
-  })
+  }), [])
   const RAIL_W = 56                                        // collapsed icon-rail width
   const termRef = useRef<HTMLDivElement | null>(null)
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
@@ -166,7 +165,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [projects, selectProject])
+  }, [projects, selectProject, toggleDock])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -315,13 +314,24 @@ export function App() {
 
       {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
       <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div className="dock-bar" onClick={() => toggleDock()} title={dockCollapsed ? '터미널 펼치기' : '터미널 접기'}>
+        <div
+          className="dock-bar"
+          onClick={() => toggleDock()}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDock() } }}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!dockCollapsed}
+          title={dockCollapsed ? '터미널 펼치기' : '터미널 접기'}
+        >
           <span className="dock-bar__chev">{dockCollapsed ? '▲' : '▼'} agents</span>
           {AGENTS.map((a, i) => (
             <span
               key={a}
               className="dock-bar__agent"
+              role="button"
+              tabIndex={0}
               onClick={(e) => { e.stopPropagation(); toggleDock(false); setAgent(a) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleDock(false); setAgent(a) } }}
               title={`Shift+${i + 1}`}
             >
               <span
