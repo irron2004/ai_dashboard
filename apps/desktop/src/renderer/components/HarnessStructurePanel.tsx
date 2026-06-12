@@ -97,7 +97,7 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
               return (
                 <li key={key} title={description}>
                   <label>
-                    <input type="checkbox" checked={config.featureGates[key]} disabled={!editable} onChange={() => editable && onToggleGate(key)} />
+                    <input type="checkbox" checked={config.featureGates[key]} disabled={!editable} onChange={() => onToggleGate(key)} />
                     {label}
                     <small>{GATE_WIRING_LABEL[wiring]}</small>
                   </label>

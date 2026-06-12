@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { createDefaultHarnessConfig } from '../harness-utils.js'
+import { createDefaultHarnessConfig, GATE_WIRING, HARNESS_FEATURE_GATES } from '../harness-utils.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 
 const noop = { onModelChange: vi.fn(), onSafetyChange: vi.fn(), onToggleGate: vi.fn(), onPromptChange: vi.fn(), onClose: vi.fn() }
@@ -40,5 +40,26 @@ describe('HarnessStructurePanel', () => {
     fireEvent.click(screen.getByText('project-discovery'))
     fireEvent.change(screen.getByLabelText('엔진'), { target: { value: 'codex' } })
     expect(onModelChange).toHaveBeenCalledWith({ engine: 'codex' })
+  })
+
+  test('close button calls onClose', () => {
+    const onClose = vi.fn()
+    render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} onClose={onClose} />)
+    fireEvent.click(screen.getByLabelText('설정 닫기'))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  test('gate editor: honored gates are toggleable, non-honored are disabled', () => {
+    const onToggleGate = vi.fn()
+    render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} onToggleGate={onToggleGate} />)
+    fireEvent.click(screen.getByText('policy-guard'))
+    const honored = HARNESS_FEATURE_GATES.find((g) => GATE_WIRING[g.key] === 'honored')!
+    const nonHonored = HARNESS_FEATURE_GATES.find((g) => GATE_WIRING[g.key] !== 'honored')!
+    // Each gate <label> wraps the <input> directly — getByLabelText resolves via the enclosing label element
+    const honoredCheckbox = screen.getByLabelText(new RegExp(honored.label, 'i'))
+    const nonHonoredCheckbox = screen.getByLabelText(new RegExp(nonHonored.label, 'i'))
+    expect((nonHonoredCheckbox as HTMLInputElement).disabled).toBe(true)
+    fireEvent.click(honoredCheckbox)
+    expect(onToggleGate).toHaveBeenCalledWith(honored.key)
   })
 })
