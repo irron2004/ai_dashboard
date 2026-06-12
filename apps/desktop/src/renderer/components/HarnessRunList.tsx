@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   HARNESS_STATE_ORDER, formatTimestamp, isRunResumable, runModeLabel, runStartedAt, runUpdatedAt,
   stateProgress, stateTone, type HarnessRunBundle,
@@ -22,9 +22,20 @@ function toneClass(tone: string): string {
 
 function StartRunDropdown({ loading, onStartRun }: { loading: boolean; onStartRun: (materialize: boolean) => void }) {
   const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
+  }, [open])
+
   return (
-    <div className="start-run-dropdown">
-      <button type="button" className="button button--accent" disabled={loading} onClick={() => setOpen((v) => !v)}>
+    <div className="start-run-dropdown" ref={ref}>
+      <button type="button" className="button button--accent" disabled={loading} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         ▶ 위키 생성 ▾
       </button>
       {open && (
@@ -122,10 +133,15 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
                 <div
                   role="button"
                   tabIndex={0}
-                  aria-label={runState.runId}
+                  aria-label={`실행 ${runState.runId} — ${runState.state.replace(/_/g, ' ')}`}
                   className={selected ? 'harness-run-list__item harness-run-list__item--selected' : 'harness-run-list__item'}
                   onClick={() => { if (!loading) onSelectRun(runState.runId) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !loading) onSelectRun(runState.runId) }}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && !loading) {
+                      e.preventDefault()
+                      onSelectRun(runState.runId)
+                    }
+                  }}
                 >
                   <div className="harness-run-list__item-top">
                     <div>
@@ -155,6 +171,7 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
                         className="harness-run-list__resume"
                         disabled={loading}
                         onClick={(e) => { e.stopPropagation(); onResumeRun(runState.runId) }}
+                        onKeyDown={(e) => { e.stopPropagation() }}
                       >
                         ↻ 이어하기
                       </button>

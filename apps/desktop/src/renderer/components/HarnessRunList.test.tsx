@@ -57,4 +57,21 @@ describe('HarnessRunList (실행 이력)', () => {
     render(<HarnessRunList {...baseProps} runs={[bundle('RUN-1', 'MERGED', 'full-docs')]} onStartRun={vi.fn()} onResumeRun={vi.fn()} />)
     expect(screen.getByText(/전체 문서/)).toBeDefined()
   })
+
+  test('Enter on the resume button does not also select the card', () => {
+    const onSelectRun = vi.fn()
+    const onResumeRun = vi.fn()
+    render(<HarnessRunList {...baseProps} onSelectRun={onSelectRun} runs={[bundle('RUN-fail', 'FAILED')]} onStartRun={vi.fn()} onResumeRun={onResumeRun} />)
+    const resume = screen.getByRole('button', { name: /이어하기/ })
+    fireEvent.keyDown(resume, { key: 'Enter' })
+    expect(onSelectRun).not.toHaveBeenCalled()
+  })
+
+  test('clicking outside closes the start-run dropdown', () => {
+    render(<HarnessRunList {...baseProps} runs={[]} onStartRun={vi.fn()} onResumeRun={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /위키 생성/ }))
+    expect(screen.getByText('전체 문서')).toBeDefined()
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByText('전체 문서')).toBeNull()
+  })
 })
