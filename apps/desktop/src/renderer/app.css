@@ -1812,3 +1812,23 @@ textarea {
 .dock-bar__agent:hover { color: #ddd; }
 .dock-bar__dot { font-size: 0.8rem; line-height: 1; }
 .dock-bar__dot--blink { animation: apc-pulse 1s ease-in-out infinite; }
+
+/* start-run dropdown + resume */
+.start-run-dropdown { position: relative; display: inline-block; }
+.start-run-dropdown__menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 60;
+  background: #1c1f26; border: 1px solid #3a3f4a; border-radius: 6px;
+  min-width: 240px; padding: 4px; display: flex; flex-direction: column;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.start-run-dropdown__menu button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  text-align: left; background: transparent; border: none; color: #c5c9d3;
+  padding: 8px 10px; border-radius: 4px; cursor: pointer;
+}
+.start-run-dropdown__menu button:hover { background: #2e3340; }
+.start-run-dropdown__menu small { color: #777; font-size: 0.7rem; }
+.harness-run-list__resume {
+  margin-left: auto; font-size: 0.7rem; padding: 1px 7px;
+  background: #2a3a4a; border: 1px solid #3a5a7a; border-radius: 4px; color: #9cf;
+}

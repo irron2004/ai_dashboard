@@ -137,7 +137,8 @@ export function HarnessDashboard({ profiles, onSelectProfile }: Props) {
           onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
-          onStartRun={() => void startHarnessRun()}
+          onStartRun={(materialize) => void startHarnessRun(materialize)}
+          onResumeRun={(runId) => void resumeHarnessRun(runId)}
         />
 
         <main className="harness-dashboard__main panel">
