@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -248,5 +249,44 @@ describe('IPC handlers (no Electron)', () => {
     const res = await h[CH.changesList]({ projectId: 'p1' }) as { ok: boolean }
     expect(res.ok).toBe(false)
     rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('q:changesList lists an untracked md as unreflected in a real repo', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-git3-'))
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    writeFileSync(join(dir, 'note.md'), '# hi')
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: [dir] })
+    const h = handlers(container)
+    const res = await h[CH.changesList]({ projectId: 'p1' }) as { ok: boolean; files?: { path: string; unreflected?: boolean }[] }
+    expect(res.ok).toBe(true)
+    // ingest_cursors is empty → cutoff null → every md is unreflected
+    expect(res.files?.find((f) => f.path === 'note.md')?.unreflected).toBe(true)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('q:changesList returns ok:false for an unknown project', async () => {
+    const h = handlers(container)
+    const res = await h[CH.changesList]({ projectId: 'missing' }) as { ok: boolean; reason?: string }
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe('project not found')
+  })
+
+  test('q:changesDiff returns the untracked file as a patch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-gitdiff-'))
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    writeFileSync(join(dir, 'doc.md'), '# added\n')
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: [dir] })
+    const h = handlers(container)
+    const res = await h[CH.changesDiff]({ projectId: 'p1', relPath: 'doc.md' }) as { ok: boolean; patch?: string }
+    expect(res.ok).toBe(true)
+    expect(res.patch).toContain('+# added')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('q:changesDiff returns ok:false for an unknown project', async () => {
+    const h = handlers(container)
+    const res = await h[CH.changesDiff]({ projectId: 'missing', relPath: 'x.md' }) as { ok: boolean; reason?: string }
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBe('project not found')
   })
 })

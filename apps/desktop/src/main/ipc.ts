@@ -199,6 +199,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = z.object({ projectId: z.string() }).strict().parse(payload)
       const project = container.registry.get(req.projectId)
       if (!project) return { ok: false, reason: 'project not found' }
+      // NOTE: global MAX, not project-scoped. `ingest_cursors.source_id` is an opaque adapter string
+      // (e.g. `opencode:<dbPath>#session:<id>`) with no FK to a project — source→project is resolved at
+      // ingest time via repoPath, not stored — so there's no clean per-project join here. Ingestion also
+      // runs globally (one pass over all sources). This over-suppresses `unreflected` for a project that
+      // trails a more-recently-ingested one; proper per-project scoping needs a schema/semantic change.
       const row = container.db.prepare('SELECT MAX(updated_at) AS at FROM ingest_cursors').get() as { at: string | null } | undefined
       return listProjectChanges(project.repoPaths, row?.at ?? null)
     },
