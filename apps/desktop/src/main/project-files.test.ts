@@ -33,7 +33,7 @@ describe('project-files', () => {
   test('rejects path traversal out of the root', () => {
     const res = readProjectDoc([root], `../${outside.split('/').pop()}/secret.md`)
     expect(res.ok).toBe(false)
-    expect(res.reason).toMatch(/허용되지 않는 경로|outside/i)
+    if (!res.ok) expect(res.reason).toMatch(/허용되지 않는 경로|outside/i)
   })
 
   test('rejects absolute paths outside the roots', () => {
@@ -52,7 +52,7 @@ describe('project-files', () => {
     writeFileSync(join(root, 'big.md'), 'x'.repeat(513 * 1024))
     const res = readProjectDoc([root], 'big.md')
     expect(res.ok).toBe(false)
-    expect(res.reason).toMatch(/크기|size/i)
+    if (!res.ok) expect(res.reason).toMatch(/크기|size/i)
   })
 
   test('missing file returns ok:false (not throw)', () => {
@@ -64,5 +64,21 @@ describe('project-files', () => {
     const paths = docs.map((d) => d.relPath).sort()
     expect(paths).toEqual(['README.md', 'docs/plan.md'])
     expect(docs[0].mtimeMs).toBeGreaterThan(0)
+  })
+
+  test('listProjectDocs includes .txt files', () => {
+    writeFileSync(join(root, 'notes.txt'), 'hi')
+    const docs = listProjectDocs([root])
+    expect(docs.map((d) => d.relPath)).toContain('notes.txt')
+  })
+
+  test('listProjectDocs lists from multiple roots', () => {
+    const second = mkdtempSync(join(tmpdir(), 'apc-files2-'))
+    writeFileSync(join(second, 'extra.md'), '# extra')
+    const docs = listProjectDocs([root, second])
+    const paths = docs.map((d) => d.relPath)
+    expect(paths).toContain('README.md')   // from root (existing fixture)
+    expect(paths).toContain('extra.md')    // from second root
+    rmSync(second, { recursive: true, force: true })
   })
 })

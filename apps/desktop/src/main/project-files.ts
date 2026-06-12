@@ -3,11 +3,12 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const MAX_DOC_BYTES = 512 * 1024
 const TEXT_EXT = /\.(md|mdx|txt)$/i
+// Never expose build output or VCS internals to the renderer.
 const SKIP_DIRS = new Set(['node_modules', '.git', 'out', 'dist', '.harness-runs'])
 const LIST_LIMIT = 2_000
 const DEPTH_LIMIT = 12
 
-export type ReadDocResult = { ok: boolean; content?: string; reason?: string }
+export type ReadDocResult = { ok: true; content: string } | { ok: false; reason: string }
 export type ProjectDocEntry = { relPath: string; mtimeMs: number }
 
 /** root의 realpath 내부로 확정된 절대 경로를 돌려주거나 null. 심링크 탈출도 realpath로 잡는다. */
