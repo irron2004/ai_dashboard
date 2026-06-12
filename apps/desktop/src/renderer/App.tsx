@@ -21,9 +21,9 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 
 export function App() {
   const {
-    projects, selectedProjectId, dashboard, profiles, error, agentStatus,
+    projects, selectedProjectId, dashboard, error, agentStatus,
     harnessLoading,
-    loadProjects, addProject, updateProject, deleteProject, selectProject, loadProfiles, clearError, setAgentStatus,
+    loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
   const [mainTab, setMainTab] = useState<MainTab>(() => {
@@ -132,13 +132,6 @@ export function App() {
 
   useEffect(() => { loadProjects() }, [loadProjects])
 
-  useEffect(() => {
-    if (selectedProjectId) {
-      const project = projects.find((p) => p.id === selectedProjectId)
-      loadProfiles(project?.repoPaths[0] ?? '')
-    }
-  }, [selectedProjectId, projects, loadProfiles])
-
   // Keyboard: Ctrl+1..9 → project by index; Shift+1/2/3 → agent.
   // Use e.code (Digit1..) because Shift turns e.key '1' into '!'. Capture phase + stopPropagation
   // so a focused terminal doesn't also receive the keystroke.
@@ -178,12 +171,6 @@ export function App() {
 
   const project = projects.find((p) => p.id === selectedProjectId)
   const cwd = project?.repoPaths[0] ?? '.'
-
-  const handleSelectProfile = (profileId: string) => {
-    const taskId = dashboard?.activeTasks[0]?.id
-    if (!taskId) { window.alert('Select/create a task first to attach a profile.'); return }
-    void api.selectProfile({ taskId, profileId })
-  }
 
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
@@ -232,8 +219,6 @@ export function App() {
             tab={mainTab}
             onTab={handleMainTab}
             dashboard={dashboard}
-            profiles={profiles}
-            onSelectProfile={handleSelectProfile}
             actions={toolbarActions}
             wikiGenRunning={harnessLoading}
           />

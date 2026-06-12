@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import type { AgentProfile } from '@apc/shared'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { HomeView } from './HomeView.js'
 import { KnowledgeView } from './KnowledgeView.js'
@@ -11,8 +10,6 @@ type Props = {
   tab: MainTab
   onTab: (tab: MainTab) => void
   dashboard: ProjectDashboardRes
-  profiles: AgentProfile[]
-  onSelectProfile: (profileId: string) => void
   /** Right-aligned toolbar actions rendered inline in the tab row (so they don't claim a whole row). */
   actions?: ReactNode
   /** True while a wiki generation run is in flight — shows a pulsing dot on the Wiki Gen tab. */
