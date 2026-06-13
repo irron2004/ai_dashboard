@@ -5,6 +5,10 @@ import type {
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  HarnessProposePolicyReq, HarnessProposePolicyRes,
+  HarnessApprovePolicyReq, HarnessApprovePolicyRes,
+  HarnessGetPolicyReq, HarnessGetPolicyRes,
+  HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
@@ -91,6 +95,18 @@ export const api = {
   },
   harnessCanonicalProposals(req: HarnessCanonicalProposalsReq): Promise<HarnessCanonicalProposalsRes> {
     return window.apc.invoke(CH.harnessCanonicalProposals, req) as Promise<HarnessCanonicalProposalsRes>
+  },
+  harnessProposePolicy(req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> {
+    return window.apc.invoke(CH.harnessProposePolicy, req) as Promise<HarnessProposePolicyRes>
+  },
+  harnessApprovePolicy(req: HarnessApprovePolicyReq): Promise<HarnessApprovePolicyRes> {
+    return window.apc.invoke(CH.harnessApprovePolicy, req) as Promise<HarnessApprovePolicyRes>
+  },
+  harnessGetPolicy(req: HarnessGetPolicyReq): Promise<HarnessGetPolicyRes> {
+    return window.apc.invoke(CH.harnessGetPolicy, req) as Promise<HarnessGetPolicyRes>
+  },
+  harnessRevertPolicy(req: HarnessRevertPolicyReq): Promise<HarnessRevertPolicyRes> {
+    return window.apc.invoke(CH.harnessRevertPolicy, req) as Promise<HarnessRevertPolicyRes>
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

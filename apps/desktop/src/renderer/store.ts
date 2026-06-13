@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes } from '../shared/ipc-contract.js'
+import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 import {
   appendTailLines,
@@ -50,6 +50,15 @@ type ApcStore = {
   /** Same, but for a CANONICAL proposal promote — tracks which proposal was blocked so the per-doc
    * force button can retry exactly that one with allowInvalid. */
   harnessCanonicalBlock: { proposalRelPath: string; lastReadHash: string; reason: string } | null
+
+  wikiPolicy: WikiPolicyRecordDto | null
+  wikiPolicyPreview: string | null
+  wikiPolicyBusy: boolean
+  wikiPolicyMessage: string | null
+  proposeWikiPolicy(projectId: string, engine: AgentType): Promise<void>
+  approveWikiPolicy(projectId: string): Promise<void>
+  loadWikiPolicy(projectId: string): Promise<void>
+  revertWikiPolicy(projectId: string): Promise<void>
 
   setAgentStatus(agent: AgentType, status: AgentRunStatus): void
   prepareGenerate(): Promise<void>
@@ -133,6 +142,11 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessPromoteBlockedReason: null,
   harnessCanonicalBlock: null,
   harnessConfigs: {},
+
+  wikiPolicy: null,
+  wikiPolicyPreview: null,
+  wikiPolicyBusy: false,
+  wikiPolicyMessage: null,
 
   setAgentStatus(agent, status) {
     set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
@@ -452,6 +466,37 @@ export const useStore = create<ApcStore>((set, get) => ({
   setHarnessProgress(state) { set({ harnessProgress: state }) },
   appendHarnessEngineLog(e) {
     set((s) => ({ harnessLiveLabel: e.label, harnessLiveTail: appendTailLines(s.harnessLiveTail, e.chunk) }))
+  },
+
+  async proposeWikiPolicy(projectId, engine) {
+    set({ wikiPolicyBusy: true, wikiPolicyMessage: null })
+    const res = await api.harnessProposePolicy({ projectId, engine })
+    if (res.ok && res.proposal) {
+      set({
+        wikiPolicyPreview: res.effectivePreview ?? null,
+        wikiPolicyMessage: '제안 생성됨 — 검토 후 승인하세요',
+        wikiPolicy: { status: 'proposed', proposal: res.proposal, generatedAt: new Date().toISOString(), body: '' },
+      })
+    } else {
+      set({ wikiPolicyMessage: `실패: ${res.reason ?? 'unknown'}` })
+    }
+    set({ wikiPolicyBusy: false })
+  },
+
+  async approveWikiPolicy(projectId) {
+    const res = await api.harnessApprovePolicy({ projectId })
+    if (res.ok) set({ wikiPolicy: res.record ?? null, wikiPolicyMessage: '승인됨 — 다음 런부터 적용' })
+    else set({ wikiPolicyMessage: `승인 실패: ${res.reason ?? 'unknown'}` })
+  },
+
+  async loadWikiPolicy(projectId) {
+    const res = await api.harnessGetPolicy({ projectId })
+    set({ wikiPolicy: res.record, wikiPolicyPreview: null })
+  },
+
+  async revertWikiPolicy(projectId) {
+    await api.harnessRevertPolicy({ projectId })
+    set({ wikiPolicy: null, wikiPolicyPreview: null, wikiPolicyMessage: '기본 정책으로 되돌림' })
   },
 
   async attachProfileToActiveTask(profileId: string) {
