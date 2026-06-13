@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -64,10 +64,22 @@ describe('store round-trip', () => {
     expect(() => approvePolicy(vault, 'p1', NOW)).toThrow(/no proposed policy/i)
   })
 
-  test('revertPolicy removes the policy', () => {
+  test('revertPolicy removes the policy and cleans up the empty project dir', () => {
     writeProposedPolicy(vault, 'p1', proposal(), NOW)
     revertPolicy(vault, 'p1')
     expect(readPolicy(vault, 'p1')).toBeNull()
+    expect(existsSync(join(vault, 'projects', 'p1'))).toBe(false)
+  })
+})
+
+describe('path safety', () => {
+  // join('projects', '../../evil') normalizes to '../evil' — climbs past projects/ AND the vault root.
+  test('policyMarkdownPath throws on a projectId that escapes the vault', () => {
+    expect(() => policyMarkdownPath(vault, '../../evil')).toThrow(/escapes/)
+  })
+
+  test('resolveProjectPreamble falls back to base for an escaping projectId (never throws)', () => {
+    expect(resolveProjectPreamble(vault, '../../evil', BASE)).toBe(BASE)
   })
 })
 

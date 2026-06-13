@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, rmSync, rmdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { KhProjectPolicyProposalSchema, type KhProjectPolicyProposal } from '@apc/shared'
 import { resolveInside } from './vault-fs.js'
@@ -42,10 +42,25 @@ export function renderTailoring(p: KhProjectPolicyProposal): string {
   return lines.join('\n').trimEnd() + '\n'
 }
 
+/** Write to a sibling .tmp then rename — rename is atomic on the same filesystem, so a reader (or a
+ * crash) never observes a half-written file. Mirrors RunArtifactStore.writeAtomic. */
+function writeAtomic(abs: string, data: string): void {
+  const tmp = `${abs}.${process.pid}.tmp`
+  writeFileSync(tmp, data)
+  renameSync(tmp, abs)
+}
+
+/** Persist only the machine state (wiki-policy.json) — used by approve, which must not touch the
+ * human-reviewed .md body (rewriting it would spuriously bump its mtime in the git-changes feed). */
+function writeJson(vaultRoot: string, projectId: string, state: PolicyState): void {
+  mkdirSync(policyDir(vaultRoot, projectId), { recursive: true })
+  writeAtomic(policyJsonPath(vaultRoot, projectId), JSON.stringify(state, null, 2))
+}
+
 function writeState(vaultRoot: string, projectId: string, state: PolicyState, body: string): void {
   mkdirSync(policyDir(vaultRoot, projectId), { recursive: true })
-  writeFileSync(policyMarkdownPath(vaultRoot, projectId), body)
-  writeFileSync(policyJsonPath(vaultRoot, projectId), JSON.stringify(state, null, 2))
+  writeAtomic(policyMarkdownPath(vaultRoot, projectId), body)
+  writeAtomic(policyJsonPath(vaultRoot, projectId), JSON.stringify(state, null, 2))
 }
 
 /** Returns null when absent OR unreadable/corrupt — callers must treat that as "no policy". */
@@ -77,13 +92,15 @@ export function approvePolicy(vaultRoot: string, projectId: string, now: () => s
   const rec = readPolicy(vaultRoot, projectId)
   if (!rec) throw new Error(`no proposed policy to approve for project ${projectId}`)
   const state: PolicyState = { status: 'approved', proposal: rec.proposal, generatedAt: rec.generatedAt, approvedAt: now() }
-  writeState(vaultRoot, projectId, state, rec.body)
+  writeJson(vaultRoot, projectId, state)   // .md body stays as-is on disk (human-reviewed source of truth)
   return { ...state, body: rec.body }
 }
 
 export function revertPolicy(vaultRoot: string, projectId: string): void {
   rmSync(policyMarkdownPath(vaultRoot, projectId), { force: true })
   rmSync(policyJsonPath(vaultRoot, projectId), { force: true })
+  // Remove the now-empty projects/<id>/ dir; rmdirSync throws if other files live there — leave it then.
+  try { rmdirSync(policyDir(vaultRoot, projectId)) } catch { /* not empty or absent — leave it */ }
 }
 
 /** Effective preamble for a run: DEFAULT_PREAMBLE (always fresh) + approved tailoring body.
