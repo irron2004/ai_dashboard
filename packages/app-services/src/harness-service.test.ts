@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
-import { RunLock, RunArtifactStore, readPolicy } from '@apc/knowledge-harness'
+import { RunLock, RunArtifactStore, readPolicy, resolveProjectPreamble } from '@apc/knowledge-harness'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
@@ -399,6 +399,10 @@ describe('HarnessService wiki policy', () => {
     const ap = service.approveWikiPolicy({ projectId: 'p1' })
     expect(ap.ok).toBe(true)
     expect(readPolicy(vaultRoot, 'p1')?.status).toBe('approved')
+    // The actual contract: once approved, resolveProjectPreamble injects the tailoring on top of base.
+    const eff = resolveProjectPreamble(vaultRoot, 'p1', 'BASE-RULES')
+    expect(eff.startsWith('BASE-RULES')).toBe(true)
+    expect(eff).toContain('ExperimentNode')
   })
 
   test('proposeWikiPolicy surfaces an agent failure as { ok:false, reason } without writing', async () => {

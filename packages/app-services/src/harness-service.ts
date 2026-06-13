@@ -154,7 +154,9 @@ export class HarnessService {
   }
 
   /** Reuse the most recent run's ProjectDiscoveryReport for this project, if any. Newest-first by
-   * runId (timestamped RUN-<iso>). Returns null if none readable — caller then runs discovery fresh. */
+   * runId (timestamped RUN-<iso>, so lexicographic sort == chronological). Returns null if none
+   * readable — caller then runs discovery fresh. O(runs): reads run.json per run until a match;
+   * fine for on-demand use — add a cache if this ever gets called on a hot path. */
   private latestDiscovery(projectId: string): KhProjectDiscoveryReport | null {
     let dirs: string[]
     try { dirs = readdirSync(this.deps.runsRoot).filter((d) => d.startsWith('RUN-')).sort().reverse() }
@@ -190,8 +192,14 @@ export class HarnessService {
         input: { base_preamble: this.preamble, discovery }, cwd: input.repoPaths?.[0], label: 'wiki-policy-advisor',
       })
       const rec = writeProposedPolicy(this.deps.vaultRoot, input.projectId, proposal, this.now)
+      // Preview mirrors resolveProjectPreamble's approved-path composition (base + '\n\n' + body).
+      // We can't call resolveProjectPreamble here: the policy is still 'proposed', so it would return
+      // base only. Keep this separator in sync with resolveProjectPreamble.
       return { ok: true, proposal, effectivePreview: `${this.preamble}\n\n${rec.body}` }
     } catch (err) {
+      // Agents run on this.deps.runner directly (not the per-run LoggingAgentRunner): a proposal is not
+      // a pipeline run. The LlmAgent error already embeds engine/exit/stderr head+tail, so a failed
+      // proposal is still diagnosable from `reason` without a persisted logs dir.
       return { ok: false, reason: err instanceof Error ? err.message : String(err) }
     }
   }
@@ -205,9 +213,10 @@ export class HarnessService {
     return { ok: true, record: readPolicy(this.deps.vaultRoot, input.projectId) }
   }
 
-  revertWikiPolicy(input: { projectId: string }): { ok: boolean } {
-    revertPolicy(this.deps.vaultRoot, input.projectId)
-    return { ok: true }
+  revertWikiPolicy(input: { projectId: string }): { ok: boolean; reason?: string } {
+    // Wrap like the sibling methods so no exception escapes the IPC boundary (e.g. a read-only mount).
+    try { revertPolicy(this.deps.vaultRoot, input.projectId); return { ok: true } }
+    catch (err) { return { ok: false, reason: err instanceof Error ? err.message : String(err) } }
   }
 
   promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {
