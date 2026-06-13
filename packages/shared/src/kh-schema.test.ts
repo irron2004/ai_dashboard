@@ -5,6 +5,7 @@ import {
   KhDocumentIntentReportSchema, KhGraphUpdatePlanSchema, KhSharedPromotionPlanSchema, KhStaleDocReportSchema,
   KhPolicyReportSchema, KhSecretScanReportSchema, KhGraphValidationReportSchema,
   KhLinkValidationReportSchema, KhMarkdownYamlValidationReportSchema,
+  KhProjectPolicyProposalSchema,
 } from './kh-schema.js'
 
 describe('kh-schema', () => {
@@ -56,6 +57,27 @@ describe('kh-schema', () => {
     const r = KhProjectDiscoveryReportSchema.parse({ project_id: 'p1', generated_by: 'discovery' })
     expect(r.repos).toEqual([])
     expect(r.canonical_docs).toEqual([])
+  })
+
+  test('ProjectPolicyProposal defaults lists/strings empty', () => {
+    const p = KhProjectPolicyProposalSchema.parse({ project_id: 'p1', generated_by: 'wiki-policy-advisor' })
+    expect(p.project_character).toBe('')
+    expect(p.node_type_priorities).toEqual([])
+    expect(p.canonical_definition).toBe('')
+    expect(p.scan_scope_notes).toBe('')
+    expect(p.tailoring_markdown).toBe('')
+    expect(p.evidence).toEqual([])
+  })
+
+  test('ProjectPolicyProposal keeps populated priorities + evidence', () => {
+    const p = KhProjectPolicyProposalSchema.parse({
+      project_id: 'p1', generated_by: 'wiki-policy-advisor',
+      node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'research repo' }],
+      evidence: [{ signal: 'topics', detail: 'backtesting, grid search' }],
+    })
+    expect(p.node_type_priorities[0].node_type).toBe('ExperimentNode')
+    expect(p.node_type_priorities[0].rationale).toBe('research repo')
+    expect(p.evidence[0].signal).toBe('topics')
   })
 
   test('DocumentIntentReport carries classified docs with intent', () => {

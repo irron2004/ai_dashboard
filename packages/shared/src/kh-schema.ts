@@ -177,6 +177,25 @@ export const KhProjectDiscoveryReportSchema = z.object({
 })
 export type KhProjectDiscoveryReport = z.infer<typeof KhProjectDiscoveryReportSchema>
 
+export const KhProjectPolicyProposalSchema = z.object({
+  project_id: z.string(),
+  generated_by: z.string(),
+  project_character: z.string().default(''),
+  node_type_priorities: z.array(z.object({
+    node_type: z.string(),
+    rationale: z.string().default(''),
+  })).default([]),
+  canonical_definition: z.string().default(''),
+  scan_scope_notes: z.string().default(''),
+  tailoring_markdown: z.string().default(''),
+  rationale: z.string().default(''),
+  evidence: z.array(z.object({
+    signal: z.string(),
+    detail: z.string().default(''),
+  })).default([]),
+})
+export type KhProjectPolicyProposal = z.infer<typeof KhProjectPolicyProposalSchema>
+
 export const KhSourceInventoryReportSchema = z.object({
   generated_by: z.string(),
   sources: z.array(z.object({
