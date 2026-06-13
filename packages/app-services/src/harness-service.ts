@@ -1,8 +1,13 @@
 import { join } from 'node:path'
-import type { AgentType, RunState } from '@apc/shared'
+import { readdirSync } from 'node:fs'
+import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal } from '@apc/shared'
+import { KhProjectDiscoveryReportSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
+  makeProjectDiscovery, makeWikiPolicyAdvisor,
+  writeProposedPolicy, approvePolicy, revertPolicy, resolveProjectPreamble, readPolicy,
+  type WikiPolicyRecord,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
@@ -71,7 +76,9 @@ export class HarnessService {
     }
     const drivers = makeDrivers({
       runner, vaultRoot: this.deps.vaultRoot,
-      stagingRoot: this.stagingDir(runId), preamble: this.preamble, projectCwd,
+      stagingRoot: this.stagingDir(runId),
+      preamble: resolveProjectPreamble(this.deps.vaultRoot, projectId, this.preamble),
+      projectCwd,
       stepTimeoutMs: this.deps.stepTimeoutMs,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
@@ -144,6 +151,63 @@ export class HarnessService {
       data: store.readArtifact(path),
     })))
     return { ok: true, runState, artifacts }
+  }
+
+  /** Reuse the most recent run's ProjectDiscoveryReport for this project, if any. Newest-first by
+   * runId (timestamped RUN-<iso>). Returns null if none readable — caller then runs discovery fresh. */
+  private latestDiscovery(projectId: string): KhProjectDiscoveryReport | null {
+    let dirs: string[]
+    try { dirs = readdirSync(this.deps.runsRoot).filter((d) => d.startsWith('RUN-')).sort().reverse() }
+    catch { return null }
+    for (const d of dirs) {
+      try {
+        const store = new RunArtifactStore(join(this.deps.runsRoot, d))
+        if (!store.exists()) continue
+        const rs = store.loadRunState()
+        if (rs.projectId !== projectId) continue
+        const rel = rs.artifacts['PROJECT_SCANNED']?.[0]
+        if (!rel) continue
+        return KhProjectDiscoveryReportSchema.parse(store.readArtifact(rel))
+      } catch { continue }
+    }
+    return null
+  }
+
+  /** On-demand: ensure a discovery report, run the advisor, persist a *proposed* policy.
+   * Never throws — agent/parse failures come back as { ok:false, reason }. */
+  async proposeWikiPolicy(input: { projectId: string; engine: AgentType; repoPaths?: string[] }):
+    Promise<{ ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; reason?: string }> {
+    try {
+      let discovery = this.latestDiscovery(input.projectId)
+      if (!discovery) {
+        discovery = await makeProjectDiscovery(this.preamble).run({
+          runner: this.deps.runner, engine: input.engine,
+          input: { projectId: input.projectId }, cwd: input.repoPaths?.[0], label: 'wiki-policy-discovery',
+        })
+      }
+      const proposal = await makeWikiPolicyAdvisor(this.preamble).run({
+        runner: this.deps.runner, engine: input.engine,
+        input: { base_preamble: this.preamble, discovery }, cwd: input.repoPaths?.[0], label: 'wiki-policy-advisor',
+      })
+      const rec = writeProposedPolicy(this.deps.vaultRoot, input.projectId, proposal, this.now)
+      return { ok: true, proposal, effectivePreview: `${this.preamble}\n\n${rec.body}` }
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  approveWikiPolicy(input: { projectId: string }): { ok: boolean; record?: WikiPolicyRecord; reason?: string } {
+    try { return { ok: true, record: approvePolicy(this.deps.vaultRoot, input.projectId, this.now) } }
+    catch (err) { return { ok: false, reason: err instanceof Error ? err.message : String(err) } }
+  }
+
+  getWikiPolicy(input: { projectId: string }): { ok: true; record: WikiPolicyRecord | null } {
+    return { ok: true, record: readPolicy(this.deps.vaultRoot, input.projectId) }
+  }
+
+  revertWikiPolicy(input: { projectId: string }): { ok: boolean } {
+    revertPolicy(this.deps.vaultRoot, input.projectId)
+    return { ok: true }
   }
 
   promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {

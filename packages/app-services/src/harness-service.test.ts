@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
-import { RunLock, RunArtifactStore } from '@apc/knowledge-harness'
+import { RunLock, RunArtifactStore, readPolicy } from '@apc/knowledge-harness'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
@@ -355,5 +355,57 @@ describe('HarnessService conversation materialization', () => {
     const res = await svc.run({ projectId: 'p1', engine: 'codex', materialize: true, repoPaths: [repo] })
     expect(res.runId).toBeTruthy()
     expect(existsSync(join(vaultRoot, 'raw', 'conversations'))).toBe(false)
+  })
+})
+
+describe('HarnessService wiki policy', () => {
+  // FakeAgentRunner returns queued outputs in order. proposeWikiPolicy with no prior
+  // PROJECT_SCANNED artifact runs discovery first, then the advisor — so queue 2 outputs.
+  function svc(outputs: string[]) {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-wp-'))
+    const service = new HarnessService({
+      runner: new FakeAgentRunner(outputs),
+      vaultRoot: join(ws, 'vault'),
+      runsRoot: join(ws, 'runs'),
+      preamble: 'BASE-RULES',
+      now: () => '2026-06-13T00:00:00Z',
+    })
+    return { service, ws, vaultRoot: join(ws, 'vault') }
+  }
+
+  test('proposeWikiPolicy runs discovery+advisor and writes a proposed policy', async () => {
+    const discovery = JSON.stringify({ project_id: 'p1', generated_by: 'discovery', topics: ['backtesting'] })
+    const proposal = JSON.stringify({
+      project_id: 'p1', generated_by: 'wiki-policy-advisor', project_character: 'quant research',
+      node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'backtests' }],
+    })
+    const { service, vaultRoot } = svc([discovery, proposal])
+    const res = await service.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    expect(res.ok).toBe(true)
+    expect(res.proposal?.project_character).toBe('quant research')
+    expect(res.effectivePreview).toContain('BASE-RULES')          // governance on top
+    expect(res.effectivePreview).toContain('ExperimentNode')      // tailoring appended
+    expect(readPolicy(vaultRoot, 'p1')?.status).toBe('proposed')
+  })
+
+  test('approveWikiPolicy makes resolveProjectPreamble inject the tailoring for that project', async () => {
+    const discovery = JSON.stringify({ project_id: 'p1', generated_by: 'discovery' })
+    const proposal = JSON.stringify({
+      project_id: 'p1', generated_by: 'wiki-policy-advisor',
+      node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'r' }],
+    })
+    const { service, vaultRoot } = svc([discovery, proposal])
+    await service.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    const ap = service.approveWikiPolicy({ projectId: 'p1' })
+    expect(ap.ok).toBe(true)
+    expect(readPolicy(vaultRoot, 'p1')?.status).toBe('approved')
+  })
+
+  test('proposeWikiPolicy surfaces an agent failure as { ok:false, reason } without writing', async () => {
+    const { service, vaultRoot } = svc([])   // empty queue → FakeAgentRunner not-ok
+    const res = await service.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBeTruthy()
+    expect(readPolicy(vaultRoot, 'p1')).toBeNull()
   })
 })
