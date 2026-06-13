@@ -147,6 +147,11 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
   }
 
   const beginPan = (event: PointerEvent<SVGSVGElement>) => {
+    // Only pan when the gesture starts on the empty canvas — never on a node. Capturing the pointer on
+    // a node's pointerdown makes Chromium retarget the ensuing `click` to the <svg>, so the node's
+    // onClick never fires and the md peek never opens (the graph node-peek bug). target===currentTarget
+    // is true only for the bare svg background; node/link presses fall through and stay clickable.
+    if (event.target !== event.currentTarget) return
     pointer.current = { x: event.clientX, y: event.clientY, startX: zoom.x, startY: zoom.y, startZoom: zoom }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
