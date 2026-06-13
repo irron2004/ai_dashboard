@@ -470,33 +470,49 @@ export const useStore = create<ApcStore>((set, get) => ({
 
   async proposeWikiPolicy(projectId, engine) {
     set({ wikiPolicyBusy: true, wikiPolicyMessage: null })
-    const res = await api.harnessProposePolicy({ projectId, engine })
-    if (res.ok && res.proposal) {
-      set({
-        wikiPolicyPreview: res.effectivePreview ?? null,
-        wikiPolicyMessage: '제안 생성됨 — 검토 후 승인하세요',
-        wikiPolicy: { status: 'proposed', proposal: res.proposal, generatedAt: new Date().toISOString(), body: '' },
-      })
-    } else {
-      set({ wikiPolicyMessage: `실패: ${res.reason ?? 'unknown'}` })
+    try {
+      const res = await api.harnessProposePolicy({ projectId, engine })
+      if (res.ok && res.proposal) {
+        set({
+          wikiPolicyPreview: res.effectivePreview ?? null,
+          wikiPolicyMessage: '제안 생성됨 — 검토 후 승인하세요',
+          wikiPolicy: { status: 'proposed', proposal: res.proposal, generatedAt: new Date().toISOString(), body: '' },
+        })
+      } else {
+        set({ wikiPolicyMessage: `실패: ${res.reason ?? 'unknown'}` })
+      }
+    } catch (e) {
+      set({ wikiPolicyMessage: `실패: ${e}` })
+    } finally {
+      set({ wikiPolicyBusy: false })   // always clear the spinner, even on IPC rejection
     }
-    set({ wikiPolicyBusy: false })
   },
 
   async approveWikiPolicy(projectId) {
-    const res = await api.harnessApprovePolicy({ projectId })
-    if (res.ok) set({ wikiPolicy: res.record ?? null, wikiPolicyMessage: '승인됨 — 다음 런부터 적용' })
-    else set({ wikiPolicyMessage: `승인 실패: ${res.reason ?? 'unknown'}` })
+    try {
+      const res = await api.harnessApprovePolicy({ projectId })
+      if (res.ok) set({ wikiPolicy: res.record ?? null, wikiPolicyMessage: '승인됨 — 다음 런부터 적용' })
+      else set({ wikiPolicyMessage: `승인 실패: ${res.reason ?? 'unknown'}` })
+    } catch (e) {
+      set({ wikiPolicyMessage: `승인 실패: ${e}` })
+    }
   },
 
   async loadWikiPolicy(projectId) {
-    const res = await api.harnessGetPolicy({ projectId })
-    set({ wikiPolicy: res.record, wikiPolicyPreview: null })
+    try {
+      const res = await api.harnessGetPolicy({ projectId })
+      set({ wikiPolicy: res.record, wikiPolicyPreview: null })
+    } catch { /* policy load is best-effort UI hydration — leave prior state on failure */ }
   },
 
   async revertWikiPolicy(projectId) {
-    await api.harnessRevertPolicy({ projectId })
-    set({ wikiPolicy: null, wikiPolicyPreview: null, wikiPolicyMessage: '기본 정책으로 되돌림' })
+    try {
+      const res = await api.harnessRevertPolicy({ projectId })
+      if (!res.ok) { set({ wikiPolicyMessage: `되돌리기 실패: ${res.reason ?? 'unknown'}` }); return }
+      set({ wikiPolicy: null, wikiPolicyPreview: null, wikiPolicyMessage: '기본 정책으로 되돌림' })
+    } catch (e) {
+      set({ wikiPolicyMessage: `되돌리기 실패: ${e}` })
+    }
   },
 
   async attachProfileToActiveTask(profileId: string) {

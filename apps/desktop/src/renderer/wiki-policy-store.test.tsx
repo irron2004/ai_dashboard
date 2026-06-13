@@ -69,6 +69,21 @@ describe('wiki policy store actions (api mocked)', () => {
     expect(useStore.getState().wikiPolicyBusy).toBe(false)
   })
 
+  test('proposeWikiPolicy clears wikiPolicyBusy even when the api rejects', async () => {
+    mockApi.harnessProposePolicy.mockRejectedValue(new Error('ipc down'))
+    await useStore.getState().proposeWikiPolicy('p1', 'claude')
+    expect(useStore.getState().wikiPolicyBusy).toBe(false)
+    expect(useStore.getState().wikiPolicyMessage).toContain('ipc down')
+  })
+
+  test('revertWikiPolicy keeps the policy and reports failure on ok:false', async () => {
+    mockApi.harnessRevertPolicy.mockResolvedValue({ ok: false, reason: 'read-only mount' })
+    useStore.setState({ wikiPolicy: { status: 'approved', proposal: PROPOSAL, generatedAt: '2026-01-01T00:00:00.000Z', body: 'x' } })
+    await useStore.getState().revertWikiPolicy('p1')
+    expect(useStore.getState().wikiPolicy).not.toBeNull()
+    expect(useStore.getState().wikiPolicyMessage).toContain('read-only mount')
+  })
+
   test('approveWikiPolicy stores the returned record on ok:true', async () => {
     const record = { status: 'approved' as const, proposal: PROPOSAL, generatedAt: '2026-01-01T00:00:00.000Z', approvedAt: '2026-01-01T01:00:00.000Z', body: 'body text' }
     mockApi.harnessApprovePolicy.mockResolvedValue({ ok: true, record })
