@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { FakeAgentRunner } from '@apc/llm-wiki'
-import { makeProjectDiscovery, makeKnowledgeNodeExtractor } from './index.js'
+import { makeProjectDiscovery, makeKnowledgeNodeExtractor, makeWikiPolicyAdvisor } from './index.js'
 
 describe('concrete agents', () => {
   test('ProjectDiscovery parses a ProjectDiscoveryReport', async () => {
@@ -19,5 +19,21 @@ describe('concrete agents', () => {
     const runner = new FakeAgentRunner([JSON.stringify({ proposals })])
     const out = await makeKnowledgeNodeExtractor('PREAMBLE').run({ runner, engine: 'claude', input: {} })
     expect(out.proposals[0].node.id).toBe('n1')
+  })
+
+  test('WikiPolicyAdvisor parses a ProjectPolicyProposal', async () => {
+    const proposal = {
+      project_id: 'p1', generated_by: 'wiki-policy-advisor',
+      project_character: 'quant research repo',
+      node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'lots of backtests' }],
+      evidence: [{ signal: 'topics', detail: 'grid backtesting' }],
+    }
+    const runner = new FakeAgentRunner([JSON.stringify(proposal)])
+    const out = await makeWikiPolicyAdvisor('PREAMBLE').run({
+      runner, engine: 'claude',
+      input: { base_preamble: 'PREAMBLE', discovery: { project_id: 'p1', generated_by: 'discovery' } },
+    })
+    expect(out.node_type_priorities[0].node_type).toBe('ExperimentNode')
+    expect(out.project_character).toBe('quant research repo')
   })
 })
