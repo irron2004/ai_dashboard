@@ -289,4 +289,23 @@ describe('IPC handlers (no Electron)', () => {
     expect(res.ok).toBe(false)
     expect(res.reason).toBe('project not found')
   })
+
+  test('c:harnessProposePolicy routes to container.harnessProposePolicy', async () => {
+    let called = false
+    let calledWith: unknown = undefined
+    const fakeContainer = {
+      ...container,
+      harnessProposePolicy: async (req: unknown) => {
+        called = true
+        calledWith = req
+        return { ok: true as const }
+      },
+    }
+    const h = handlers(fakeContainer as any)
+    const payload = { projectId: 'p1', engine: 'claude' as const }
+    const res = await h[CH.harnessProposePolicy](payload)
+    expect(called).toBe(true)
+    expect(calledWith).toEqual(payload)
+    expect((res as { ok: boolean }).ok).toBe(true)
+  })
 })

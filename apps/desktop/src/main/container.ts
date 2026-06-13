@@ -19,6 +19,8 @@ import type {
   GeneratePreflightCategoryId,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
+  HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   HarnessEngineLogEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
@@ -70,6 +72,10 @@ export type Container = {
   harnessPromote: (req: HarnessPromoteReq) => HarnessPromoteRes
   harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => HarnessPromoteCanonicalRes
   harnessCanonicalProposals: (req: HarnessCanonicalProposalsReq) => HarnessCanonicalProposalsRes
+  harnessProposePolicy: (req: HarnessProposePolicyReq) => Promise<HarnessProposePolicyRes>
+  harnessApprovePolicy: (req: HarnessApprovePolicyReq) => HarnessApprovePolicyRes
+  harnessGetPolicy: (req: HarnessGetPolicyReq) => HarnessGetPolicyRes
+  harnessRevertPolicy: (req: HarnessRevertPolicyReq) => HarnessRevertPolicyRes
   dashboard: typeof getProjectDashboard
 }
 
@@ -244,12 +250,17 @@ export function buildContainer(opts: {
   const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)
   const harnessPromoteCanonical = (req: HarnessPromoteCanonicalReq): HarnessPromoteCanonicalRes => harness.promoteCanonical(req)
   const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
+  const harnessProposePolicy = (req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> => harness.proposeWikiPolicy(req)
+  const harnessApprovePolicy = (req: HarnessApprovePolicyReq): HarnessApprovePolicyRes => harness.approveWikiPolicy(req)
+  const harnessGetPolicy = (req: HarnessGetPolicyReq): HarnessGetPolicyRes => harness.getWikiPolicy(req)
+  const harnessRevertPolicy = (req: HarnessRevertPolicyReq): HarnessRevertPolicyRes => harness.revertWikiPolicy(req)
 
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy,
     dashboard: getProjectDashboard,
   }
 }

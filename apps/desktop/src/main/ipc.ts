@@ -5,6 +5,7 @@ import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
+  HarnessProposePolicyReq, HarnessApprovePolicyReq, HarnessGetPolicyReq, HarnessRevertPolicyReq,
   ConfigEditReq, ConfigRollbackReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -131,6 +132,22 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.harnessCanonicalProposals]: async (payload: unknown) => {
       const req = z.object({ runId: z.string() }).strict().parse(payload)
       return container.harnessCanonicalProposals(req)
+    },
+
+    [CH.harnessProposePolicy]: async (payload: unknown) => {
+      return container.harnessProposePolicy(payload as HarnessProposePolicyReq)
+    },
+
+    [CH.harnessApprovePolicy]: async (payload: unknown) => {
+      return container.harnessApprovePolicy(payload as HarnessApprovePolicyReq)
+    },
+
+    [CH.harnessGetPolicy]: async (payload: unknown) => {
+      return container.harnessGetPolicy(payload as HarnessGetPolicyReq)
+    },
+
+    [CH.harnessRevertPolicy]: async (payload: unknown) => {
+      return container.harnessRevertPolicy(payload as HarnessRevertPolicyReq)
     },
 
     [CH.generateRun]: async (payload: unknown) => {

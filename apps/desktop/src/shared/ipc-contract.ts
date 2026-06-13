@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -26,6 +26,10 @@ export const CH = {
   harnessPromote: 'c:harnessPromote',
   harnessPromoteCanonical: 'c:harnessPromoteCanonical',
   harnessCanonicalProposals: 'c:harnessCanonicalProposals',
+  harnessProposePolicy: 'c:harnessProposePolicy',
+  harnessApprovePolicy: 'c:harnessApprovePolicy',
+  harnessGetPolicy: 'c:harnessGetPolicy',
+  harnessRevertPolicy: 'c:harnessRevertPolicy',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -104,6 +108,22 @@ export type HarnessPromoteCanonicalReq = { runId: string; proposalRelPath: strin
 export type HarnessPromoteCanonicalRes = { ok: boolean; status?: 'promoted' | 'conflict'; canonicalPath?: string; newHash?: string; conflictPath?: string; reason?: string }
 export type HarnessCanonicalProposalsReq = { runId: string }
 export type HarnessCanonicalProposalsRes = Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }>
+
+export type WikiPolicyRecordDto = {
+  status: 'proposed' | 'approved'
+  proposal: KhProjectPolicyProposal
+  generatedAt: string
+  approvedAt?: string
+  body: string
+}
+export type HarnessProposePolicyReq = { projectId: string; engine: AgentType; repoPaths?: string[] }
+export type HarnessProposePolicyRes = { ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; reason?: string }
+export type HarnessApprovePolicyReq = { projectId: string }
+export type HarnessApprovePolicyRes = { ok: boolean; record?: WikiPolicyRecordDto; reason?: string }
+export type HarnessGetPolicyReq = { projectId: string }
+export type HarnessGetPolicyRes = { ok: true; record: WikiPolicyRecordDto | null }
+export type HarnessRevertPolicyReq = { projectId: string }
+export type HarnessRevertPolicyRes = { ok: boolean; reason?: string }
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {
