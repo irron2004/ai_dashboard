@@ -48,11 +48,13 @@ describe('wiki policy store actions (api mocked)', () => {
     mockApi.harnessProposePolicy.mockResolvedValue({
       ok: true,
       proposal: PROPOSAL,
-      effectivePreview: 'BASE\n\nT',
+      effectivePreview: 'BASE\n\n## Project Tailoring',
+      body: '## Project Tailoring',
     })
     await useStore.getState().proposeWikiPolicy('p1', 'claude')
-    expect(useStore.getState().wikiPolicyPreview).toBe('BASE\n\nT')
+    expect(useStore.getState().wikiPolicyPreview).toBe('BASE\n\n## Project Tailoring')
     expect(useStore.getState().wikiPolicy?.proposal.project_id).toBe('p1')
+    expect(useStore.getState().wikiPolicy?.body).toBe('## Project Tailoring')   // real body, not ''
   })
 
   test('proposeWikiPolicy sets wikiPolicyBusy=false after completion', async () => {

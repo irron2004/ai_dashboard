@@ -476,7 +476,7 @@ export const useStore = create<ApcStore>((set, get) => ({
         set({
           wikiPolicyPreview: res.effectivePreview ?? null,
           wikiPolicyMessage: '제안 생성됨 — 검토 후 승인하세요',
-          wikiPolicy: { status: 'proposed', proposal: res.proposal, generatedAt: new Date().toISOString(), body: '' },
+          wikiPolicy: { status: 'proposed', proposal: res.proposal, generatedAt: new Date().toISOString(), body: res.body ?? '' },
         })
       } else {
         set({ wikiPolicyMessage: `실패: ${res.reason ?? 'unknown'}` })

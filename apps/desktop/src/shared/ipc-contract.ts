@@ -117,7 +117,7 @@ export type WikiPolicyRecordDto = {
   body: string
 }
 export type HarnessProposePolicyReq = { projectId: string; engine: AgentType; repoPaths?: string[] }
-export type HarnessProposePolicyRes = { ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; reason?: string }
+export type HarnessProposePolicyRes = { ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; body?: string; reason?: string }
 export type HarnessApprovePolicyReq = { projectId: string }
 export type HarnessApprovePolicyRes = { ok: boolean; record?: WikiPolicyRecordDto; reason?: string }
 export type HarnessGetPolicyReq = { projectId: string }

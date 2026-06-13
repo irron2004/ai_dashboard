@@ -178,7 +178,7 @@ export class HarnessService {
   /** On-demand: ensure a discovery report, run the advisor, persist a *proposed* policy.
    * Never throws — agent/parse failures come back as { ok:false, reason }. */
   async proposeWikiPolicy(input: { projectId: string; engine: AgentType; repoPaths?: string[] }):
-    Promise<{ ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; reason?: string }> {
+    Promise<{ ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; body?: string; reason?: string }> {
     try {
       let discovery = this.latestDiscovery(input.projectId)
       if (!discovery) {
@@ -194,8 +194,9 @@ export class HarnessService {
       const rec = writeProposedPolicy(this.deps.vaultRoot, input.projectId, proposal, this.now)
       // Preview mirrors resolveProjectPreamble's approved-path composition (base + '\n\n' + body).
       // We can't call resolveProjectPreamble here: the policy is still 'proposed', so it would return
-      // base only. Keep this separator in sync with resolveProjectPreamble.
-      return { ok: true, proposal, effectivePreview: `${this.preamble}\n\n${rec.body}` }
+      // base only. Keep this separator in sync with resolveProjectPreamble. `body` is returned too so
+      // the renderer store holds the real tailoring body (not '') during the proposed phase.
+      return { ok: true, proposal, effectivePreview: `${this.preamble}\n\n${rec.body}`, body: rec.body }
     } catch (err) {
       // Agents run on this.deps.runner directly (not the per-run LoggingAgentRunner): a proposal is not
       // a pipeline run. The LlmAgent error already embeds engine/exit/stderr head+tail, so a failed

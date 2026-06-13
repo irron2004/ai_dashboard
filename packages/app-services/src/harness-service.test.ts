@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
-import { RunLock, RunArtifactStore, readPolicy, resolveProjectPreamble } from '@apc/knowledge-harness'
+import { RunLock, RunArtifactStore, readPolicy, resolveProjectPreamble, writeProposedPolicy, approvePolicy } from '@apc/knowledge-harness'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession } from '@apc/shared'
+import { KhProjectPolicyProposalSchema, RunStateSchema } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
 
 // repo root from packages/app-services/src/
@@ -65,6 +66,45 @@ describe('HarnessService', () => {
 
   test('show reports an unknown run', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
+  })
+
+  // I2: the headline safety wiring — an APPROVED policy reaches every agent prompt during a real run,
+  // with the governance base preamble preserved AND the tailoring appended (never the other way round).
+  test('an approved policy injects base preamble + tailoring into every run agent prompt', async () => {
+    const vaultRoot = join(ws, 'vault')
+    writeProposedPolicy(vaultRoot, 'p1', KhProjectPolicyProposalSchema.parse({
+      project_id: 'p1', generated_by: 'a', node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'r' }],
+    }), () => '2026-06-02T00:00:00Z')
+    approvePolicy(vaultRoot, 'p1', () => '2026-06-02T00:00:00Z')
+
+    const prompts: string[] = []
+    const inner = new FakeAgentRunner(cannedOutputs())
+    const runner: AgentRunner = { run: (req) => { prompts.push(req.prompt); return inner.run(req) } }
+    const svc = new HarnessService({ runner, vaultRoot, runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z' })
+
+    await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(prompts.length).toBeGreaterThan(0)
+    // base governance ('RULES') and the approved tailoring both ride in EVERY agent prompt
+    expect(prompts.every((p) => p.includes('RULES') && p.includes('ExperimentNode'))).toBe(true)
+  })
+
+  // M1: latestDiscovery reuses an existing PROJECT_SCANNED artifact instead of running discovery again.
+  // We queue ONLY the advisor output (1) — if discovery were re-run it would consume it and the advisor
+  // would get nothing (→ ok:false). ok:true proves the prior artifact was reused.
+  test('proposeWikiPolicy reuses a prior run\'s PROJECT_SCANNED artifact', async () => {
+    const runDir = join(ws, 'runs', 'RUN-2026-01-01T00-00-00-000Z')
+    const store = new RunArtifactStore(runDir)
+    store.init()
+    const rel = store.writeArtifact('PROJECT_SCANNED', 'discovery', { project_id: 'p1', generated_by: 'discovery', topics: ['reuse-me'] })
+    store.saveRunState(RunStateSchema.parse({ runId: 'RUN-2026-01-01T00-00-00-000Z', projectId: 'p1', engine: 'claude', state: 'PROJECT_SCANNED', artifacts: { PROJECT_SCANNED: [rel] } }))
+
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner([JSON.stringify({ project_id: 'p1', generated_by: 'wiki-policy-advisor', node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'r' }] })]),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const res = await svc.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    expect(res.ok).toBe(true)   // single queued output sufficed → discovery was reused, not re-run
+    expect(res.proposal?.node_type_priorities[0].node_type).toBe('ExperimentNode')
   })
 
   // A2 (#1/#7/#34): a proposal citing a source_path that doesn't exist under raw/ fails the run.
