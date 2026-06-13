@@ -64,7 +64,8 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
             {policy.proposal.evidence.length > 0 && (
               <ul>
                 {policy.proposal.evidence.map((e, i) => (
-                  <li key={i}><strong>{e.signal}</strong>{e.detail ? ` — ${e.detail}` : ''}</li>
+                  // signal can repeat (e.g. two 'topics' rows), so compose with the index for a stable+unique key
+                  <li key={`${e.signal}-${i}`}><strong>{e.signal}</strong>{e.detail ? ` — ${e.detail}` : ''}</li>
                 ))}
               </ul>
             )}
