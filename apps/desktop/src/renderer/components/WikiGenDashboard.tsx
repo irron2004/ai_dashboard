@@ -22,8 +22,10 @@ export function WikiGenDashboard() {
     selectedProjectId, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
     harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
     harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
+    wikiPolicy, wikiPolicyPreview, wikiPolicyBusy,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
     promoteHarnessRun, promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
+    proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
   } = useStore()
 
   const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
@@ -40,6 +42,10 @@ export function WikiGenDashboard() {
   useEffect(() => {
     if (selectedProjectId) hydrateHarnessProject(selectedProjectId)
   }, [hydrateHarnessProject, selectedProjectId])
+
+  useEffect(() => {
+    if (selectedProjectId) loadWikiPolicy(selectedProjectId)
+  }, [loadWikiPolicy, selectedProjectId])
 
   const currentRun: HarnessRunBundle | null = useMemo(
     () => harnessRuns.find((b) => b.runState.runId === selectedHarnessRunId) ?? harnessRuns[0] ?? null,
@@ -178,6 +184,12 @@ export function WikiGenDashboard() {
             onToggleGate={toggleHarnessGate}
             onPromptChange={updateHarnessPrompt}
             onClose={() => setSettingsOpen(false)}
+            policy={wikiPolicy}
+            policyPreview={wikiPolicyPreview}
+            policyBusy={wikiPolicyBusy}
+            onProposePolicy={() => selectedProjectId && proposeWikiPolicy(selectedProjectId, config.model.engine)}
+            onApprovePolicy={() => selectedProjectId && approveWikiPolicy(selectedProjectId)}
+            onRevertPolicy={() => selectedProjectId && revertWikiPolicy(selectedProjectId)}
           />
         )}
       </div>

@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { createDefaultHarnessConfig, GATE_WIRING, HARNESS_FEATURE_GATES } from '../harness-utils.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 
-const noop = { onModelChange: vi.fn(), onSafetyChange: vi.fn(), onToggleGate: vi.fn(), onPromptChange: vi.fn(), onClose: vi.fn() }
+const noop = { onModelChange: vi.fn(), onSafetyChange: vi.fn(), onToggleGate: vi.fn(), onPromptChange: vi.fn(), onClose: vi.fn(), policy: null, policyPreview: null, policyBusy: false, onProposePolicy: vi.fn(), onApprovePolicy: vi.fn(), onRevertPolicy: vi.fn() }
 
 describe('HarnessStructurePanel', () => {
   test('renders all pipeline stages in order', () => {
@@ -61,5 +61,20 @@ describe('HarnessStructurePanel', () => {
     expect((nonHonoredCheckbox as HTMLInputElement).disabled).toBe(true)
     fireEvent.click(honoredCheckbox)
     expect(onToggleGate).toHaveBeenCalledWith(honored.key)
+  })
+
+  test('renders the wiki-policy section with a 정책 제안 받기 button and fires onProposePolicy', () => {
+    const onProposePolicy = vi.fn()
+    render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} onProposePolicy={onProposePolicy} />)
+    fireEvent.click(screen.getByRole('button', { name: /정책 제안 받기/ }))
+    expect(onProposePolicy).toHaveBeenCalledTimes(1)
+  })
+
+  test('shows 승인 button only when a proposed policy exists', () => {
+    const proposal = { project_id: 'p1', generated_by: 'a', project_character: '', node_type_priorities: [], canonical_definition: '', scan_scope_notes: '', tailoring_markdown: '', rationale: '', evidence: [] }
+    const { rerender } = render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} policy={null} />)
+    expect(screen.queryByRole('button', { name: /^승인$/ })).toBeNull()
+    rerender(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} policy={{ status: 'proposed', proposal, generatedAt: '', body: '' }} />)
+    expect(screen.getByRole('button', { name: /^승인$/ })).toBeTruthy()
   })
 })

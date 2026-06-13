@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { AgentType } from '@apc/shared'
+import type { WikiPolicyRecordDto } from '../../shared/ipc-contract.js'
 import {
   GATE_WIRING, GATE_WIRING_LABEL, HARNESS_FEATURE_GATES, STRUCTURE_STAGES, stageForState,
   type HarnessAgentPromptKey, type HarnessConfig, type HarnessFeatureGateKey, type StructureStageId,
@@ -16,11 +17,17 @@ type Props = {
   onToggleGate: (key: HarnessFeatureGateKey) => void
   onPromptChange: (key: HarnessAgentPromptKey, value: string) => void
   onClose: () => void
+  policy: WikiPolicyRecordDto | null
+  policyPreview: string | null
+  policyBusy: boolean
+  onProposePolicy: () => void
+  onApprovePolicy: () => void
+  onRevertPolicy: () => void
 }
 
 /** 하니스 구조도가 곧 설정 화면 — 파이프라인 단계를 실행 순서대로 보여주고,
  *  단계 카드를 클릭하면 그 단계의 프롬프트/모델(에이전트) 또는 safety/게이트(정책)를 편집한다. */
-export function HarnessStructurePanel({ config, activeState, onModelChange, onSafetyChange, onToggleGate, onPromptChange, onClose }: Props) {
+export function HarnessStructurePanel({ config, activeState, onModelChange, onSafetyChange, onToggleGate, onPromptChange, onClose, policy, policyPreview, policyBusy, onProposePolicy, onApprovePolicy, onRevertPolicy }: Props) {
   const [selected, setSelected] = useState<StructureStageId | null>(null)
   const nowStage = activeState ? stageForState(activeState as Parameters<typeof stageForState>[0]) : null
   const stage = STRUCTURE_STAGES.find((s) => s.id === selected) ?? null
@@ -31,6 +38,45 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
         <h2>⚙ 에이전트 설정 — 하니스 구조</h2>
         <button type="button" onClick={onClose} aria-label="설정 닫기">✕</button>
       </header>
+
+      <section className="structure-panel__policy">
+        <h3>위키 정책 (프로젝트 맞춤)</h3>
+        <p className="muted">거버넌스 규칙 1–8은 잠겨 있으며 변경되지 않습니다. advisor는 그 위에 프로젝트 맞춤 섹션만 제안합니다.</p>
+        <div className="structure-panel__policy-actions">
+          <button type="button" onClick={onProposePolicy} disabled={policyBusy}>
+            {policyBusy ? '제안 생성 중…' : '✨ 정책 제안 받기'}
+          </button>
+          {policy?.status === 'proposed' && (
+            <button type="button" onClick={onApprovePolicy}>승인</button>
+          )}
+          {policy && (
+            <button type="button" onClick={onRevertPolicy}>기본값으로 되돌리기</button>
+          )}
+        </div>
+        {policy && (
+          <p className="structure-panel__policy-status">
+            상태: {policy.status === 'approved' ? `승인됨${policy.approvedAt ? ` (${policy.approvedAt})` : ''}` : '제안됨 — 검토 필요'}
+          </p>
+        )}
+        {policy && (policy.proposal.rationale || policy.proposal.evidence.length > 0) && (
+          <div className="structure-panel__policy-why">
+            {policy.proposal.rationale && <p><strong>근거:</strong> {policy.proposal.rationale}</p>}
+            {policy.proposal.evidence.length > 0 && (
+              <ul>
+                {policy.proposal.evidence.map((e, i) => (
+                  <li key={i}><strong>{e.signal}</strong>{e.detail ? ` — ${e.detail}` : ''}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {policyPreview && (
+          <details>
+            <summary>합성된 effective preamble 미리보기</summary>
+            <pre className="structure-panel__policy-preview">{policyPreview}</pre>
+          </details>
+        )}
+      </section>
 
       <div className="structure-panel__pipe">
         {STRUCTURE_STAGES.map((s) => (
