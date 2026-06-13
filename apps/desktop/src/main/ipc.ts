@@ -5,10 +5,10 @@ import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
-  HarnessProposePolicyReq, HarnessApprovePolicyReq, HarnessGetPolicyReq, HarnessRevertPolicyReq,
   ConfigEditReq, ConfigRollbackReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
+import { AgentKind } from '@apc/shared'
 import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
 import { diffProjectFile, listProjectChanges } from './project-changes.js'
@@ -135,19 +135,24 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.harnessProposePolicy]: async (payload: unknown) => {
-      return container.harnessProposePolicy(payload as HarnessProposePolicyReq)
+      // strict parse: engine + repoPaths flow into the LLM runner, so validate at the boundary
+      const req = z.object({ projectId: z.string(), engine: AgentKind, repoPaths: z.array(z.string()).optional() }).strict().parse(payload)
+      return container.harnessProposePolicy(req)
     },
 
     [CH.harnessApprovePolicy]: async (payload: unknown) => {
-      return container.harnessApprovePolicy(payload as HarnessApprovePolicyReq)
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessApprovePolicy(req)
     },
 
     [CH.harnessGetPolicy]: async (payload: unknown) => {
-      return container.harnessGetPolicy(payload as HarnessGetPolicyReq)
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessGetPolicy(req)
     },
 
     [CH.harnessRevertPolicy]: async (payload: unknown) => {
-      return container.harnessRevertPolicy(payload as HarnessRevertPolicyReq)
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessRevertPolicy(req)
     },
 
     [CH.generateRun]: async (payload: unknown) => {

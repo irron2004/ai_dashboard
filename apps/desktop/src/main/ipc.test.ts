@@ -308,4 +308,22 @@ describe('IPC handlers (no Electron)', () => {
     expect(calledWith).toEqual(payload)
     expect((res as { ok: boolean }).ok).toBe(true)
   })
+
+  test('c:harnessProposePolicy rejects an unknown engine (strict parse)', async () => {
+    const h = handlers(container as any)
+    await expect(h[CH.harnessProposePolicy]({ projectId: 'p1', engine: 'evil' })).rejects.toThrow()
+  })
+
+  test.each([
+    ['harnessApprovePolicy', CH.harnessApprovePolicy, 'harnessApprovePolicy'],
+    ['harnessGetPolicy', CH.harnessGetPolicy, 'harnessGetPolicy'],
+    ['harnessRevertPolicy', CH.harnessRevertPolicy, 'harnessRevertPolicy'],
+  ] as const)('%s routes {projectId} to its container method', async (_name, channel, method) => {
+    let calledWith: unknown = undefined
+    const fakeContainer = { ...container, [method]: (req: unknown) => { calledWith = req; return { ok: true as const } } }
+    const h = handlers(fakeContainer as any)
+    const res = await h[channel]({ projectId: 'p1' })
+    expect(calledWith).toEqual({ projectId: 'p1' })
+    expect((res as { ok: boolean }).ok).toBe(true)
+  })
 })
