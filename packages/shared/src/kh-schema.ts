@@ -188,6 +188,9 @@ export const KhProjectPolicyProposalSchema = z.object({
   canonical_definition: z.string().default(''),
   scan_scope_notes: z.string().default(''),
   tailoring_markdown: z.string().default(''),
+  // Top-level rationale = the advisor's overall "why this policy" (provenance, surfaced in the review
+  // UI, NOT injected into the preamble). Distinct from the per-item rationale inside
+  // node_type_priorities (why THAT node type) and from tailoring_markdown (content that IS injected).
   rationale: z.string().default(''),
   evidence: z.array(z.object({
     signal: z.string(),

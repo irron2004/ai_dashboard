@@ -66,6 +66,7 @@ describe('kh-schema', () => {
     expect(p.canonical_definition).toBe('')
     expect(p.scan_scope_notes).toBe('')
     expect(p.tailoring_markdown).toBe('')
+    expect(p.rationale).toBe('')
     expect(p.evidence).toEqual([])
   })
 
