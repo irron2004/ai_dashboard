@@ -155,6 +155,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessRevertPolicy(req)
     },
 
+    [CH.harnessReadStagedDoc]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string(), relPath: z.string() }).strict().parse(payload)
+      return container.harnessReadStagedDoc(req)
+    },
+
     [CH.generateRun]: async (payload: unknown) => {
       const req = payload as GenerateRunReq
       const run = container.runs.get(req.runId)

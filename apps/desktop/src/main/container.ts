@@ -21,6 +21,7 @@ import type {
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
+  HarnessReadStagedDocReq, HarnessReadStagedDocRes,
   HarnessEngineLogEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
@@ -76,6 +77,7 @@ export type Container = {
   harnessApprovePolicy: (req: HarnessApprovePolicyReq) => HarnessApprovePolicyRes
   harnessGetPolicy: (req: HarnessGetPolicyReq) => HarnessGetPolicyRes
   harnessRevertPolicy: (req: HarnessRevertPolicyReq) => HarnessRevertPolicyRes
+  harnessReadStagedDoc: (req: HarnessReadStagedDocReq) => HarnessReadStagedDocRes
   dashboard: typeof getProjectDashboard
 }
 
@@ -254,13 +256,14 @@ export function buildContainer(opts: {
   const harnessApprovePolicy = (req: HarnessApprovePolicyReq): HarnessApprovePolicyRes => harness.approveWikiPolicy(req)
   const harnessGetPolicy = (req: HarnessGetPolicyReq): HarnessGetPolicyRes => harness.getWikiPolicy(req)
   const harnessRevertPolicy = (req: HarnessRevertPolicyReq): HarnessRevertPolicyRes => harness.revertWikiPolicy(req)
+  const harnessReadStagedDoc = (req: HarnessReadStagedDocReq): HarnessReadStagedDocRes => harness.readStagedDoc(req)
 
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
-    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc,
     dashboard: getProjectDashboard,
   }
 }

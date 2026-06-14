@@ -9,6 +9,7 @@ import type {
   HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes,
   HarnessRevertPolicyReq, HarnessRevertPolicyRes,
+  HarnessReadStagedDocReq, HarnessReadStagedDocRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
@@ -107,6 +108,9 @@ export const api = {
   },
   harnessRevertPolicy(req: HarnessRevertPolicyReq): Promise<HarnessRevertPolicyRes> {
     return window.apc.invoke(CH.harnessRevertPolicy, req) as Promise<HarnessRevertPolicyRes>
+  },
+  harnessReadStagedDoc(req: HarnessReadStagedDocReq): Promise<HarnessReadStagedDocRes> {
+    return window.apc.invoke(CH.harnessReadStagedDoc, req) as Promise<HarnessReadStagedDocRes>
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

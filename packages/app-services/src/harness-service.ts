@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { readdirSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync } from 'node:fs'
 import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal } from '@apc/shared'
 import { KhProjectDiscoveryReportSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner } from '@apc/llm-wiki'
@@ -7,6 +7,7 @@ import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
   makeProjectDiscovery, makeWikiPolicyAdvisor,
   writeProposedPolicy, approvePolicy, revertPolicy, resolveProjectPreamble, readPolicy,
+  resolveInside,
   type WikiPolicyRecord,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
@@ -218,6 +219,25 @@ export class HarnessService {
     // Wrap like the sibling methods so no exception escapes the IPC boundary (e.g. a read-only mount).
     try { revertPolicy(this.deps.vaultRoot, input.projectId); return { ok: true } }
     catch (err) { return { ok: false, reason: err instanceof Error ? err.message : String(err) } }
+  }
+
+  /** Read one markdown doc from a run's vault-staging dir — the unpromoted drafts a HUMAN_REVIEW run
+   * produced. The graph peek uses this so clicking a draft concept/decision node shows its content
+   * (run.artifacts holds only JSON reports, and readProjectDoc only searches promoted/project roots).
+   * resolveInside guards both runId and relPath against path escape; never throws. */
+  readStagedDoc(input: { runId: string; relPath: string }): { ok: true; content: string } | { ok: false; reason: string } {
+    if (!/\.(md|mdx|txt)$/i.test(input.relPath)) return { ok: false, reason: 'md/mdx/txt만 열 수 있습니다' }
+    let abs: string
+    try {
+      const stagingBase = resolveInside(this.deps.runsRoot, join(input.runId, 'vault-staging'))
+      abs = resolveInside(stagingBase, input.relPath)
+    } catch { return { ok: false, reason: '허용되지 않는 경로' } }
+    try {
+      const st = statSync(abs)
+      if (!st.isFile()) return { ok: false, reason: '원문 없음 (staging)' }
+      if (st.size > 512 * 1024) return { ok: false, reason: `파일 크기 초과 (${Math.round(st.size / 1024)}KB > 512KB)` }
+      return { ok: true, content: readFileSync(abs, 'utf8') }
+    } catch { return { ok: false, reason: '원문 없음 (staging)' } }
   }
 
   promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {

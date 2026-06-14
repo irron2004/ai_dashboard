@@ -30,6 +30,7 @@ export const CH = {
   harnessApprovePolicy: 'c:harnessApprovePolicy',
   harnessGetPolicy: 'c:harnessGetPolicy',
   harnessRevertPolicy: 'c:harnessRevertPolicy',
+  harnessReadStagedDoc: 'c:harnessReadStagedDoc',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -124,6 +125,9 @@ export type HarnessGetPolicyReq = { projectId: string }
 export type HarnessGetPolicyRes = { ok: true; record: WikiPolicyRecordDto | null }
 export type HarnessRevertPolicyReq = { projectId: string }
 export type HarnessRevertPolicyRes = { ok: boolean; reason?: string }
+// Read an unpromoted draft doc from a run's vault-staging dir (graph peek for HUMAN_REVIEW runs).
+export type HarnessReadStagedDocReq = { runId: string; relPath: string }
+export type HarnessReadStagedDocRes = { ok: true; content: string } | { ok: false; reason: string }
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {

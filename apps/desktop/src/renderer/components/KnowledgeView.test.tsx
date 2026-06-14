@@ -6,11 +6,14 @@ import { KnowledgeView } from './KnowledgeView.js'
 
 const fsReadDoc = vi.fn(async () => ({ ok: true, content: '# from disk' }))
 const fsListDocs = vi.fn(async () => ({ docs: [{ relPath: 'docs/plan.md', mtimeMs: 1 }] }))
+// default: no staged draft → graph clicks fall through to the disk read
+const harnessReadStagedDoc = vi.fn(async () => ({ ok: false, reason: 'no staging' }))
 vi.mock('../api.js', () => ({
   api: new Proxy({}, {
     get: (_t, prop) => {
       if (prop === 'fsReadDoc') return (...a: unknown[]) => fsReadDoc(...a as [])
       if (prop === 'fsListDocs') return (...a: unknown[]) => fsListDocs(...a as [])
+      if (prop === 'harnessReadStagedDoc') return (...a: unknown[]) => harnessReadStagedDoc(...a as [])
       return vi.fn(async () => ({ ok: true }))
     },
   }),
@@ -61,6 +64,16 @@ describe('KnowledgeView', () => {
     fireEvent.click(screen.getByText('GRAPH-STUB'))
     expect(await screen.findByText('from disk')).toBeDefined()
     expect(screen.getByRole('button', { name: /문서로 열기/ })).toBeDefined()
+  })
+
+  test('그래프 mode: node click shows the run staged draft (preferred over disk)', async () => {
+    harnessReadStagedDoc.mockResolvedValueOnce({ ok: true, content: '# staged draft body' } as never)
+    render(<KnowledgeView />)
+    fireEvent.click(screen.getByRole('button', { name: '그래프' }))
+    fireEvent.click(screen.getByText('GRAPH-STUB'))
+    expect(await screen.findByText('staged draft body')).toBeDefined()
+    expect(harnessReadStagedDoc).toHaveBeenCalledWith({ runId: 'RUN-w', relPath: 'docs/plan.md' })
+    expect(fsReadDoc).not.toHaveBeenCalled()   // staging hit → no disk fallback
   })
 
   test('그래프 peek → 문서로 열기 jumps to the disk file in 문서 mode', async () => {

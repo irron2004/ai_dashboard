@@ -80,14 +80,29 @@ export function KnowledgeView() {
       return
     }
     const nodePath = (node.data as { path?: string } | undefined)?.path
-    if (nodePath && selectedProjectId && /\.(md|mdx|txt)$/i.test(nodePath)) {
-      void api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath }).then((res) => {
-        if (reqId !== peekReq.current) return
-        setPeek(res.ok && res.content !== undefined ? { title, relPath: nodePath, markdown: res.content } : { title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
-      })
+    if (!nodePath || !/\.(md|mdx|txt)$/i.test(nodePath)) {
+      setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
       return
     }
-    setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
+    // Resolve the doc in order: the run's STAGED draft (unpromoted HUMAN_REVIEW output — concept/
+    // decision md that isn't a run.artifact and isn't in the vault yet) → then a promoted/project doc
+    // on disk. Without the staging read, draft nodes wrongly showed "원문 없음".
+    const runId = run?.runState.runId
+    void (async () => {
+      if (runId) {
+        const staged = await api.harnessReadStagedDoc({ runId, relPath: nodePath })
+        if (reqId !== peekReq.current) return
+        if (staged.ok) { setPeek({ title, relPath: nodePath, markdown: staged.content }); return }
+      }
+      if (selectedProjectId) {
+        const res = await api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath })
+        if (reqId !== peekReq.current) return
+        if (res.ok && res.content !== undefined) { setPeek({ title, relPath: nodePath, markdown: res.content }); return }
+        setPeek({ title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
+        return
+      }
+      setPeek({ title, error: `원문 없음: ${nodePath}` })
+    })()
   }
 
   const openPeekAsDoc = (p: Peek) => {

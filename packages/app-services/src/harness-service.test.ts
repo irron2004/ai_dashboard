@@ -453,3 +453,37 @@ describe('HarnessService wiki policy', () => {
     expect(readPolicy(vaultRoot, 'p1')).toBeNull()
   })
 })
+
+describe('HarnessService readStagedDoc', () => {
+  function svc(runsRoot: string) {
+    return new HarnessService({ runner: new FakeAgentRunner([]), vaultRoot: join(runsRoot, '..', 'vault'), runsRoot, preamble: 'RULES' })
+  }
+
+  test('reads a markdown draft from a run vault-staging dir', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    const dir = join(ws, 'runs', 'RUN-1', 'vault-staging', 'concepts')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'x.md'), '# Concept X\nbody')
+    const res = svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/x.md' })
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.content).toContain('Concept X')
+  })
+
+  test('missing staged file → ok:false (never throws)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    const res = svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/missing.md' })
+    expect(res.ok).toBe(false)
+  })
+
+  test('path escape via relPath or runId is rejected', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    const s = svc(join(ws, 'runs'))
+    expect(s.readStagedDoc({ runId: 'RUN-1', relPath: '../../../etc/passwd.md' }).ok).toBe(false)
+    expect(s.readStagedDoc({ runId: '../../..', relPath: 'x.md' }).ok).toBe(false)
+  })
+
+  test('non-text extension is refused', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    expect(svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/x.json' }).ok).toBe(false)
+  })
+})
