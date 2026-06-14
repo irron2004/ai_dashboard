@@ -90,9 +90,11 @@ export function KnowledgeView() {
     const runId = run?.runState.runId
     void (async () => {
       if (runId) {
-        const staged = await api.harnessReadStagedDoc({ runId, relPath: nodePath })
-        if (reqId !== peekReq.current) return
-        if (staged.ok) { setPeek({ title, relPath: nodePath, markdown: staged.content }); return }
+        try {
+          const staged = await api.harnessReadStagedDoc({ runId, relPath: nodePath })
+          if (reqId !== peekReq.current) return
+          if (staged.ok) { setPeek({ title, relPath: nodePath, markdown: staged.content }); return }
+        } catch { /* staging channel unavailable (e.g. dev hot-reload) — fall through to disk */ }
       }
       if (selectedProjectId) {
         const res = await api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath })
