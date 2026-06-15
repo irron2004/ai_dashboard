@@ -9,7 +9,10 @@ export type MaterializeManifest = { files: Array<{ rel: string; bytes: number }>
 export type RemoteDocFetcher = (sshRepoPath: string) => Promise<Array<{ absPath: string; content: string }>>
 
 const DOC_EXT = new Set(['.md', '.markdown', '.txt'])
-const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.worktrees'])
+// `.apc-wiki` (our internal vault) and `wiki` (our published output) live inside the repo now; never
+// ingest them as project docs — that would pull our own raw sources/proposals/output back in as
+// sources, polluting the corpus and creating a generate-from-own-output feedback loop.
+const EXCLUDE_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.worktrees', '.apc-wiki', 'wiki'])
 
 /** Recursively collect doc files under `root`, skipping excluded dirs and the vault itself. */
 function walkDocs(root: string, vaultRoot: string): string[] {

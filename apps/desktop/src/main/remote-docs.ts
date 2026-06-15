@@ -68,6 +68,8 @@ export async function fetchRemoteProjectDocs(sshRepoPath: string): Promise<Remot
     `if cd "$REPO" 2>/dev/null; then`,
     `  find . -type f \\( -name '*.md' -o -name '*.markdown' -o -name '*.txt' \\) \\`,
     `    -not -path './node_modules/*' -not -path './.git/*' -not -path './dist/*' -not -path './build/*' \\`,
+    // never re-ingest our own internal vault (.apc-wiki) or published output (wiki/) as project docs
+    `    -not -path './.apc-wiki/*' -not -path './wiki/*' \\`,
     `    -size -1048576c 2>/dev/null | head -n 200 | while IFS= read -r f; do emit "$REPO/\${f#./}"; done`,
     `fi`,
     // 2) CLAUDE.md / AGENTS.md in ancestor directories (governance the agent auto-loads)

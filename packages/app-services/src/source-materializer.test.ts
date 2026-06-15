@@ -30,6 +30,21 @@ describe('materializeProjectDocs', () => {
     expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'PRD.md'), 'utf8')).toBe('# prd')
   })
 
+  test('never ingests our own .apc-wiki internal vault or wiki/ output as project docs', async () => {
+    const repo = join(root, 'repo'); const vault = join(root, 'vault')
+    mkdirSync(join(repo, '.apc-wiki', 'raw'), { recursive: true })
+    mkdirSync(join(repo, 'wiki', 'concepts'), { recursive: true })
+    writeFileSync(join(repo, 'real.md'), '# real')
+    writeFileSync(join(repo, '.apc-wiki', 'raw', 'prior-source.md'), 'internal')   // must not re-ingest
+    writeFileSync(join(repo, 'wiki', 'concepts', 'published.md'), 'output')        // must not re-ingest
+
+    const manifest = await materializeProjectDocs([repo], vault)
+
+    expect(manifest.files.map((f) => f.rel)).toEqual(['project-docs/0/real.md'])
+    expect(existsSync(join(vault, 'raw', 'project-docs', '0', '.apc-wiki', 'raw', 'prior-source.md'))).toBe(false)
+    expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'wiki', 'concepts', 'published.md'))).toBe(false)
+  })
+
   test('is idempotent: a removed source disappears on the next run', async () => {
     const repo = join(root, 'repo'); const vault = join(root, 'vault')
     mkdirSync(repo, { recursive: true })
