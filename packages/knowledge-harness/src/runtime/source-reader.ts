@@ -35,3 +35,30 @@ export class SourceReader {
     })
   }
 }
+
+/**
+ * Cap the TOTAL serialized size of the source set embedded in an LLM prompt. SourceReader caps each file
+ * (maxBytes), but a project with many files still produces a multi-MB `sources` array — and an engine
+ * rejects an over-long prompt outright (codex: "Input exceeds the maximum length of 1048576 characters").
+ *
+ * Whole sources are kept in order until `maxJsonChars` is reached; the source that crosses the boundary
+ * is included truncated (so its `source_path` stays citable and its early content is still visible), and
+ * the remainder dropped. Dropped sources still appear in the coverage report (built from the FULL set),
+ * so the cap surfaces as uncovered sources rather than silently vanishing. Returns the kept sources and
+ * how many were dropped.
+ */
+export function budgetSourcesForPrompt(sources: SourceDoc[], maxJsonChars: number): { sources: SourceDoc[]; dropped: number } {
+  const kept: SourceDoc[] = []
+  let used = 2 // the enclosing "[]"
+  for (let i = 0; i < sources.length; i++) {
+    const s = sources[i]
+    const size = JSON.stringify(s).length + 1 // + the separating comma
+    if (used + size <= maxJsonChars) { kept.push(s); used += size; continue }
+    // Boundary source: include a truncated copy if meaningful room remains, then stop.
+    const overhead = JSON.stringify({ ...s, text: '' }).length
+    const room = maxJsonChars - used - overhead - 64 // headroom for the truncation marker + envelope
+    if (room > 500) kept.push({ ...s, text: s.text.slice(0, room) + '\n…[truncated: prompt size budget]' })
+    return { sources: kept, dropped: sources.length - kept.length }
+  }
+  return { sources: kept, dropped: 0 }
+}

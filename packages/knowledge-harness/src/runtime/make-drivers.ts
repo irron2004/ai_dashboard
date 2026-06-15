@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
-import { SourceReader, type SourceDoc } from './source-reader.js'
+import { SourceReader, budgetSourcesForPrompt, type SourceDoc } from './source-reader.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
@@ -45,6 +45,12 @@ export type DriverDeps = {
 
 /** Default per-step LLM timeout — 10 min. Overridable via DriverDeps.stepTimeoutMs. */
 const DEFAULT_STEP_TIMEOUT_MS = 600_000
+
+/** Char budget for the serialized `sources` embedded in a reader/extractor prompt. Kept well under
+ *  codex's hard 1,048,576-char input limit (the rest of the prompt — preamble, role, schema, other
+ *  inputs — adds tens of KB). Sources beyond the budget are dropped (and show as uncovered in the
+ *  coverage report); the boundary source is truncated. See budgetSourcesForPrompt. */
+const MAX_PROMPT_SOURCE_CHARS = 800_000
 
 /**
  * Canonical artifact base names (#17). The writer (driver return `name`) and the reader (artifactByName
@@ -131,7 +137,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // (LLM-generated) discovery report.
       const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
-        sources: freshSources(ctx.projectId),
+        sources: budgetSourcesForPrompt(freshSources(ctx.projectId), MAX_PROMPT_SOURCE_CHARS).sources,
       } })
       return { artifacts: [{ name: ARTIFACTS.conversationHistory, data }] }
     },
@@ -146,7 +152,9 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const raw = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
         history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
-        sources: srcs,
+        // Cap the embedded source text to the engine's input limit; the FULL `srcs` is still used below
+        // for path normalization (which must see every materialized source to map cited paths).
+        sources: budgetSourcesForPrompt(srcs, MAX_PROMPT_SOURCE_CHARS).sources,
       } })
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
