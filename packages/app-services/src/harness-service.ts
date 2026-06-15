@@ -9,6 +9,7 @@ import {
   writeProposedPolicy, approvePolicy, revertPolicy, resolveProjectPreamble, readPolicy,
   resolveInside,
   type WikiPolicyRecord,
+  type SourceLedger,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
@@ -27,6 +28,9 @@ export type HarnessServiceDeps = {
   runner: AgentRunner
   /** 대화 세션 → Q&A raw 청킹에 쓸 인제스트 어댑터들 (없으면 청킹 생략). */
   conversationAdapters?: AgentIngestAdapter[]
+  /** Idempotency ledger for source documents: skip already-processed sources, re-do only changed ones.
+   *  Omitted in tests/CLI without a DB → every source is processed each run (legacy behavior). */
+  sourceLedger?: SourceLedger
   vaultRoot: string
   runsRoot: string
   /** 단계별 LLM 타임아웃(ms). 미설정 시 make-drivers 기본값(600s). */
@@ -81,6 +85,8 @@ export class HarnessService {
       preamble: resolveProjectPreamble(this.deps.vaultRoot, projectId, this.preamble),
       projectCwd,
       stepTimeoutMs: this.deps.stepTimeoutMs,
+      sourceLedger: this.deps.sourceLedger,
+      now: this.now,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
     return new HarnessRunner({ gates: this.featureGate(), drivers, now: this.now, lock })

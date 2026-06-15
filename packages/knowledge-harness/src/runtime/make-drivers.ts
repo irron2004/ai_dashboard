@@ -1,7 +1,8 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
-import { SourceReader } from './source-reader.js'
+import { SourceReader, type SourceDoc } from './source-reader.js'
+import type { SourceLedger } from './source-ledger.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
@@ -32,6 +33,12 @@ export type DriverDeps = {
   /** Per-LLM-step timeout (ms). Agentic CLI steps (project-discovery, node-extractor via claude-opus)
    * routinely exceed the old 180s default and got SIGKILLed mid-run; default 600s gives headroom. */
   stepTimeoutMs?: number
+  /** Optional idempotency ledger. When present, sources already processed (same id + content hash)
+   *  for the project are skipped, and the sources consumed by a run are recorded once it reaches
+   *  HUMAN_REVIEW_REQUIRED — making re-requested/resumed generation incremental. */
+  sourceLedger?: SourceLedger
+  /** Timestamp source for ledger records. Defaults to ISO-now. */
+  now?: () => string
   // Phase 3 will add: policy, validators
 }
 
@@ -94,6 +101,18 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const policy = new PolicyGuard()
   const evidenceVerifier = new EvidenceVerifier()
   const sources = new SourceReader(deps.vaultRoot)
+  const ledger = deps.sourceLedger
+  const now = deps.now ?? (() => new Date().toISOString())
+
+  // The sources this run should work on: all raw/ docs minus those the ledger already recorded as
+  // processed (unchanged) for this project. Without a ledger, this is every source (legacy behavior).
+  // Recomputed per call so every consuming step (reader, extractor, coverage) sees the same set
+  // within a run — the ledger is only written at HUMAN_REVIEW_REQUIRED, so it doesn't shift mid-run.
+  const freshSources = (projectId: string): SourceDoc[] => {
+    const all = sources.read()
+    return ledger ? all.filter((s) => !ledger.isProcessed(projectId, s.source_id, s.hash)) : all
+  }
+
   const secrets = new SecretScanner()
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
@@ -111,7 +130,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // (LLM-generated) discovery report.
       const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
-        sources: sources.read(),
+        sources: freshSources(ctx.projectId),
       } })
       return { artifacts: [{ name: ARTIFACTS.conversationHistory, data }] }
     },
@@ -125,7 +144,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const data = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
         history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
-        sources: sources.read(),  // A1: extractor cites paths/quotes from real source text
+        sources: freshSources(ctx.projectId),  // A1: extractor cites paths/quotes from real source text
       } })
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
@@ -231,7 +250,16 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         applied,
         secretScanFindings: secretReport?.findings.length ?? 0,
       })
-      const coverage = buildCoverageReport(sources.read().map((s) => s.source_path), proposals)
+      // Generation reached human review → this run's sources are "processed". Record them so a
+      // re-requested/resumed run skips them (and re-does only changed ones). Mark BEFORE building
+      // coverage (over the same set) — the ledger write is the durable idempotency signal.
+      const consumed = freshSources(ctx.projectId)
+      ledger?.markProcessed(
+        ctx.projectId, ctx.runId,
+        consumed.map((s) => ({ sourceId: s.source_id, sourceHash: s.hash })),
+        now(),
+      )
+      const coverage = buildCoverageReport(consumed.map((s) => s.source_path), proposals)
       const finalReport = [
         `# Harness Run ${ctx.runId}`,
         ``,

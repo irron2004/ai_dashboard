@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
 import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
-import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval } from '@apc/knowledge'
+import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
@@ -145,6 +145,7 @@ export function buildContainer(opts: {
   const searchIndex = new SearchIndex(searchDb)
   const knowledgeStore = new KnowledgeStore(db)
   const knowledgeRetrieval = new KnowledgeRetrieval(db)
+  const processedSources = new ProcessedSourceStore(db)
   const unifiedSearch = new UnifiedSearch({
     sessions: searchIndex,
     knowledge: knowledgeRetrieval,
@@ -238,6 +239,8 @@ export function buildContainer(opts: {
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
     // "전 문서로 위키 생성"의 materialize 단계가 이 프로젝트의 에이전트 대화도 Q&A 단위로 청킹하도록.
     conversationAdapters: ingestAdapters,
+    // 이미 처리한 소스 문서는 재실행/재요청 시 건너뛰도록(변경된 문서만 재처리). wiki_processed_sources 테이블 기반.
+    sourceLedger: processedSources,
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)

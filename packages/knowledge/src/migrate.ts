@@ -55,5 +55,19 @@ export function migrateKnowledge(db: Db): void {
 
     CREATE INDEX IF NOT EXISTS idx_knowledge_documents_project ON knowledge_documents(project_id);
     CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_project ON knowledge_chunks(project_id);
+
+    -- Ledger of source documents the wiki harness has already consumed (per project). Lets a
+    -- re-requested or resumed generation SKIP sources it already processed, and re-process only
+    -- those whose content changed (source_hash differs). Keyed by the vault-relative source_id.
+    CREATE TABLE IF NOT EXISTS wiki_processed_sources (
+      project_id   TEXT NOT NULL,
+      source_id    TEXT NOT NULL,
+      source_hash  TEXT NOT NULL,
+      run_id       TEXT NOT NULL,
+      processed_at TEXT NOT NULL,
+      PRIMARY KEY (project_id, source_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wiki_processed_sources_project ON wiki_processed_sources(project_id);
   `)
 }

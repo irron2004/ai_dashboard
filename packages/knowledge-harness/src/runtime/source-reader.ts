@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join, relative } from 'node:path'
 import { listFiles } from './vault-fs.js'
 
-export type SourceDoc = { source_id: string; source_path: string; text: string }
+/** `hash` is the SHA-256 of the file's full on-disk content (pre-truncation), so a changed source
+ *  produces a different hash — the signal the SourceLedger uses to re-process only what changed. */
+export type SourceDoc = { source_id: string; source_path: string; text: string; hash: string }
 
 /**
  * A1 (Step-5 spec): the deterministic source-ingestion boundary the pipeline was missing. It materializes
@@ -22,11 +25,13 @@ export class SourceReader {
       // source_path is vault-relative and always starts with `raw/` (forward slashes) — the same shape
       // the extractor must cite in evidence and the EvidenceVerifier resolves back against the vault.
       const source_path = relative(this.vaultRoot, abs).replace(/\\/g, '/')
-      let text = readFileSync(abs, 'utf8')
+      const raw = readFileSync(abs, 'utf8')
+      const hash = createHash('sha256').update(raw, 'utf8').digest('hex')
+      let text = raw
       if (Buffer.byteLength(text, 'utf8') > this.maxBytes) {
         text = text.slice(0, this.maxBytes) + `\n…[truncated at ${this.maxBytes} bytes]`
       }
-      return { source_id: source_path, source_path, text }
+      return { source_id: source_path, source_path, text, hash }
     })
   }
 }
