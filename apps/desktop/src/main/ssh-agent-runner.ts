@@ -2,6 +2,14 @@ import type { AgentRunner, RunInput, RunResult } from '@apc/llm-wiki'
 import { CliAgentRunner } from '@apc/llm-wiki'
 import { parseSsh, sshExec, loginShell, ENGINE_CMD, type SshExec } from './ssh-exec.js'
 
+// `bash -lic` (loginShell) prints these to stderr when there's no TTY. Harmless, but being on stderr
+// they previously masked the engine's REAL error (e.g. a 429 session-limit message that claude writes
+// to stdout). Strip them so diagnostics show the actual cause.
+const LOGIN_SHELL_NOISE = /(cannot set terminal process group|no job control in this shell)/
+function stripLoginShellNoise(stderr: string): string {
+  return stderr.split('\n').filter((l) => !LOGIN_SHELL_NOISE.test(l)).join('\n').trim()
+}
+
 /**
  * Runs the engine on the remote host (ssh:// cwd) using the same non-interactive ssh + login-shell
  * path the Generate flow uses, so the user's remote PATH and auth apply — `cd` into the project dir,
@@ -17,9 +25,10 @@ export class SshAgentRunner implements AgentRunner {
     const engineCmd = `cd '${cdPath}' && ${ENGINE_CMD[input.agent]}`
     const startedAt = Date.now()
     const r = await this.exec(ssh, loginShell(engineCmd), { stdin: input.prompt, timeoutMs: input.timeoutMs, onChunk: input.onChunk })
-    const raw = r.stderr && r.stdout ? `${r.stderr}\n--- stdout ---\n${r.stdout}` : (r.stderr || r.stdout)
+    const stderr = stripLoginShellNoise(r.stderr)
+    const raw = stderr && r.stdout ? `${stderr}\n--- stdout ---\n${r.stdout}` : (stderr || r.stdout)
     return {
-      ok: r.ok, output: r.stdout, stderr: r.stderr, exitCode: r.exitCode ?? null, raw,
+      ok: r.ok, output: r.stdout, stderr, exitCode: r.exitCode ?? null, raw,
       command: `ssh ${ssh.user}@${ssh.host}:${ssh.port} ${ENGINE_CMD[input.agent]}`,
       durationMs: Date.now() - startedAt,
     }
