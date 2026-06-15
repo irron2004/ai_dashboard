@@ -4,8 +4,8 @@ import { parseSsh, sshExec } from './ssh-exec.js'
  *  under raw/project-docs (inside the repo) or raw/context (parent CLAUDE.md / Claude memory). */
 export type RemoteDoc = { absPath: string; content: string }
 
-const DOC_MARKER = '@@APCDOC@@'
-const END_MARKER = '@@APCEND@@'
+export const DOC_MARKER = '@@APCDOC@@'
+export const END_MARKER = '@@APCEND@@'
 
 /** A fetched remote file with its raw bytes (binary-safe — sqlite dbs etc. survive intact). */
 export type RemoteFile = { absPath: string; buf: Buffer }

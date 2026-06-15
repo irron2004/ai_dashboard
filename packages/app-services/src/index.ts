@@ -6,4 +6,8 @@ export * from './harness-promote-service.js'
 export * from './harness-service.js'
 export * from './harness-cli.js'
 export { materializeProjectDocs, type MaterializeManifest, type RemoteDocFetcher } from './source-materializer.js'
+export {
+  type WorkspaceVault, type WorkspaceExportResult, LocalWorkspaceVault,
+  walkVaultFiles, internalStateFiles, isPublishable, INTERNAL_EXCLUDE_TOP,
+} from './workspace-vault.js'
 export * from './knowledge-indexer.js'

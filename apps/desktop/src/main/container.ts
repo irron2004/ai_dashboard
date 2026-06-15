@@ -6,9 +6,10 @@ import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceSt
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
+import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync } from 'node:fs'
@@ -24,6 +25,7 @@ import type {
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   HarnessReadStagedDocReq, HarnessReadStagedDocRes,
+  HarnessExportWikiReq, HarnessExportWikiRes,
   HarnessEngineLogEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
@@ -80,6 +82,7 @@ export type Container = {
   harnessGetPolicy: (req: HarnessGetPolicyReq) => HarnessGetPolicyRes
   harnessRevertPolicy: (req: HarnessRevertPolicyReq) => HarnessRevertPolicyRes
   harnessReadStagedDoc: (req: HarnessReadStagedDocReq) => HarnessReadStagedDocRes
+  harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
   dashboard: typeof getProjectDashboard
 }
 
@@ -235,10 +238,23 @@ export function buildContainer(opts: {
   // SSH for ssh:// projects, local CliAgentRunner otherwise).
   // runsRoot MUST live OUTSIDE the vault: StagingVault copies the whole vault into <runsRoot>/<id>/vault-staging,
   // so a runs dir nested inside the vault would make cpSync copy a directory into a subdirectory of itself.
+  // The wiki's home lives IN each project's workspace: `<repo>/.apc-wiki` (internal state) +
+  // `<repo>/wiki` (published). ssh:// projects keep a local working copy under this cache (verification
+  // needs local files) that pull/push sync to the remote; local projects use `<repo>/.apc-wiki` directly.
+  const workspaceCacheRoot = join(opts.vaultRoot, '..', 'apc-workspace-cache')
+  const workspaceVaultFor = (projectId: string): WorkspaceVault | undefined => {
+    const repo = registry.get(projectId)?.repoPaths?.[0]
+    if (!repo) return undefined
+    return repo.startsWith('ssh://')
+      ? new SshWorkspaceVault(repo, projectId, workspaceCacheRoot)
+      : new LocalWorkspaceVault(repo, projectId)
+  }
+
   const harness = new HarnessService({
     runner: opts.agentRunner ?? new RoutingAgentRunner(),
     vaultRoot: opts.vaultRoot,
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+    workspaceVaultFor,
     // "전 문서로 위키 생성"의 materialize 단계가 이 프로젝트의 에이전트 대화도 Q&A 단위로 청킹하도록.
     conversationAdapters: ingestAdapters,
     // 이미 처리한 소스 문서는 재실행/재요청 시 건너뛰도록(변경된 문서만 재처리). wiki_processed_sources 테이블 기반.
@@ -267,13 +283,14 @@ export function buildContainer(opts: {
   const harnessGetPolicy = (req: HarnessGetPolicyReq): HarnessGetPolicyRes => harness.getWikiPolicy(req)
   const harnessRevertPolicy = (req: HarnessRevertPolicyReq): HarnessRevertPolicyRes => harness.revertWikiPolicy(req)
   const harnessReadStagedDoc = (req: HarnessReadStagedDocReq): HarnessReadStagedDocRes => harness.readStagedDoc(req)
+  const harnessExportWiki = (req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> => harness.exportWiki(req)
 
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
-    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessExportWiki,
     dashboard: getProjectDashboard,
   }
 }

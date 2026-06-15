@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { readdirSync, statSync, readFileSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal } from '@apc/shared'
 import { KhProjectDiscoveryReportSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner } from '@apc/llm-wiki'
@@ -16,6 +16,7 @@ import type { AgentIngestAdapter } from '@apc/agents'
 import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
 import { materializeProjectDocs, type RemoteDocFetcher } from './source-materializer.js'
 import { materializeConversations } from './conversation-materializer.js'
+import type { WorkspaceVault, WorkspaceExportResult } from './workspace-vault.js'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
@@ -40,6 +41,10 @@ export type HarnessServiceDeps = {
   remoteConversationFetcher?: (sshRepoPath: string, destDir: string) => Promise<AgentIngestAdapter[]>
   vaultRoot: string
   runsRoot: string
+  /** Resolve the per-project workspace vault — the wiki's home lives IN the project's workspace
+   *  (`<repo>/.apc-wiki`), local for local projects and ssh-backed for ssh:// projects. When omitted
+   *  (tests/CLI), the service falls back to the single `vaultRoot` with no-op pull/push (legacy). */
+  workspaceVaultFor?: (projectId: string) => WorkspaceVault | undefined
   /** 단계별 LLM 타임아웃(ms). 미설정 시 make-drivers 기본값(600s). */
   stepTimeoutMs?: number
   /** path to feature-gates.yml; defaults to the shipped harness/feature-gates.yml. */
@@ -75,10 +80,40 @@ export class HarnessService {
 
   private stagingDir(runId: string): string { return join(this.deps.runsRoot, runId, 'vault-staging') }
 
+  /** The wiki vault for a project: its workspace-backed home if a resolver is wired, else a fallback
+   *  bound to the single `deps.vaultRoot` with no-op sync (preserves legacy/test behavior). */
+  private vaultFor(projectId: string): WorkspaceVault {
+    const wv = this.deps.workspaceVaultFor?.(projectId)
+    if (wv) return wv
+    const localRoot = this.deps.vaultRoot
+    return {
+      localRoot,
+      pull: async () => {},
+      pushInternal: async () => {},
+      exportWiki: async () => ({ ok: false, reason: 'no workspace configured for this project' }),
+    }
+  }
+
+  /** Keep the internal vault out of the user's git: a self-ignoring `.gitignore` inside `.apc-wiki`
+   *  makes git treat the whole dir as ignored (the published `wiki/` sibling stays tracked). It lives
+   *  IN the vault, so pushInternal carries it to the remote workspace's `.apc-wiki` too. Best-effort. */
+  private ensureVaultGitignore(localRoot: string): void {
+    try {
+      const gi = join(localRoot, '.gitignore')
+      if (!existsSync(gi)) { mkdirSync(localRoot, { recursive: true }); writeFileSync(gi, '*\n') }
+    } catch { /* non-fatal */ }
+  }
+
+  /** Read a run's projectId from its persisted state (for promote/export, which receive only a runId). */
+  private projectIdOf(runId: string): string {
+    try { return new RunArtifactStore(join(this.deps.runsRoot, runId)).loadRunState().projectId }
+    catch { return '' }
+  }
+
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
    * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
    * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
-  private runnerFor(runId: string, projectId: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void): HarnessRunner {
+  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void): HarnessRunner {
     const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
     const runner: AgentRunner = !onEngineLog ? logging : {
       run: (i) => logging.run({
@@ -87,9 +122,9 @@ export class HarnessService {
       }),
     }
     const drivers = makeDrivers({
-      runner, vaultRoot: this.deps.vaultRoot,
+      runner, vaultRoot,
       stagingRoot: this.stagingDir(runId),
-      preamble: resolveProjectPreamble(this.deps.vaultRoot, projectId, this.preamble),
+      preamble: resolveProjectPreamble(vaultRoot, projectId, this.preamble),
       projectCwd,
       stepTimeoutMs: this.deps.stepTimeoutMs,
       sourceLedger: this.deps.sourceLedger,
@@ -116,11 +151,19 @@ export class HarnessService {
   }
 
   async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
+    const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
+    // The wiki lives in the project's workspace. Bring the canonical internal state (graph/proposals/
+    // runs/projects) into the local working vault before the run; raw/ is re-materialized below.
+    const wv = this.vaultFor(input.projectId)
+    try { await wv.pull() }
+    catch (e) { onEngineLog?.({ label: 'workspace', stream: 'stderr', chunk: `pull failed: ${String(e)}\n` }) }
+    const vaultRoot = wv.localRoot
+    this.ensureVaultGitignore(vaultRoot)
+
     if (input.materialize && input.repoPaths?.length) {
       // Emit the manifest so an empty/failed source pull (e.g. an ssh fetch that returned nothing) is
       // VISIBLE in the live log instead of silently producing an empty raw/ that fails downstream.
-      const log = (chunk: string) => onEngineLog?.({ label: 'materialize', stream: 'stdout', chunk })
-      const docs = await materializeProjectDocs(input.repoPaths, this.deps.vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
+      const docs = await materializeProjectDocs(input.repoPaths, vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
       log(`project-docs: ${docs.files.length} file(s) materialized (scanned ${docs.scanned}).` +
         (docs.skipped.length ? ` skipped ${docs.skipped.length}: ${docs.skipped.slice(0, 5).join(' | ')}` : '') + '\n')
 
@@ -140,7 +183,7 @@ export class HarnessService {
         const conv = await materializeConversations({
           adapters: convAdapters,
           repoPaths: input.repoPaths,
-          vaultRoot: this.deps.vaultRoot,
+          vaultRoot,
         })
         log(`conversations: ${conv.files} Q&A file(s) from ${conv.sessions} session(s).` +
           (conv.skipped.length ? ` skipped ${conv.skipped.length}` : '') + '\n')
@@ -148,9 +191,16 @@ export class HarnessService {
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const runner = this.runnerFor(runId, input.projectId, input.repoPaths?.[0], onEngineLog)
+    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
-    return this.advanceSafely(runId, runner, store, onProgress)
+    const result = await this.advanceSafely(runId, runner, store, onProgress)
+    // Sync the updated internal state back to the workspace so it persists across machines. Done on
+    // any non-failed run; a failed run leaves the workspace untouched.
+    if (result.finalState !== 'FAILED') {
+      try { await wv.pushInternal(); log('internal state synced to workspace.\n') }
+      catch (e) { onEngineLog?.({ label: 'workspace', stream: 'stderr', chunk: `push failed: ${String(e)}\n` }) }
+    }
+    return result
   }
 
   /** Resume an existing run from its persisted state — e.g. after a paused gate is reopened. Re-reads
@@ -169,8 +219,12 @@ export class HarnessService {
     if (missing.length) {
       return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `cannot resume ${input.runId}: missing artifacts ${missing.join(', ')}` }
     }
-    const runner = this.runnerFor(input.runId, prev.projectId)
-    return this.advanceSafely(input.runId, runner, store)
+    const wv = this.vaultFor(prev.projectId)
+    try { await wv.pull() } catch { /* best-effort; the local working copy still holds the run's state */ }
+    const runner = this.runnerFor(input.runId, prev.projectId, wv.localRoot)
+    const result = await this.advanceSafely(input.runId, runner, store)
+    if (result.finalState !== 'FAILED') { try { await wv.pushInternal() } catch { /* non-fatal */ } }
+    return result
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {
@@ -225,7 +279,7 @@ export class HarnessService {
         runner: this.deps.runner, engine: input.engine,
         input: { base_preamble: this.preamble, discovery }, cwd: input.repoPaths?.[0], label: 'wiki-policy-advisor',
       })
-      const rec = writeProposedPolicy(this.deps.vaultRoot, input.projectId, proposal, this.now)
+      const rec = writeProposedPolicy(this.vaultFor(input.projectId).localRoot, input.projectId, proposal, this.now)
       // Preview mirrors resolveProjectPreamble's approved-path composition (base + '\n\n' + body).
       // We can't call resolveProjectPreamble here: the policy is still 'proposed', so it would return
       // base only. Keep this separator in sync with resolveProjectPreamble. `body` is returned too so
@@ -240,17 +294,17 @@ export class HarnessService {
   }
 
   approveWikiPolicy(input: { projectId: string }): { ok: boolean; record?: WikiPolicyRecord; reason?: string } {
-    try { return { ok: true, record: approvePolicy(this.deps.vaultRoot, input.projectId, this.now) } }
+    try { return { ok: true, record: approvePolicy(this.vaultFor(input.projectId).localRoot, input.projectId, this.now) } }
     catch (err) { return { ok: false, reason: err instanceof Error ? err.message : String(err) } }
   }
 
   getWikiPolicy(input: { projectId: string }): { ok: true; record: WikiPolicyRecord | null } {
-    return { ok: true, record: readPolicy(this.deps.vaultRoot, input.projectId) }
+    return { ok: true, record: readPolicy(this.vaultFor(input.projectId).localRoot, input.projectId) }
   }
 
   revertWikiPolicy(input: { projectId: string }): { ok: boolean; reason?: string } {
     // Wrap like the sibling methods so no exception escapes the IPC boundary (e.g. a read-only mount).
-    try { revertPolicy(this.deps.vaultRoot, input.projectId); return { ok: true } }
+    try { revertPolicy(this.vaultFor(input.projectId).localRoot, input.projectId); return { ok: true } }
     catch (err) { return { ok: false, reason: err instanceof Error ? err.message : String(err) } }
   }
 
@@ -274,14 +328,14 @@ export class HarnessService {
   }
 
   promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {
-    return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot })
+    return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.vaultFor(this.projectIdOf(input.runId)).localRoot })
       .promote(input)
   }
 
   /** Hash-gated promotion of one canonical proposal into the real vault (acceptance #7). */
   promoteCanonical(input: { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean; allowInvalid?: boolean }): CanonicalPromoteResult {
     return new HarnessPromoteService({
-      runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot,
+      runsRoot: this.deps.runsRoot, vaultRoot: this.vaultFor(this.projectIdOf(input.runId)).localRoot,
       // full timestamp (not date-only) so two same-day conflicts on the same canonical don't clobber each other
       conflict: new ConflictManager(), stamp: this.now().replace(/[:.]/g, '-'),
     }).promoteCanonical(input)
@@ -290,7 +344,16 @@ export class HarnessService {
   // (promoteCanonical input type widened to accept allowSecrets — see below)
   /** Canonical proposals + current vault hashes, for the UI to drive hash-gated promotion. */
   canonicalProposals(input: { runId: string }): Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }> {
-    return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.deps.vaultRoot, conflict: new ConflictManager() })
+    return new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.vaultFor(this.projectIdOf(input.runId)).localRoot, conflict: new ConflictManager() })
       .canonicalProposals(input.runId)
+  }
+
+  /** Publish the project's human-readable wiki into its workspace `wiki/` area (manual export). First
+   *  syncs the latest internal state to the workspace, then writes the readable docs to `<repo>/wiki/`
+   *  (or its ssh equivalent). Returns the target + file count, or a reason if there's nothing to export. */
+  async exportWiki(input: { projectId: string }): Promise<WorkspaceExportResult> {
+    const wv = this.vaultFor(input.projectId)
+    try { await wv.pushInternal() } catch { /* publish still proceeds from the local working copy */ }
+    return wv.exportWiki()
   }
 }

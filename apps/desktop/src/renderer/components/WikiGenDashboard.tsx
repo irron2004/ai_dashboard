@@ -24,7 +24,7 @@ export function WikiGenDashboard() {
     harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
     wikiPolicy, wikiPolicyPreview, wikiPolicyBusy,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
-    promoteHarnessRun, promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
+    promoteHarnessRun, promoteCanonicalDoc, exportWiki, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
     proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
   } = useStore()
 
@@ -146,6 +146,14 @@ export function WikiGenDashboard() {
                       ⚠ 검증 무시
                     </button>
                   )}
+                  <button
+                    type="button"
+                    disabled={harnessLoading || !selectedProjectId}
+                    title="promote된 위키를 워크스페이스의 wiki/ 폴더로 publish ({repo}/wiki)"
+                    onClick={() => void exportWiki()}
+                  >
+                    📤 워크스페이스로 export
+                  </button>
                 </div>
                 {harnessCanonicalProposals.length > 0 && (
                   <ul className="wikigen__canonical">

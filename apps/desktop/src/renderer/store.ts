@@ -80,6 +80,7 @@ type ApcStore = {
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   promoteHarnessRun(runId?: string, allowInvalid?: boolean): Promise<void>
+  exportWiki(projectId?: string): Promise<void>
   loadCanonicalProposals(runId?: string): Promise<void>
   promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string, allowInvalid?: boolean): Promise<void>
   updateHarnessModel(patch: Partial<HarnessConfig['model']>): void
@@ -379,6 +380,18 @@ export const useStore = create<ApcStore>((set, get) => ({
       set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)${allowInvalid ? ' (검증 무시)' : ''}`, harnessPromoteBlockedReason: null })
     } catch (e) {
       set({ error: `Harness promote failed: ${e}` })
+    }
+  },
+
+  async exportWiki(projectId?: string) {
+    const targetProjectId = projectId ?? get().selectedProjectId
+    if (!targetProjectId) { set({ error: 'Select a project first.' }); return }
+    set({ harnessMessage: '워크스페이스로 export 중…' })
+    try {
+      const r = await api.harnessExportWiki({ projectId: targetProjectId })
+      set({ harnessMessage: r.ok ? `✅ ${r.files}개 문서를 워크스페이스로 export: ${r.target}` : `Export 실패: ${r.reason}` })
+    } catch (e) {
+      set({ error: `Wiki export failed: ${e}` })
     }
   },
 
