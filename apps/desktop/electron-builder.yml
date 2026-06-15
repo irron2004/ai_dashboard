@@ -1,0 +1,48 @@
+appId: com.apc.desktop
+productName: Agent Project Console
+copyright: Copyright © 2026 APC
+
+# electron is hoisted to the workspace-root node_modules (pnpm hoisted linker) and the
+# app declares a range ("^31.0.0"), so electron-builder cannot auto-detect the version.
+# Pin it explicitly (matches the installed electron 31.7.7).
+electronVersion: 31.7.7
+
+# electron-vite bundles main/preload/renderer into out/. The two native modules
+# (better-sqlite3, @homebridge/node-pty-prebuilt-multiarch) are kept external and
+# loaded from node_modules at runtime, so they must be packaged. We rebuild them for
+# the Electron ABI ourselves (electron-rebuild) before packaging, hence npmRebuild:false.
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+
+# Native .node addons cannot be loaded from inside an asar archive, so unpack them
+# (and the full native module trees) to app.asar.unpacked/.
+asarUnpack:
+  - "**/*.node"
+  - node_modules/better-sqlite3/**
+  - node_modules/@homebridge/node-pty-prebuilt-multiarch/**
+
+# We rebuild native modules against Electron's ABI manually with electron-rebuild;
+# don't let electron-builder try to rebuild them (fragile under pnpm workspaces).
+npmRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Agent Project Console
