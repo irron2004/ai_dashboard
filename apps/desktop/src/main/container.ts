@@ -14,6 +14,7 @@ import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter }
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
+import { fetchRemoteProjectDocs } from './remote-docs.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -241,6 +242,9 @@ export function buildContainer(opts: {
     conversationAdapters: ingestAdapters,
     // 이미 처리한 소스 문서는 재실행/재요청 시 건너뛰도록(변경된 문서만 재처리). wiki_processed_sources 테이블 기반.
     sourceLedger: processedSources,
+    // ssh:// 프로젝트의 문서를 원격에서 raw/로 가져온다(로컬 fs로는 읽을 수 없으므로). 이게 없으면 SSH
+    // 프로젝트는 raw/가 비어 EvidenceVerifier가 전부 막힌다.
+    fetchRemoteDocs: fetchRemoteProjectDocs,
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)

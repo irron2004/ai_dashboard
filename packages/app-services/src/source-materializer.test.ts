@@ -11,7 +11,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('materializeProjectDocs', () => {
-  test('copies docs recursively, skips excluded dirs and non-doc files', () => {
+  test('copies docs recursively, skips excluded dirs and non-doc files', async () => {
     const repo = join(root, 'repo'); const vault = join(root, 'vault')
     mkdirSync(join(repo, 'sub'), { recursive: true })
     mkdirSync(join(repo, 'node_modules', 'pkg'), { recursive: true })
@@ -20,7 +20,7 @@ describe('materializeProjectDocs', () => {
     writeFileSync(join(repo, 'image.png'), 'x')                 // non-doc → skipped
     writeFileSync(join(repo, 'node_modules', 'pkg', 'readme.md'), 'noise')  // excluded dir → skipped
 
-    const manifest = materializeProjectDocs([repo], vault)
+    const manifest = await materializeProjectDocs([repo], vault)
 
     expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'PRD.md'))).toBe(true)
     expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'sub', 'notes.txt'))).toBe(true)
@@ -30,18 +30,18 @@ describe('materializeProjectDocs', () => {
     expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'PRD.md'), 'utf8')).toBe('# prd')
   })
 
-  test('is idempotent: a removed source disappears on the next run', () => {
+  test('is idempotent: a removed source disappears on the next run', async () => {
     const repo = join(root, 'repo'); const vault = join(root, 'vault')
     mkdirSync(repo, { recursive: true })
     writeFileSync(join(repo, 'a.md'), 'a'); writeFileSync(join(repo, 'b.md'), 'b')
-    materializeProjectDocs([repo], vault)
+    await materializeProjectDocs([repo], vault)
     rmSync(join(repo, 'b.md'))
-    materializeProjectDocs([repo], vault)
+    await materializeProjectDocs([repo], vault)
     expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'a.md'))).toBe(true)
     expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'b.md'))).toBe(false)
   })
 
-  test('preserves other raw/ content (only clears raw/project-docs)', () => {
+  test('preserves other raw/ content (only clears raw/project-docs)', async () => {
     const repo = join(root, 'repo'); const vault = join(root, 'vault')
     mkdirSync(repo, { recursive: true })
     writeFileSync(join(repo, 'a.md'), 'a')
@@ -49,25 +49,59 @@ describe('materializeProjectDocs', () => {
     mkdirSync(join(vault, 'raw', 'manual'), { recursive: true })
     writeFileSync(join(vault, 'raw', 'manual', 'keep.md'), 'keep me')
 
-    materializeProjectDocs([repo], vault)
+    await materializeProjectDocs([repo], vault)
 
     expect(existsSync(join(vault, 'raw', 'manual', 'keep.md'))).toBe(true)      // untouched
     expect(readFileSync(join(vault, 'raw', 'manual', 'keep.md'), 'utf8')).toBe('keep me')
     expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'a.md'))).toBe(true)
   })
 
-  test('does not pull the vault back into raw/ when a repoPath contains the vault', () => {
+  test('does not pull the vault back into raw/ when a repoPath contains the vault', async () => {
     const repo = join(root, 'repo'); const vault = join(repo, 'vault')   // vault lives INSIDE the repo
     mkdirSync(join(vault, 'raw', 'project-docs', '0'), { recursive: true })
     writeFileSync(join(repo, 'real-doc.md'), 'real')
     writeFileSync(join(vault, 'generated-wiki.md'), 'generated')          // a doc inside the vault
 
-    materializeProjectDocs([repo], vault)
+    await materializeProjectDocs([repo], vault)
 
     // the real project doc is materialized…
     expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'real-doc.md'))).toBe(true)
     // …but nothing from inside the vault was treated as a source (no generated-wiki.md copied in)
-    const manifest = materializeProjectDocs([repo], vault)
+    const manifest = await materializeProjectDocs([repo], vault)
     expect(manifest.files.some((f) => f.rel.includes('generated-wiki'))).toBe(false)
+  })
+
+  test('ssh:// repoPath is fetched via the injected fetcher into raw/project-docs/<i>/', async () => {
+    const vault = join(root, 'vault')
+    const fetchRemoteDocs = async (repoPath: string) => {
+      expect(repoPath).toBe('ssh://user@host/home/x/repo')
+      return [
+        { rel: 'docs/contracts/product-contract.md', content: '# contract' },
+        { rel: './CLAUDE.md', content: 'guide' },  // leading ./ tolerated
+      ]
+    }
+    const manifest = await materializeProjectDocs(['ssh://user@host/home/x/repo'], vault, { fetchRemoteDocs })
+
+    expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'docs', 'contracts', 'product-contract.md'))).toBe(true)
+    expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'CLAUDE.md'), 'utf8')).toBe('guide')
+    expect(manifest.files.map((f) => f.rel).sort()).toEqual(['project-docs/0/CLAUDE.md', 'project-docs/0/docs/contracts/product-contract.md'])
+    expect(manifest.scanned).toBe(2)
+  })
+
+  test('ssh:// repoPath with no fetcher is recorded in skipped (not silently dropped)', async () => {
+    const vault = join(root, 'vault')
+    const manifest = await materializeProjectDocs(['ssh://user@host/home/x/repo'], vault)
+    expect(manifest.files).toEqual([])
+    expect(manifest.skipped.some((s) => s.includes('no ssh fetcher'))).toBe(true)
+  })
+
+  test('mixes local and remote repoPaths by index', async () => {
+    const repo = join(root, 'repo'); const vault = join(root, 'vault')
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'local.md'), 'L')
+    const fetchRemoteDocs = async () => [{ rel: 'remote.md', content: 'R' }]
+    await materializeProjectDocs([repo, 'ssh://h/p'], vault, { fetchRemoteDocs })
+    expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'local.md'), 'utf8')).toBe('L')   // index 0 = local
+    expect(readFileSync(join(vault, 'raw', 'project-docs', '1', 'remote.md'), 'utf8')).toBe('R')  // index 1 = remote
   })
 })

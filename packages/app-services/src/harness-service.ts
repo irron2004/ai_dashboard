@@ -14,7 +14,7 @@ import {
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
 import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
-import { materializeProjectDocs } from './source-materializer.js'
+import { materializeProjectDocs, type RemoteDocFetcher } from './source-materializer.js'
 import { materializeConversations } from './conversation-materializer.js'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
@@ -31,6 +31,9 @@ export type HarnessServiceDeps = {
   /** Idempotency ledger for source documents: skip already-processed sources, re-do only changed ones.
    *  Omitted in tests/CLI without a DB → every source is processed each run (legacy behavior). */
   sourceLedger?: SourceLedger
+  /** Fetches docs from ssh:// repoPaths into raw/ (desktop wires the ssh-backed impl). Without it,
+   *  SSH projects materialize no project docs (recorded in the manifest's skipped list). */
+  fetchRemoteDocs?: RemoteDocFetcher
   vaultRoot: string
   runsRoot: string
   /** 단계별 LLM 타임아웃(ms). 미설정 시 make-drivers 기본값(600s). */
@@ -110,7 +113,7 @@ export class HarnessService {
 
   async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
     if (input.materialize && input.repoPaths?.length) {
-      materializeProjectDocs(input.repoPaths, this.deps.vaultRoot)
+      await materializeProjectDocs(input.repoPaths, this.deps.vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
       if (this.deps.conversationAdapters?.length) {
         await materializeConversations({
           adapters: this.deps.conversationAdapters,
