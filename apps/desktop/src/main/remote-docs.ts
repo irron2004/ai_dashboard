@@ -7,13 +7,17 @@ export type RemoteDoc = { absPath: string; content: string }
 const DOC_MARKER = '@@APCDOC@@'
 const END_MARKER = '@@APCEND@@'
 
+/** A fetched remote file with its raw bytes (binary-safe — sqlite dbs etc. survive intact). */
+export type RemoteFile = { absPath: string; buf: Buffer }
+
 /**
- * Parse the framed output of the remote fetch command: for each file, a `@@APCDOC@@<absolute-path>`
- * line, then base64 content lines, then `@@APCEND@@`. base64's alphabet ([A-Za-z0-9+/=]) can never
- * contain the markers, so framing is collision-free. CR (Windows ssh stdout) is tolerated.
+ * Parse the framed output of the remote fetch command into raw bytes per file: for each file, a
+ * `@@APCDOC@@<absolute-path>` line, then base64 content lines, then `@@APCEND@@`. base64's alphabet
+ * ([A-Za-z0-9+/=]) can never contain the markers, so framing is collision-free. CR (Windows ssh
+ * stdout) is tolerated. Returns Buffers so binary files (e.g. an opencode sqlite db) aren't corrupted.
  */
-export function parseRemoteDocBlocks(stdout: string): RemoteDoc[] {
-  const out: RemoteDoc[] = []
+export function parseRemoteFileBlocks(stdout: string): RemoteFile[] {
+  const out: RemoteFile[] = []
   let absPath: string | null = null
   let b64: string[] = []
   for (const raw of stdout.split('\n')) {
@@ -22,13 +26,18 @@ export function parseRemoteDocBlocks(stdout: string): RemoteDoc[] {
       absPath = line.slice(DOC_MARKER.length)
       b64 = []
     } else if (line.startsWith(END_MARKER)) {
-      if (absPath) out.push({ absPath, content: Buffer.from(b64.join(''), 'base64').toString('utf8') })
+      if (absPath) out.push({ absPath, buf: Buffer.from(b64.join(''), 'base64') })
       absPath = null; b64 = []
     } else if (absPath !== null) {
       b64.push(line.trim())
     }
   }
   return out
+}
+
+/** Same framing, decoded as UTF-8 text — for the doc/source fetch (all text files). */
+export function parseRemoteDocBlocks(stdout: string): RemoteDoc[] {
+  return parseRemoteFileBlocks(stdout).map((f) => ({ absPath: f.absPath, content: f.buf.toString('utf8') }))
 }
 
 /**

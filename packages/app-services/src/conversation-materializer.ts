@@ -61,14 +61,20 @@ function normalizePath(p: string): string {
   return p.replace(/\\/g, '/').toLowerCase().replace(/^([a-z]):\//, '/mnt/$1/').replace(/\/+$/, '')
 }
 
-/** 세션의 작업 디렉터리(repoPath, 없으면 worktreePath)가 프로젝트 repoPath와 같거나 그 하위면 매칭. */
+/** The remote filesystem path of an ssh:// URL (its pathname), e.g. ssh://u@h/home/x → /home/x. */
+function sshPathname(sshUrl: string): string {
+  try { return decodeURIComponent(new URL(sshUrl).pathname) } catch { return '' }
+}
+
+/** 세션의 작업 디렉터리(repoPath, 없으면 worktreePath)가 프로젝트 repoPath와 같거나 그 하위면 매칭.
+ *  ssh:// 프로젝트는 원격 경로(URL pathname)로 비교한다 — 원격에서 가져온 세션의 cwd가 그 경로이므로. */
 export function sessionMatchesProject(session: NormalizedSession, repoPaths: string[]): boolean {
   const candidate = session.repoPath ?? session.worktreePath
   if (!candidate) return false
   const c = normalizePath(candidate)
   for (const repoPath of repoPaths) {
-    if (repoPath.startsWith('ssh://')) continue
-    const r = normalizePath(repoPath)
+    const base = repoPath.startsWith('ssh://') ? sshPathname(repoPath) : repoPath
+    const r = normalizePath(base)
     if (!r) continue
     if (c === r || c.startsWith(`${r}/`)) return true
   }

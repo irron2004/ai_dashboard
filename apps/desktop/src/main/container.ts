@@ -15,6 +15,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
+import { fetchRemoteConversations } from './remote-conversations.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -245,6 +246,8 @@ export function buildContainer(opts: {
     // ssh:// 프로젝트의 문서를 원격에서 raw/로 가져온다(로컬 fs로는 읽을 수 없으므로). 이게 없으면 SSH
     // 프로젝트는 raw/가 비어 EvidenceVerifier가 전부 막힌다.
     fetchRemoteDocs: fetchRemoteProjectDocs,
+    // ssh:// 프로젝트면 대화 로그도 원격에서 가져온다(로컬 PC의 ~/.claude 등을 읽지 않도록).
+    remoteConversationFetcher: fetchRemoteConversations,
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)

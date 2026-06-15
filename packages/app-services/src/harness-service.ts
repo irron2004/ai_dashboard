@@ -34,6 +34,10 @@ export type HarnessServiceDeps = {
   /** Fetches docs from ssh:// repoPaths into raw/ (desktop wires the ssh-backed impl). Without it,
    *  SSH projects materialize no project docs (recorded in the manifest's skipped list). */
   fetchRemoteDocs?: RemoteDocFetcher
+  /** For ssh:// projects, fetches the REMOTE host's agent conversation logs into `destDir` and returns
+   *  adapters pointed there — so conversations come from the remote workspace, never the local machine.
+   *  Desktop wires the ssh-backed impl; absent → ssh projects get no conversations. */
+  remoteConversationFetcher?: (sshRepoPath: string, destDir: string) => Promise<AgentIngestAdapter[]>
   vaultRoot: string
   runsRoot: string
   /** 단계별 LLM 타임아웃(ms). 미설정 시 make-drivers 기본값(600s). */
@@ -119,9 +123,22 @@ export class HarnessService {
       const docs = await materializeProjectDocs(input.repoPaths, this.deps.vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
       log(`project-docs: ${docs.files.length} file(s) materialized (scanned ${docs.scanned}).` +
         (docs.skipped.length ? ` skipped ${docs.skipped.length}: ${docs.skipped.slice(0, 5).join(' | ')}` : '') + '\n')
-      if (this.deps.conversationAdapters?.length) {
+
+      // Conversations: for an ssh:// project pull them FROM THE REMOTE host (never read the local
+      // machine — the user works on the remote box; local ~/.claude is the wrong machine). Local
+      // projects use the injected local adapters as before.
+      const sshRepo = input.repoPaths.find((p) => p.startsWith('ssh://'))
+      let convAdapters = this.deps.conversationAdapters ?? []
+      if (sshRepo) {
+        convAdapters = []
+        if (this.deps.remoteConversationFetcher) {
+          try { convAdapters = await this.deps.remoteConversationFetcher(sshRepo, join(this.deps.runsRoot, '.remote-conv')) }
+          catch (e) { log(`conversations: remote fetch failed: ${String(e)}\n`) }
+        }
+      }
+      if (convAdapters.length) {
         const conv = await materializeConversations({
-          adapters: this.deps.conversationAdapters,
+          adapters: convAdapters,
           repoPaths: input.repoPaths,
           vaultRoot: this.deps.vaultRoot,
         })
