@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { listMarkdown, isCanonical, isRaw, resolveInside } from './vault-fs.js'
 
 describe('vault-fs', () => {
@@ -14,7 +14,9 @@ describe('vault-fs', () => {
     writeFileSync(join(dir, 'a', 'x.md'), '#')
     writeFileSync(join(dir, 'y.txt'), 'no')
     expect(listMarkdown(join(dir, 'nope'))).toEqual([])
-    expect(listMarkdown(dir).map(p => p.replace(dir + '/', ''))).toContain('a/x.md')
+    // listMarkdown returns OS-native absolute paths (back-slashes on Windows); normalize the separator
+    // before comparing so the assertion holds on every platform this app ships to.
+    expect(listMarkdown(dir).map(p => p.slice(dir.length + 1).split(sep).join('/'))).toContain('a/x.md')
   })
 
   test('isCanonical matches current.md / PRD.md / ADR-*.md anywhere in the path', () => {
