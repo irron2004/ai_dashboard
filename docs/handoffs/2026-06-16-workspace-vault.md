@@ -2,9 +2,9 @@
 
 **Date:** 2026-06-16
 **Branch:** `feat/workspace-vault` (off `feat/wiki-policy-advisor`, not yet pushed/PR'd)
-**Status:** ✅ Implemented, typecheck clean, full suites green (root 445 passed / desktop 185 passed,
-0 failed). ❗ Not yet verified against the live ssh host (blocked by the account 429 limit + no
-remote run this session).
+**Status:** ✅ Implemented, typecheck clean, full suites green (root 447 passed / desktop 185 passed,
+0 failed), and `pnpm --filter @apc/desktop build` succeeds (main + preload + renderer). ❗ Not yet
+verified against the live ssh host (blocked by the account 429 limit + no remote run this session).
 
 ## Why
 
@@ -20,6 +20,8 @@ The goal (user-confirmed): the wiki is generated **in the workspace you connect 
 | `d49a2f0` | **Cross-platform tests.** Fixed two Windows-only failures (vault-fs separator, cli-agent-runner shell-quote) — test-only, production unchanged. |
 | `acd5a84` | **Fix: ssh force-materialize.** ssh projects re-pull a wiped vault and never sync `raw/`, so `materialize:false` left `raw/` empty → the extractor fabricated remote absolute paths → EvidenceVerifier `path_escape` (the originally-reported failure). ssh now always materializes; local keeps both modes. |
 | `014d8d3` | **Fix: export from vault root.** The harness writes nodes at the vault root (`concepts/x.md`), not `projects/<id>/`; `exportWiki` was reading the wrong dir and always published 0 files. Now publishes the whole vault minus `raw/` (and drafts/agent-runs). |
+| `cc6be8c` | **Fix: persist promote.** promote writes the local working vault; an ssh project's next pull wipes it, so an approved-but-unexported draft was lost. `syncWorkspaceForRun` now pushes after a successful promote (container boundary; promote stays sync). |
+| `1b76499` | **Fix: no self-ingestion.** `.apc-wiki`/`wiki` now live in the repo, so doc materialization (local walk + remote `find`) re-ingested our own raw sources, proposals and output → corpus pollution + generate-from-own-output loop. Both are excluded now. |
 
 ## Layout (in the workspace; `<repo>` = `repoPaths[0]`)
 
