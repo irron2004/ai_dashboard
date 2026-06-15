@@ -75,6 +75,15 @@ describe('HarnessService — workspace vault lifecycle', () => {
     expect(existsSync(join(ws, 'unused-global-vault', 'concepts', 'n1.md'))).toBe(false)
   })
 
+  test('syncWorkspaceForRun pushes the project vault (used after promote so it survives the next pull)', async () => {
+    const svc = service()
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok).toBe(true)
+    vault.calls.length = 0
+    await svc.syncWorkspaceForRun(r.runId) // resolves projectId p1 from the run, pushes its vault
+    expect(vault.calls).toEqual(['push'])
+  })
+
   test('a FAILED run pulls but does NOT push the workspace', async () => {
     // No raw/a → evidence verification fails → run FAILED.
     rmSync(join(localRoot, 'raw', 'a'))

@@ -74,8 +74,8 @@ export type Container = {
   harnessRun: (req: HarnessRunReq) => Promise<HarnessRunRes>
   harnessResume: (req: HarnessResumeReq) => Promise<HarnessRunRes>
   harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
-  harnessPromote: (req: HarnessPromoteReq) => HarnessPromoteRes
-  harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => HarnessPromoteCanonicalRes
+  harnessPromote: (req: HarnessPromoteReq) => Promise<HarnessPromoteRes>
+  harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => Promise<HarnessPromoteCanonicalRes>
   harnessCanonicalProposals: (req: HarnessCanonicalProposalsReq) => HarnessCanonicalProposalsRes
   harnessProposePolicy: (req: HarnessProposePolicyReq) => Promise<HarnessProposePolicyRes>
   harnessApprovePolicy: (req: HarnessApprovePolicyReq) => HarnessApprovePolicyRes
@@ -275,8 +275,19 @@ export function buildContainer(opts: {
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
-  const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)
-  const harnessPromoteCanonical = (req: HarnessPromoteCanonicalReq): HarnessPromoteCanonicalRes => harness.promoteCanonical(req)
+  // Promote writes into the local working vault; persist it to the workspace so an ssh project's next
+  // run (which re-pulls and wipes the working copy) doesn't lose the approved draft. Best-effort — a
+  // failed sync leaves the local promote intact, and a later export retries the push.
+  const harnessPromote = async (req: HarnessPromoteReq): Promise<HarnessPromoteRes> => {
+    const r = harness.promote(req)
+    if (r.ok) { try { await harness.syncWorkspaceForRun(req.runId) } catch { /* export will retry */ } }
+    return r
+  }
+  const harnessPromoteCanonical = async (req: HarnessPromoteCanonicalReq): Promise<HarnessPromoteCanonicalRes> => {
+    const r = harness.promoteCanonical(req)
+    if (r.ok) { try { await harness.syncWorkspaceForRun(req.runId) } catch { /* export will retry */ } }
+    return r
+  }
   const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
   const harnessProposePolicy = (req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> => harness.proposeWikiPolicy(req)
   const harnessApprovePolicy = (req: HarnessApprovePolicyReq): HarnessApprovePolicyRes => harness.approveWikiPolicy(req)

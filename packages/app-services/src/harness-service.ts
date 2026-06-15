@@ -355,6 +355,13 @@ export class HarnessService {
       .canonicalProposals(input.runId)
   }
 
+  /** Persist a run's project vault to its workspace. Call AFTER promote: promote writes into the local
+   *  working copy, and for an ssh project the next run's pull() re-pulls the workspace and wipes that
+   *  copy — so without this an approved draft would be lost on the next run. No-op for the fallback vault. */
+  async syncWorkspaceForRun(runId: string): Promise<void> {
+    await this.vaultFor(this.projectIdOf(runId)).pushInternal()
+  }
+
   /** Publish the project's human-readable wiki into its workspace `wiki/` area (manual export). First
    *  syncs the latest internal state to the workspace, then writes the readable docs to `<repo>/wiki/`
    *  (or its ssh equivalent). Returns the target + file count, or a reason if there's nothing to export. */
