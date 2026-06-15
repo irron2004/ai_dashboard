@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path'
 import {
   type WorkspaceVault, type WorkspaceExportResult,
-  internalStateFiles, walkVaultFiles, isPublishable,
+  internalStateFiles, publishableWikiFiles,
 } from '@apc/app-services'
 import { parseSsh, sshExec, type SshExec, type SshTarget } from './ssh-exec.js'
 import { DOC_MARKER, END_MARKER, parseRemoteFileBlocks } from './remote-docs.js'
@@ -101,11 +101,10 @@ export class SshWorkspaceVault implements WorkspaceVault {
   }
 
   async exportWiki(): Promise<WorkspaceExportResult> {
-    const src = join(this.localRoot, 'projects', this.projectId)
-    if (!existsSync(src)) return { ok: false, reason: 'no generated wiki to export (run a generation first)' }
-    const rels = walkVaultFiles(src).filter(isPublishable)
+    if (!existsSync(this.localRoot)) return { ok: false, reason: 'no generated wiki to export (run a generation first)' }
+    const rels = publishableWikiFiles(this.localRoot)
     if (!rels.length) return { ok: false, reason: 'no publishable wiki files yet' }
-    await pushDir(this.ssh, src, this.remote('wiki'), rels, { mirror: true, exec: this.exec })
+    await pushDir(this.ssh, this.localRoot, this.remote('wiki'), rels, { mirror: true, exec: this.exec })
     return { ok: true, target: `ssh:${this.remote('wiki')}`, files: rels.length }
   }
 }

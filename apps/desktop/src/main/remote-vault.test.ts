@@ -81,12 +81,13 @@ describe('SshWorkspaceVault', () => {
     expect(cmds[1].stdin).toContain(`base64 -d > '/remote/repo/.apc-wiki/graph/g.json'`)
   })
 
-  test('exportWiki publishes readable docs to the remote wiki/ dir', async () => {
+  test('exportWiki publishes root-level readable docs to the remote wiki/ dir', async () => {
     const wv = new SshWorkspaceVault('ssh://u@h:22/remote/repo', 'p1', cache, async () => ok(''))
-    const proj = join(cache, 'p1', 'projects', 'p1')
-    mkdirSync(proj, { recursive: true })
-    writeFileSync(join(proj, 'current.md'), '# C')
-    writeFileSync(join(proj, 'draft.proposal.md'), '# D') // excluded
+    const root = join(cache, 'p1')
+    mkdirSync(join(root, 'raw'), { recursive: true })
+    writeFileSync(join(root, 'current.md'), '# C')
+    writeFileSync(join(root, 'draft.proposal.md'), '# D') // excluded
+    writeFileSync(join(root, 'raw', 'src.md'), '# S') // excluded
 
     const r = await wv.exportWiki()
     expect(r).toEqual({ ok: true, target: 'ssh:/remote/repo/wiki', files: 1 })

@@ -64,6 +64,15 @@ export function isPublishable(rel: string): boolean {
 }
 
 /**
+ * The readable wiki files to publish on export: every publishable doc under the vault EXCEPT the `raw/`
+ * source tree. The harness writes promoted nodes at the vault root (e.g. `concepts/x.md`, `current.md`)
+ * per its write plan — NOT under a `projects/<id>/` subdir — so we publish the whole vault minus raw/.
+ */
+export function publishableWikiFiles(localRoot: string): string[] {
+  return walkVaultFiles(localRoot, (rel) => rel.split('/')[0] === 'raw').filter(isPublishable)
+}
+
+/**
  * Local (non-ssh) workspace vault: the canonical copy IS the local fs, so pull/push are no-ops.
  * `localRoot` is `<repo>/.apc-wiki`; export copies the publishable docs from
  * `<repo>/.apc-wiki/projects/<projectId>/` into `<repo>/wiki/`.
@@ -76,15 +85,14 @@ export class LocalWorkspaceVault implements WorkspaceVault {
   async pull(): Promise<void> { /* canonical store is the local fs */ }
   async pushInternal(): Promise<void> { /* canonical store is the local fs */ }
   async exportWiki(): Promise<WorkspaceExportResult> {
-    const src = join(this.localRoot, 'projects', this.projectId)
-    if (!existsSync(src)) return { ok: false, reason: 'no generated wiki to export (run a generation first)' }
-    const rels = walkVaultFiles(src).filter(isPublishable)
+    if (!existsSync(this.localRoot)) return { ok: false, reason: 'no generated wiki to export (run a generation first)' }
+    const rels = publishableWikiFiles(this.localRoot)
     if (!rels.length) return { ok: false, reason: 'no publishable wiki files yet' }
     const dest = join(this.repoPath, 'wiki')
     for (const rel of rels) {
       const to = join(dest, rel)
       mkdirSync(join(to, '..'), { recursive: true })
-      cpSync(join(src, rel), to)
+      cpSync(join(this.localRoot, rel), to)
     }
     return { ok: true, target: dest, files: rels.length }
   }
