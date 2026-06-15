@@ -113,13 +113,20 @@ export class HarnessService {
 
   async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
     if (input.materialize && input.repoPaths?.length) {
-      await materializeProjectDocs(input.repoPaths, this.deps.vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
+      // Emit the manifest so an empty/failed source pull (e.g. an ssh fetch that returned nothing) is
+      // VISIBLE in the live log instead of silently producing an empty raw/ that fails downstream.
+      const log = (chunk: string) => onEngineLog?.({ label: 'materialize', stream: 'stdout', chunk })
+      const docs = await materializeProjectDocs(input.repoPaths, this.deps.vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
+      log(`project-docs: ${docs.files.length} file(s) materialized (scanned ${docs.scanned}).` +
+        (docs.skipped.length ? ` skipped ${docs.skipped.length}: ${docs.skipped.slice(0, 5).join(' | ')}` : '') + '\n')
       if (this.deps.conversationAdapters?.length) {
-        await materializeConversations({
+        const conv = await materializeConversations({
           adapters: this.deps.conversationAdapters,
           repoPaths: input.repoPaths,
           vaultRoot: this.deps.vaultRoot,
         })
+        log(`conversations: ${conv.files} Q&A file(s) from ${conv.sessions} session(s).` +
+          (conv.skipped.length ? ` skipped ${conv.skipped.length}` : '') + '\n')
       }
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`

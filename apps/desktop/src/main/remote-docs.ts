@@ -39,12 +39,20 @@ export async function fetchRemoteProjectDocs(sshRepoPath: string): Promise<Remot
   const ssh = parseSsh(sshRepoPath)
   if (!ssh) return []
   const path = ssh.path.replace(/'/g, `'\\''`)
-  const cmd =
-    `cd '${path}' && find . -type f \\( -name '*.md' -o -name '*.markdown' -o -name '*.txt' \\) ` +
-    `-not -path './node_modules/*' -not -path './.git/*' -not -path './dist/*' -not -path './build/*' ` +
-    `-size -1048576c 2>/dev/null | head -n 200 | while IFS= read -r f; do ` +
-    `printf '${DOC_MARKER}%s\\n' "$f"; base64 "$f"; printf '${END_MARKER}\\n'; done`
-  const res = await sshExec(ssh, cmd, { timeoutMs: 120_000 })
+  // Run the script via `bash -s` over stdin: bash is forced (the user's login shell could be zsh/fish/
+  // csh, which would choke on this POSIX-ish script), and feeding it on stdin avoids a second layer of
+  // shell-quoting. `cd … || exit 1` makes a bad path a hard error (surfaced via res.ok) instead of a
+  // silently empty result. head -n 200 closing the pipe early is fine — the while-loop is the pipeline's
+  // exit status, so SIGPIPE on find doesn't fail the run.
+  const script = [
+    `cd '${path}' || exit 1`,
+    `find . -type f \\( -name '*.md' -o -name '*.markdown' -o -name '*.txt' \\) \\`,
+    `  -not -path './node_modules/*' -not -path './.git/*' -not -path './dist/*' -not -path './build/*' \\`,
+    `  -size -1048576c 2>/dev/null | head -n 200 | while IFS= read -r f; do`,
+    `  printf '${DOC_MARKER}%s\\n' "$f"; base64 "$f"; printf '${END_MARKER}\\n';`,
+    `done`,
+  ].join('\n')
+  const res = await sshExec(ssh, 'bash -s', { stdin: script, timeoutMs: 120_000 })
   if (!res.ok) throw new Error(res.stderr?.trim() || `remote doc fetch failed (exit ${res.exitCode ?? 'none'})`)
   return parseRemoteDocBlocks(res.stdout)
 }

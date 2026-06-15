@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
 import { SourceReader, type SourceDoc } from './source-reader.js'
 import type { SourceLedger } from './source-ledger.js'
+import { normalizeEvidencePaths } from './evidence-normalize.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
@@ -141,11 +142,15 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     NODE_PROPOSALS_CREATED: async (ctx) => {
-      const data = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
+      const srcs = freshSources(ctx.projectId)  // A1: extractor cites paths/quotes from real source text
+      const raw = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
         history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
-        sources: freshSources(ctx.projectId),  // A1: extractor cites paths/quotes from real source text
+        sources: srcs,
       } })
+      // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
+      // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
+      const data = { ...raw, proposals: normalizeEvidencePaths(raw.proposals, srcs) }
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
       const report = policy.check(data.proposals)
