@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { parseSsh, sshExec, type SshTarget } from './ssh-exec.js'
 import { parseRemoteFileBlocks, type RemoteFile } from './remote-docs.js'
-import { ClaudeAdapter, type AgentIngestAdapter } from '@apc/agents'
+import { ClaudeAdapter, CodexAdapter, type AgentIngestAdapter } from '@apc/agents'
 
 const DOC_MARKER = '@@APCDOC@@'
 const END_MARKER = '@@APCEND@@'
@@ -43,6 +43,9 @@ export async function fetchRemoteConversations(sshRepoPath: string, destDir: str
   rmSync(destDir, { recursive: true, force: true })
   const adapters: AgentIngestAdapter[] = []
 
+  // Shell-single-quote the remote path for safe interpolation into the scripts below.
+  const q = ssh.path.replace(/'/g, `'\\''`)
+
   // Claude: ~/.claude/projects/<cwd-with-/-as->/*.jsonl — already scoped to this project's cwd.
   const enc = ssh.path.replace(/\//g, '-')
   const claudeFiles = await fetchFiles(ssh, `ls -1t "$HOME/.claude/projects/${enc}/"*.jsonl 2>/dev/null | head -n 12`)
@@ -50,6 +53,18 @@ export async function fetchRemoteConversations(sshRepoPath: string, destDir: str
     const projectsDir = join(destDir, 'claude', 'projects')
     writeUnder(claudeFiles, projectsDir)
     adapters.push(new ClaudeAdapter(projectsDir))
+  }
+
+  // Codex: ~/.codex/sessions/<date>/rollout-*.jsonl — NOT dir-scoped, so list recent rollouts that
+  // reference this project's path (newest first); sessionMatchesProject filters precisely by cwd after.
+  const codexList =
+    `find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -type f -size -5242880c -printf '%T@\\t%p\\n' 2>/dev/null ` +
+    `| sort -rn | cut -f2- | while IFS= read -r f; do grep -lF '${q}' "$f" >/dev/null 2>&1 && echo "$f"; done | head -n 12`
+  const codexFiles = await fetchFiles(ssh, codexList)
+  if (codexFiles.length) {
+    const sessionsDir = join(destDir, 'codex', 'sessions')
+    writeUnder(codexFiles, sessionsDir)
+    adapters.push(new CodexAdapter(sessionsDir))
   }
 
   return adapters
