@@ -89,4 +89,38 @@ describe('HarnessService — workspace vault lifecycle', () => {
     expect(vault.calls).toContain('push')
     expect(vault.exported).toBe(true)
   })
+
+  test('an ssh project force-materializes even when materialize is false (raw/ is not persisted for ssh)', async () => {
+    let fetched = 0
+    const logs: string[] = []
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot: join(ws, 'unused-global-vault'), runsRoot: join(ws, 'runs'),
+      workspaceVaultFor: () => vault,
+      fetchRemoteDocs: async () => { fetched++; return [{ absPath: '/remote/repo/doc.md', content: 'evidence source' }] },
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run(
+      { projectId: 'p1', engine: 'claude', materialize: false, repoPaths: ['ssh://u@h:22/remote/repo'] },
+      undefined,
+      (e) => logs.push(e.chunk),
+    )
+    expect(r.ok).toBe(true)
+    expect(fetched).toBe(1) // forced despite materialize:false
+    expect(logs.join('')).toContain('forcing full materialize')
+  })
+
+  test('a local project honors materialize:false (raw/ persists across runs)', async () => {
+    let fetched = 0
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot: join(ws, 'unused-global-vault'), runsRoot: join(ws, 'runs'),
+      workspaceVaultFor: () => vault,
+      fetchRemoteDocs: async () => { fetched++; return [] },
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude', materialize: false, repoPaths: ['/local/repo'] })
+    expect(r.ok).toBe(true)
+    expect(fetched).toBe(0) // local + materialize:false → no doc sweep
+  })
 })

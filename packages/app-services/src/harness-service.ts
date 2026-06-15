@@ -160,7 +160,15 @@ export class HarnessService {
     const vaultRoot = wv.localRoot
     this.ensureVaultGitignore(vaultRoot)
 
-    if (input.materialize && input.repoPaths?.length) {
+    // SSH projects MUST materialize every run: their working vault is wiped and re-pulled, and raw/ is
+    // never synced (re-derived each run), so skipping materialize would leave raw/ empty → the extractor
+    // has nothing real to cite → EvidenceVerifier path_escape. Local projects keep raw/ across runs (the
+    // workspace IS the local fs, pull is a no-op), so "최근 세션" can legitimately skip the doc sweep.
+    const sshRepoPath = input.repoPaths?.find((p) => p.startsWith('ssh://'))
+    const doMaterialize = (input.materialize || !!sshRepoPath) && !!input.repoPaths?.length
+    if (sshRepoPath && !input.materialize) log('ssh project — forcing full materialize (raw/ is not persisted for ssh).\n')
+
+    if (doMaterialize && input.repoPaths?.length) {
       // Emit the manifest so an empty/failed source pull (e.g. an ssh fetch that returned nothing) is
       // VISIBLE in the live log instead of silently producing an empty raw/ that fails downstream.
       const docs = await materializeProjectDocs(input.repoPaths, vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
@@ -170,12 +178,11 @@ export class HarnessService {
       // Conversations: for an ssh:// project pull them FROM THE REMOTE host (never read the local
       // machine — the user works on the remote box; local ~/.claude is the wrong machine). Local
       // projects use the injected local adapters as before.
-      const sshRepo = input.repoPaths.find((p) => p.startsWith('ssh://'))
       let convAdapters = this.deps.conversationAdapters ?? []
-      if (sshRepo) {
+      if (sshRepoPath) {
         convAdapters = []
         if (this.deps.remoteConversationFetcher) {
-          try { convAdapters = await this.deps.remoteConversationFetcher(sshRepo, join(this.deps.runsRoot, '.remote-conv')) }
+          try { convAdapters = await this.deps.remoteConversationFetcher(sshRepoPath, join(this.deps.runsRoot, '.remote-conv')) }
           catch (e) { log(`conversations: remote fetch failed: ${String(e)}\n`) }
         }
       }
