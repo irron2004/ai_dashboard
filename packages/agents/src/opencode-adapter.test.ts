@@ -5,17 +5,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OpenCodeAdapter } from './opencode-adapter.js'
 
-function createOpenCodeDb(path: string, sessionId: string, timeUpdated: number, worktree = '/mnt/c/work/apc'): void {
+function createOpenCodeDb(path: string, sessionId: string, timeUpdated: number, worktree = '/mnt/c/work/apc', directory = worktree): void {
   mkdirSync(join(path, '..'), { recursive: true })
   const db = new DatabaseSync(path)
   db.exec(`
     CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
-    CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, agent TEXT, model TEXT, time_created INTEGER, time_updated INTEGER);
+    CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, directory TEXT, agent TEXT, model TEXT, time_created INTEGER, time_updated INTEGER);
     CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, data TEXT);
     CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT);
   `)
   db.prepare('INSERT INTO project VALUES (?,?)').run('p1', worktree)
-  db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?)').run(sessionId, 'p1', 'build', 'openai/gpt-5.5', timeUpdated - 100, timeUpdated)
+  db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?)').run(sessionId, 'p1', directory, 'build', 'openai/gpt-5.5', timeUpdated - 100, timeUpdated)
   db.prepare('INSERT INTO message VALUES (?,?,?,?)').run(`m-${sessionId}-1`, sessionId, 'user', '{}')
   db.prepare('INSERT INTO part VALUES (?,?,?)').run(`pt-${sessionId}-1`, `m-${sessionId}-1`, JSON.stringify({ type: 'text', text: `hello ${sessionId}` }))
   db.close()
@@ -32,12 +32,13 @@ describe('OpenCodeAdapter', () => {
     const db = new DatabaseSync(dbPath)
     db.exec(`
       CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
-      CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, agent TEXT, model TEXT, time_created INTEGER, time_updated INTEGER);
+      CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, directory TEXT, agent TEXT, model TEXT, time_created INTEGER, time_updated INTEGER);
       CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, data TEXT);
       CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, data TEXT);
     `)
     db.prepare('INSERT INTO project VALUES (?,?)').run('p1', '/mnt/c/work/apc')
-    db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?)').run('oc1', 'p1', 'build', 'openai/gpt-5.5', 1000, 2000)
+    // session ran in a SUBDIR of the worktree — repoPath should resolve to this directory, not the worktree.
+    db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?)').run('oc1', 'p1', '/mnt/c/work/apc/papers', 'build', 'openai/gpt-5.5', 1000, 2000)
     db.prepare('INSERT INTO message VALUES (?,?,?,?)').run('m1', 'oc1', 'user', '{}')
     db.prepare('INSERT INTO message VALUES (?,?,?,?)').run('m2', 'oc1', 'assistant', '{}')
     db.prepare('INSERT INTO part VALUES (?,?,?)').run('pt1', 'm1', JSON.stringify({ type: 'text', text: 'please build' }))
@@ -92,7 +93,7 @@ describe('OpenCodeAdapter', () => {
     const [src] = await a.discoverSources(() => undefined)
     const { session, position } = await a.parseSource(src)
     expect(session.id).toBe('oc1')
-    expect(session.repoPath).toBe('/mnt/c/work/apc')
+    expect(session.repoPath).toBe('/mnt/c/work/apc/papers')  // session.directory preferred over project.worktree
     expect(session.sourceDirPath).toContain('opencode-home')
     expect(session.sourceMeta.provider).toBe('opencode')
     expect(session.sourceMeta.sourceKind).toBe('sqlite-session')
