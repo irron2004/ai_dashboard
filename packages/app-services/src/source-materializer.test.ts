@@ -76,16 +76,24 @@ describe('materializeProjectDocs', () => {
     const fetchRemoteDocs = async (repoPath: string) => {
       expect(repoPath).toBe('ssh://user@host/home/x/repo')
       return [
-        { rel: 'docs/contracts/product-contract.md', content: '# contract' },
-        { rel: './CLAUDE.md', content: 'guide' },  // leading ./ tolerated
+        { absPath: '/home/x/repo/docs/contracts/product-contract.md', content: '# contract' }, // inside repo
+        { absPath: '/home/x/CLAUDE.md', content: 'parent guide' },                              // ancestor → context
+        { absPath: '/home/x/.claude/projects/-home-x-repo/memory/MEMORY.md', content: 'mem' },  // memory → context
       ]
     }
     const manifest = await materializeProjectDocs(['ssh://user@host/home/x/repo'], vault, { fetchRemoteDocs })
 
-    expect(existsSync(join(vault, 'raw', 'project-docs', '0', 'docs', 'contracts', 'product-contract.md'))).toBe(true)
-    expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'CLAUDE.md'), 'utf8')).toBe('guide')
-    expect(manifest.files.map((f) => f.rel).sort()).toEqual(['project-docs/0/CLAUDE.md', 'project-docs/0/docs/contracts/product-contract.md'])
-    expect(manifest.scanned).toBe(2)
+    // inside-repo doc → project-docs/<i>/<repo-relative>
+    expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'docs', 'contracts', 'product-contract.md'), 'utf8')).toBe('# contract')
+    // out-of-repo files → context/<absolute-path>
+    expect(readFileSync(join(vault, 'raw', 'context', 'home', 'x', 'CLAUDE.md'), 'utf8')).toBe('parent guide')
+    expect(readFileSync(join(vault, 'raw', 'context', 'home', 'x', '.claude', 'projects', '-home-x-repo', 'memory', 'MEMORY.md'), 'utf8')).toBe('mem')
+    expect(manifest.files.map((f) => f.rel).sort()).toEqual([
+      'context/home/x/.claude/projects/-home-x-repo/memory/MEMORY.md',
+      'context/home/x/CLAUDE.md',
+      'project-docs/0/docs/contracts/product-contract.md',
+    ])
+    expect(manifest.scanned).toBe(3)
   })
 
   test('ssh:// repoPath with no fetcher is recorded in skipped (not silently dropped)', async () => {
@@ -99,9 +107,9 @@ describe('materializeProjectDocs', () => {
     const repo = join(root, 'repo'); const vault = join(root, 'vault')
     mkdirSync(repo, { recursive: true })
     writeFileSync(join(repo, 'local.md'), 'L')
-    const fetchRemoteDocs = async () => [{ rel: 'remote.md', content: 'R' }]
+    const fetchRemoteDocs = async () => [{ absPath: '/p/remote.md', content: 'R' }]
     await materializeProjectDocs([repo, 'ssh://h/p'], vault, { fetchRemoteDocs })
     expect(readFileSync(join(vault, 'raw', 'project-docs', '0', 'local.md'), 'utf8')).toBe('L')   // index 0 = local
-    expect(readFileSync(join(vault, 'raw', 'project-docs', '1', 'remote.md'), 'utf8')).toBe('R')  // index 1 = remote
+    expect(readFileSync(join(vault, 'raw', 'project-docs', '1', 'remote.md'), 'utf8')).toBe('R')  // index 1 = remote (base /p)
   })
 })

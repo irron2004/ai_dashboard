@@ -1,28 +1,30 @@
 import { parseSsh, sshExec } from './ssh-exec.js'
 
-export type RemoteDoc = { rel: string; content: string }
+/** A fetched remote file, identified by its ABSOLUTE remote path so the materializer can place it
+ *  under raw/project-docs (inside the repo) or raw/context (parent CLAUDE.md / Claude memory). */
+export type RemoteDoc = { absPath: string; content: string }
 
 const DOC_MARKER = '@@APCDOC@@'
 const END_MARKER = '@@APCEND@@'
 
 /**
- * Parse the framed output of the remote materialize command: for each doc, a `@@APCDOC@@<relpath>`
+ * Parse the framed output of the remote fetch command: for each file, a `@@APCDOC@@<absolute-path>`
  * line, then base64 content lines, then `@@APCEND@@`. base64's alphabet ([A-Za-z0-9+/=]) can never
  * contain the markers, so framing is collision-free. CR (Windows ssh stdout) is tolerated.
  */
 export function parseRemoteDocBlocks(stdout: string): RemoteDoc[] {
   const out: RemoteDoc[] = []
-  let rel: string | null = null
+  let absPath: string | null = null
   let b64: string[] = []
   for (const raw of stdout.split('\n')) {
     const line = raw.replace(/\r$/, '')
     if (line.startsWith(DOC_MARKER)) {
-      rel = line.slice(DOC_MARKER.length).replace(/^\.\//, '')
+      absPath = line.slice(DOC_MARKER.length)
       b64 = []
     } else if (line.startsWith(END_MARKER)) {
-      if (rel) out.push({ rel, content: Buffer.from(b64.join(''), 'base64').toString('utf8') })
-      rel = null; b64 = []
-    } else if (rel !== null) {
+      if (absPath) out.push({ absPath, content: Buffer.from(b64.join(''), 'base64').toString('utf8') })
+      absPath = null; b64 = []
+    } else if (absPath !== null) {
       b64.push(line.trim())
     }
   }
@@ -30,27 +32,47 @@ export function parseRemoteDocBlocks(stdout: string): RemoteDoc[] {
 }
 
 /**
- * Fetch project docs (.md/.markdown/.txt, each < 1MB, ≤200 files) from an ssh:// repoPath into memory.
- * One ssh round-trip: remote `find | base64` framed by markers (see parseRemoteDocBlocks). Throws on
- * ssh failure so the caller records it in the manifest's skipped list rather than silently shipping
- * an empty raw/ tree. node_modules/.git/dist/build are excluded to match the local walker.
+ * Fetch the documents a remote wiki run reasons over, into memory, in ONE ssh round-trip. Three groups,
+ * all emitted with their absolute remote path (framed by markers, base64'd — see parseRemoteDocBlocks):
+ *
+ *  1. Project docs (.md/.markdown/.txt) under the repo path — the wiki's primary sources.
+ *  2. CLAUDE.md / AGENTS.md in every ANCESTOR directory — governance the agent auto-loads and cites.
+ *  3. The Claude Code project memory (~/.claude/projects/<cwd-with-/-as->/memory/*.md|*.txt) — the
+ *     "project memory" the agent injects and cites as evidence.
+ *
+ * Groups 2 & 3 live OUTSIDE the repo path, so without them the agent's evidence (parent CLAUDE.md,
+ * MEMORY.md) can never resolve to a local raw/ file and EvidenceVerifier rejects it (path_escape).
+ *
+ * Runs via `bash -s` over stdin: forces bash regardless of the remote login shell, and feeding the
+ * script on stdin avoids a second layer of Windows ssh.exe arg-quoting (the find/pipe/() in the script
+ * get mangled when passed as a command argument). Each file is capped at <1MB. Throws on ssh failure so
+ * the caller records it in the manifest's skipped list instead of silently shipping an empty raw/.
  */
 export async function fetchRemoteProjectDocs(sshRepoPath: string): Promise<RemoteDoc[]> {
   const ssh = parseSsh(sshRepoPath)
   if (!ssh) return []
-  const path = ssh.path.replace(/'/g, `'\\''`)
-  // Run the script via `bash -s` over stdin: bash is forced (the user's login shell could be zsh/fish/
-  // csh, which would choke on this POSIX-ish script), and feeding it on stdin avoids a second layer of
-  // shell-quoting. `cd … || exit 1` makes a bad path a hard error (surfaced via res.ok) instead of a
-  // silently empty result. head -n 200 closing the pipe early is fine — the while-loop is the pipeline's
-  // exit status, so SIGPIPE on find doesn't fail the run.
+  const repo = ssh.path.replace(/'/g, `'\\''`)
   const script = [
-    `cd '${path}' || exit 1`,
-    `find . -type f \\( -name '*.md' -o -name '*.markdown' -o -name '*.txt' \\) \\`,
-    `  -not -path './node_modules/*' -not -path './.git/*' -not -path './dist/*' -not -path './build/*' \\`,
-    `  -size -1048576c 2>/dev/null | head -n 200 | while IFS= read -r f; do`,
-    `  printf '${DOC_MARKER}%s\\n' "$f"; base64 "$f"; printf '${END_MARKER}\\n';`,
+    `REPO='${repo}'`,
+    `emit() { printf '${DOC_MARKER}%s\\n' "$1"; base64 "$1" 2>/dev/null; printf '${END_MARKER}\\n'; }`,
+    // 1) project docs under the repo (emit absolute paths so the materializer can relativize them)
+    `if cd "$REPO" 2>/dev/null; then`,
+    `  find . -type f \\( -name '*.md' -o -name '*.markdown' -o -name '*.txt' \\) \\`,
+    `    -not -path './node_modules/*' -not -path './.git/*' -not -path './dist/*' -not -path './build/*' \\`,
+    `    -size -1048576c 2>/dev/null | head -n 200 | while IFS= read -r f; do emit "$REPO/\${f#./}"; done`,
+    `fi`,
+    // 2) CLAUDE.md / AGENTS.md in ancestor directories (governance the agent auto-loads)
+    `d="$REPO"`,
+    `while [ -n "$d" ] && [ "$d" != "/" ]; do`,
+    `  d=$(dirname "$d")`,
+    `  for n in CLAUDE.md AGENTS.md; do [ -f "$d/$n" ] && emit "$d/$n"; done`,
     `done`,
+    // 3) Claude Code project memory for this cwd
+    `enc=$(printf '%s' "$REPO" | sed 's#/#-#g')`,
+    `mdir="$HOME/.claude/projects/$enc/memory"`,
+    `if [ -d "$mdir" ]; then`,
+    `  find "$mdir" -type f \\( -name '*.md' -o -name '*.txt' \\) -size -1048576c 2>/dev/null | head -n 50 | while IFS= read -r f; do emit "$f"; done`,
+    `fi`,
   ].join('\n')
   const res = await sshExec(ssh, 'bash -s', { stdin: script, timeoutMs: 120_000 })
   if (!res.ok) throw new Error(res.stderr?.trim() || `remote doc fetch failed (exit ${res.exitCode ?? 'none'})`)

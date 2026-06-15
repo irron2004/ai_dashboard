@@ -1,7 +1,11 @@
 import type { KhNodeProposal } from '@apc/shared'
 import type { SourceDoc } from './source-reader.js'
 
+// The "tail" of a materialized source, used to match a cited path: the repo-relative path for
+// project docs, or the full absolute path (sans leading /) for out-of-repo context (ancestor
+// CLAUDE.md, Claude memory) — see materializeProjectDocs.
 const RAW_PROJECT_DOC = /^raw\/project-docs\/\d+\/(.+)$/
+const RAW_CONTEXT = /^raw\/context\/(.+)$/
 
 /**
  * Rewrite each evidence's `source_path` to the materialized `raw/` copy of the document it cites.
@@ -20,7 +24,7 @@ export function normalizeEvidencePaths(proposals: KhNodeProposal[], sources: Sou
   const candidates = sources
     .map((s) => {
       const norm = s.source_path.replace(/\\/g, '/')
-      const m = RAW_PROJECT_DOC.exec(norm)
+      const m = RAW_PROJECT_DOC.exec(norm) ?? RAW_CONTEXT.exec(norm)
       return { raw: norm, rel: m ? m[1] : norm }
     })
     .sort((a, b) => b.rel.length - a.rel.length) // longest (most specific) tail first

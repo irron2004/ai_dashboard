@@ -21,6 +21,9 @@ describe('normalizeEvidencePaths', () => {
     src('raw/project-docs/0/docs/papers/_shared/leak_loader/CLAUDE.md'),
     src('raw/project-docs/0/AGENTS.md'),
     src('raw/conversations/claude/sess/001q_a.txt'),
+    // out-of-repo context materialized under raw/context/<absolute-path>
+    src('raw/context/home/hskim/work/llm-agent-v2/CLAUDE.md'),
+    src('raw/context/home/hskim/.claude/projects/-home-hskim-work-llm-agent-v2-docs-papers/memory/MEMORY.md'),
   ]
 
   test('rewrites a remote absolute path to its materialized raw/ copy', () => {
@@ -49,5 +52,18 @@ describe('normalizeEvidencePaths', () => {
   test('matches a repo-relative path too', () => {
     const out = normalizeEvidencePaths([proposal(['AGENTS.md'])], sources)
     expect(paths(out)).toEqual(['raw/project-docs/0/AGENTS.md'])
+  })
+
+  test('maps an ancestor CLAUDE.md (outside the repo) to its raw/context copy', () => {
+    const out = normalizeEvidencePaths([proposal(['/home/hskim/work/llm-agent-v2/CLAUDE.md'])], sources)
+    expect(paths(out)).toEqual(['raw/context/home/hskim/work/llm-agent-v2/CLAUDE.md'])
+  })
+
+  test('maps the Claude project memory path to its raw/context copy', () => {
+    const out = normalizeEvidencePaths(
+      [proposal(['/home/hskim/.claude/projects/-home-hskim-work-llm-agent-v2-docs-papers/memory/MEMORY.md'])],
+      sources,
+    )
+    expect(paths(out)).toEqual(['raw/context/home/hskim/.claude/projects/-home-hskim-work-llm-agent-v2-docs-papers/memory/MEMORY.md'])
   })
 })
