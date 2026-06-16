@@ -90,9 +90,20 @@ describe('kh-schema', () => {
   })
 
   test('GraphUpdatePlan / SharedPromotionPlan / StaleDocReport parse with defaults', () => {
-    expect(KhGraphUpdatePlanSchema.parse({ created_by: 'lead' }).node_ops).toEqual([])
+    const gp = KhGraphUpdatePlanSchema.parse({ created_by: 'lead' })
+    expect(gp.node_ops).toEqual([])
+    expect(gp.edge_ops).toEqual([]) // back-compat: prior plans (no edge_ops) still parse
     expect(KhSharedPromotionPlanSchema.parse({ created_by: 'lead' }).candidates).toEqual([])
     expect(KhStaleDocReportSchema.parse({ generated_by: 'lead' }).stale).toEqual([])
+  })
+
+  test('GraphUpdatePlan edge_ops parse with typed relationship + defaults', () => {
+    const gp = KhGraphUpdatePlanSchema.parse({
+      created_by: 'lead',
+      edge_ops: [{ from_node_id: 'a', to_node_id: 'b', type: 'depends_on' }, { from_node_id: 'b', to_node_id: 'c' }],
+    })
+    expect(gp.edge_ops[0]).toMatchObject({ op: 'create', from_node_id: 'a', to_node_id: 'b', type: 'depends_on', note: '' })
+    expect(gp.edge_ops[1].type).toBe('relates_to') // defaulted
   })
 
   test('ConversationHistoryReport + SourceInventoryReport parse', () => {

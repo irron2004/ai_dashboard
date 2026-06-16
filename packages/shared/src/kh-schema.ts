@@ -231,6 +231,22 @@ export const KhDocumentIntentReportSchema = z.object({
 })
 export type KhDocumentIntentReport = z.infer<typeof KhDocumentIntentReportSchema>
 
+/** A typed relationship between two knowledge nodes — the edges that make the graph a graph (not a bag of
+ *  isolated nodes). The lead emits these to connect nodes ACROSS folders the siloed workers couldn't link. */
+export const KhGraphEdgeKind = z.enum([
+  'relates_to', 'depends_on', 'supersedes', 'part_of', 'contradicts', 'derived_from', 'evidence_for',
+])
+export type KhGraphEdgeKind = z.infer<typeof KhGraphEdgeKind>
+
+export const KhGraphEdgeOpSchema = z.object({
+  op: z.enum(['create', 'remove']).default('create'),
+  from_node_id: z.string().min(1),
+  to_node_id: z.string().min(1),
+  type: KhGraphEdgeKind.default('relates_to'),
+  note: z.string().default(''),
+})
+export type KhGraphEdgeOp = z.infer<typeof KhGraphEdgeOpSchema>
+
 export const KhGraphUpdatePlanSchema = z.object({
   created_by: z.string(),
   node_ops: z.array(z.object({
@@ -239,6 +255,8 @@ export const KhGraphUpdatePlanSchema = z.object({
     based_on_proposals: z.array(z.string()).default([]),
     note: z.string().default(''),
   })).default([]),
+  // Relationships between nodes. Defaults to [] so prior runs' plans still parse.
+  edge_ops: z.array(KhGraphEdgeOpSchema).default([]),
 })
 export type KhGraphUpdatePlan = z.infer<typeof KhGraphUpdatePlanSchema>
 

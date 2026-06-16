@@ -228,15 +228,18 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
               const target = nodeById.get(link.target)
               if (!source || !target) return null
               const active = !hoveredId || connected?.has(source.id) || connected?.has(target.id)
+              // node↔node relationship edges (graph-update-plan / wikilinks) are the actual knowledge graph —
+              // draw them distinctly and label them with the relation type when active.
+              const isRel = link.kind === 'rel' || link.kind === 'wiki'
+              const cls = ['graph-visualization__link', isRel ? 'graph-visualization__link--rel' : '', !active ? 'graph-visualization__link--muted' : ''].filter(Boolean).join(' ')
               return (
-                <line
-                  key={link.id}
-                  className={active ? 'graph-visualization__link' : 'graph-visualization__link graph-visualization__link--muted'}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                />
+                <g key={link.id}>
+                  <line className={cls} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />
+                  {isRel && active && link.label && link.label !== 'wiki-link' && (
+                    <text className="graph-visualization__link-label" x={(source.x + target.x) / 2} y={(source.y + target.y) / 2 - 2}>{link.label}</text>
+                  )}
+                  <title>{link.label ?? link.kind}</title>
+                </g>
               )
             })}
 

@@ -16,6 +16,25 @@ describe('buildHarnessGraphData', () => {
     const task = buildHarnessGraphData(bundle).nodes.find((n) => n.id === 'task:np-1')
     expect((task?.data as { path?: string } | undefined)?.path).toBe('nodes/attention-collapse.md')
   })
+
+  test('graph-update-plan edge_ops connect the proposal nodes (node↔node relationships)', () => {
+    const bundle = {
+      runState: { runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'HUMAN_REVIEW_REQUIRED', artifacts: {} },
+      artifacts: [
+        artifact('node-proposals', { proposals: [
+          { proposal_id: 'np-1', node: { id: 'a', title: 'A', type: 'ConceptNode' }, claims: [], evidence: [] },
+          { proposal_id: 'np-2', node: { id: 'b', title: 'B', type: 'DecisionNode' }, claims: [], evidence: [] },
+        ] }),
+        { state: 'LEAD_MERGED', name: 'graph-update-plan', path: 'graph-update-plan', data: {
+          created_by: 'lead', node_ops: [], edge_ops: [{ op: 'create', from_node_id: 'a', to_node_id: 'b', type: 'depends_on' }],
+        } },
+      ],
+      mode: 'full-docs',
+    } as unknown as HarnessRunBundle
+    const g = buildHarnessGraphData(bundle)
+    const rel = g.links.find((l) => l.kind === 'rel')
+    expect(rel).toMatchObject({ source: 'task:np-1', target: 'task:np-2', label: 'depends_on' })
+  })
 })
 
 describe('readFanoutSummary', () => {

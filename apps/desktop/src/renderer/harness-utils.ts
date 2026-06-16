@@ -713,6 +713,10 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
   })
 
   const linkTargets = new Map<string, Set<string>>()
+  // node.id → graph node id, so graph-update-plan edge_ops (and [[node-id]] wikilinks) can connect the
+  // actual proposal nodes to each other instead of dangling.
+  const nodeIdIndex = new Map<string, string>()
+  const pendingEdges: { from: string; to: string; type: string }[] = []
 
   const registerFile = (path: string, typeHint?: 'concept' | 'decision' | 'experiment' | 'file', details?: string): string => {
     const id = fileNodeId(path)
@@ -775,6 +779,7 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
         const proposalId = String(proposal.proposal_id ?? proposal.node?.id ?? cryptoRandomId())
         const draftPath = proposal.node?.id ? `nodes/${String(proposal.node.id)}.md` : undefined
         const taskId = registerTask(proposalId, String(proposal.node?.title ?? proposalId), String(proposal.node?.type ?? 'proposal'), draftPath)
+        if (proposal.node?.id) nodeIdIndex.set(String(proposal.node.id), taskId)
         addLink(links, { id: `${sourceArtifactId}->${taskId}`, source: sourceArtifactId, target: taskId, kind: 'proposal', label: 'proposal' })
         addLink(links, { id: `run:${run.runId}->${taskId}`, source: `run:${run.runId}`, target: taskId, kind: 'run-task', label: 'run' })
 
@@ -835,6 +840,17 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
       }
     }
 
+    if (entry.name === 'graph-update-plan') {
+      // The lead's typed relationships between nodes — the edges that make this an actual graph. Resolved
+      // to node↔node links after the loop, once every proposal node is indexed by its node.id.
+      const edgeOps = asObject(entry.data)?.edge_ops as Array<any> | undefined
+      for (const e of edgeOps ?? []) {
+        if (e?.op !== 'remove' && e?.from_node_id && e?.to_node_id) {
+          pendingEdges.push({ from: String(e.from_node_id), to: String(e.to_node_id), type: String(e.type ?? 'relates_to') })
+        }
+      }
+    }
+
     if (entry.name === 'final-report') {
       const text = textOf(entry.data) ?? ''
       for (const link of extractWikiLinks(text)) {
@@ -849,8 +865,32 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
     }
   }
 
+  // Resolve a node.id to its graph node; if an edge references an id not among the proposals (a
+  // pre-existing/cross-run node), materialize a lightweight node so the relationship still renders.
+  const resolveNode = (nodeIdOrTarget: string): string => {
+    const hit = nodeIdIndex.get(nodeIdOrTarget)
+    if (hit) return hit
+    const id = `node:${nodeIdOrTarget}`
+    addNode(nodeMap, { id, label: nodeIdOrTarget, type: 'task', shape: 'diamond', color: colorForNode('concept'), details: '그래프 노드', data: { path: `nodes/${nodeIdOrTarget}.md` } })
+    nodeIdIndex.set(nodeIdOrTarget, id)
+    return id
+  }
+
+  // node↔node relationship edges from the graph-update-plan (the real graph topology).
+  for (const e of pendingEdges) {
+    if (e.from === e.to) continue
+    const from = resolveNode(e.from), to = resolveNode(e.to)
+    addLink(links, { id: `rel:${from}->${to}:${e.type}`, source: from, target: to, kind: 'rel', label: e.type })
+  }
+
   for (const [sourceId, targets] of linkTargets.entries()) {
     for (const target of targets) {
+      // A [[wikilink]] whose target is a known node.id becomes a node↔node edge; otherwise a file target.
+      if (nodeIdIndex.has(target)) {
+        const targetId = nodeIdIndex.get(target)!
+        addLink(links, { id: `wiki:${sourceId}->${targetId}`, source: sourceId, target: targetId, kind: 'wiki', label: 'wiki-link' })
+        continue
+      }
       const targetId = registerFile(target, fileTypeFromPath(target), 'wiki link target')
       addLink(links, { id: `${sourceId}->${targetId}`, source: sourceId, target: targetId, kind: 'wiki', label: 'wiki-link' })
     }

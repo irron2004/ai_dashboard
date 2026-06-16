@@ -9,7 +9,7 @@ import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidenc
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
-  type KhState, type AgentType, type KhNodeProposal, type KhWritePlan,
+  type KhState, type AgentType, type KhNodeProposal, type KhWritePlan, type KhGraphUpdatePlan,
 } from '@apc/shared'
 import type { AgentRunner, EngineOptions } from '@apc/llm-wiki'
 import type { Driver, RunnerContext } from './harness-runner.js'
@@ -207,6 +207,25 @@ export function sanitizeWritePlan(
   return { plan: { ...plan, operations }, dropped }
 }
 
+/**
+ * Drop graph edges whose endpoints aren't real nodes (a self-loop, or a from/to the lead invented that
+ * isn't among the created node_ops or the proposals) — a dangling edge would render against a phantom
+ * node and corrupt the graph. Keeps the well-formed edges; returns the cleaned plan + dropped count.
+ */
+export function pruneGraphEdges(
+  plan: KhGraphUpdatePlan,
+  validNodeIds: Iterable<string>,
+): { plan: KhGraphUpdatePlan; dropped: number } {
+  const valid = new Set(validNodeIds)
+  let dropped = 0
+  const edge_ops = (plan.edge_ops ?? []).filter((e) => {
+    const ok = e.from_node_id !== e.to_node_id && valid.has(e.from_node_id) && valid.has(e.to_node_id)
+    if (!ok) dropped++
+    return ok
+  })
+  return { plan: { ...plan, edge_ops }, dropped }
+}
+
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
  *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
 function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
@@ -359,13 +378,21 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // so it can merge duplicates AND create edges across folders the siloed workers couldn't see.
       const fan = artifactByName<{ provenance?: Array<{ proposalId: string; folder: string }> }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.fanoutReport)
       const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
+      const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
       const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: {
         proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals),
         folders: plan?.units.map((u) => u.label),
         provenance: fan?.provenance,
       } })
+      // Keep only edges whose endpoints are real nodes (created here or proposed). A dangling edge from a
+      // hallucinated id would draw against a phantom node — drop it rather than corrupt the graph.
+      const validNodeIds = [
+        ...out.graph_update_plan.node_ops.map((o) => o.node_id),
+        ...proposals.map((p) => p.node?.id).filter((id): id is string => !!id),
+      ]
+      const { plan: graphPlan } = pruneGraphEdges(out.graph_update_plan, validNodeIds)
       return { artifacts: [
-        { name: ARTIFACTS.graphUpdatePlan, data: out.graph_update_plan },
+        { name: ARTIFACTS.graphUpdatePlan, data: graphPlan },
         { name: ARTIFACTS.sharedPromotionPlan, data: out.shared_promotion_plan },
         { name: ARTIFACTS.staleDocReport, data: out.stale_doc_report },
         { name: ARTIFACTS.leadWritePlan, data: out.write_plan },  // cached for WRITE_PLAN_CREATED (no 2nd LLM call)

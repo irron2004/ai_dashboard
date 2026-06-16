@@ -928,6 +928,9 @@ textarea {
 }
 .graph-visualization__link { stroke: rgba(126, 152, 183, 0.35); stroke-width: 1.5; }
 .graph-visualization__link--muted { stroke-opacity: 0.12; }
+/* node↔node knowledge relationships — brighter/thicker so the real graph stands out from provenance lines */
+.graph-visualization__link--rel { stroke: rgba(110, 191, 154, 0.7); stroke-width: 1.8; }
+.graph-visualization__link-label { fill: #8fd6b4; font-size: 9px; text-anchor: middle; pointer-events: none; text-transform: lowercase; }
 .graph-visualization__node { cursor: pointer; }
 .graph-visualization__node--muted { opacity: 0.18; }
 .graph-visualization__ring {
