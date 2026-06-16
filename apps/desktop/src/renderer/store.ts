@@ -28,7 +28,9 @@ type ApcStore = {
   ingesting: boolean
   lastIngest: { sources: number; sessions: number; documents: number } | null
   error: string | null
-  agentStatus: Record<AgentType, AgentRunStatus>
+  /** Agent run status keyed by `${projectId}:${agent}` so each project's agents are tracked independently
+   *  (their terminals stay mounted across project switches). Missing key → treat as 'idle'. */
+  agentStatus: Record<string, AgentRunStatus>
   preflighting: boolean
   generatePreflight: GeneratePreflightRes | null
   generating: boolean
@@ -61,7 +63,7 @@ type ApcStore = {
   loadWikiPolicy(projectId: string): Promise<void>
   revertWikiPolicy(projectId: string): Promise<void>
 
-  setAgentStatus(agent: AgentType, status: AgentRunStatus): void
+  setAgentStatus(key: string, status: AgentRunStatus): void
   prepareGenerate(): Promise<void>
   generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
   clearGeneratePreflight(): void
@@ -127,7 +129,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   ingesting: false,
   lastIngest: null,
   error: null,
-  agentStatus: { claude: 'idle', codex: 'idle', opencode: 'idle' },
+  agentStatus: {},
   preflighting: false,
   generatePreflight: null,
   generating: false,
@@ -150,8 +152,8 @@ export const useStore = create<ApcStore>((set, get) => ({
   wikiPolicyBusy: false,
   wikiPolicyMessage: null,
 
-  setAgentStatus(agent, status) {
-    set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
+  setAgentStatus(key, status) {
+    set((s) => ({ agentStatus: { ...s.agentStatus, [key]: status } }))
   },
 
   async prepareGenerate() {

@@ -12,6 +12,10 @@ import './app.css'
 // Display/shortcut order: claude | opencode | codex
 const AGENTS: AgentType[] = ['claude', 'opencode', 'codex']
 
+// Keep this many recently-visited projects' agent terminals mounted (alive) so switching back and forth
+// among them never reloads claude/codex/opencode. The oldest beyond this is unmounted (reloads on revisit).
+const MAX_KEPT_DOCKS = 8
+
 const STATUS_COLOR: Record<AgentRunStatus, string> = {
   idle: '#666',         // not started — grey
   running: '#4ade80',   // 동작중 — green
@@ -26,6 +30,8 @@ export function App() {
     loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
+  // Projects whose agent terminals are kept mounted (insertion order; capped at MAX_KEPT_DOCKS).
+  const [openedIds, setOpenedIds] = useState<string[]>([])
   const [mainTab, setMainTab] = useState<MainTab>(() => {
     try {
       const saved = localStorage.getItem('apc:mainTab')
@@ -169,8 +175,15 @@ export function App() {
     setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
   }, [agent])
 
-  const project = projects.find((p) => p.id === selectedProjectId)
-  const cwd = project?.repoPaths[0] ?? '.'
+  // Keep the selected project's dock mounted (FIFO-capped). Its terminals were display:none while hidden,
+  // so nudge a resize once it becomes visible to re-fit xterm.
+  useEffect(() => {
+    if (!selectedProjectId) return
+    setOpenedIds((prev) => prev.includes(selectedProjectId) ? prev : [...prev, selectedProjectId].slice(-MAX_KEPT_DOCKS))
+    const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60)
+    return () => clearTimeout(t)
+  }, [selectedProjectId])
+  const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
@@ -255,61 +268,73 @@ export function App() {
               title={`Shift+${i + 1}`}
             >
               <span
-                className={agentStatus[a] === 'attention' ? 'dock-bar__dot dock-bar__dot--blink' : 'dock-bar__dot'}
-                style={{ color: STATUS_COLOR[agentStatus[a]] }}
+                className={statusOf(selectedProjectId, a) === 'attention' ? 'dock-bar__dot dock-bar__dot--blink' : 'dock-bar__dot'}
+                style={{ color: STATUS_COLOR[statusOf(selectedProjectId, a)] }}
               >●</span>
               {a}
             </span>
           ))}
         </div>
-        <div style={{ flex: 1, minHeight: 0, display: dockCollapsed ? 'none' : 'flex', flexDirection: 'row' }}>
-          {selectedProjectId ? (
-            AGENTS.map((a, i) => (
-              <Fragment key={a}>
-                {i > 0 && (
-                  <div
-                    onMouseDown={startColDrag(i - 1)}
-                    title="드래그하여 크기 조정"
-                    style={{ width: 6, cursor: 'col-resize', background: '#333', flex: '0 0 auto' }}
-                  />
-                )}
-                <div
-                  style={{
-                    flex: sizes[i], display: 'flex', flexDirection: 'column', minWidth: 0,
-                    border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
-                    borderRadius: 4, overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    onClick={() => setAgent(a)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                      padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
-                      background: a === agent ? '#23311f' : '#161616',
-                    }}
-                    title={`Shift+${i + 1}`}
-                  >
-                    <span style={{ color: STATUS_COLOR[agentStatus[a]], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
-                    <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{i + 1}</span>
-                  </div>
-                  <div style={{ flex: 1, minHeight: 0 }}>
-                    <AgentTerminal
-                      key={`${selectedProjectId}:${a}`}
-                      sessionId={`${selectedProjectId}:${a}`}
-                      command={a}
-                      args={[]}
-                      cwd={cwd}
-                      onStatus={(s) => setAgentStatus(a, s)}
-                      onActivate={() => setAgent(a)}
-                    />
-                  </div>
-                </div>
-              </Fragment>
-            ))
-          ) : (
+        <div style={{ flex: 1, minHeight: 0, display: dockCollapsed ? 'none' : 'block', position: 'relative' }}>
+          {!selectedProjectId && (
             <div className="app-layout__placeholder">Select a project to open agent terminals</div>
           )}
+          {/* One dock per recently-visited project, all kept MOUNTED — only the selected one is shown.
+              Each AgentTerminal key is `${pid}:${a}` (stable per project) so switching projects never
+              unmounts/remounts it → claude/codex/opencode stay alive (no reload). */}
+          {openedIds.map((pid) => {
+            const pcwd = projects.find((p) => p.id === pid)?.repoPaths[0] ?? '.'
+            return (
+              <div
+                key={pid}
+                style={{ display: pid === selectedProjectId ? 'flex' : 'none', flexDirection: 'row', height: '100%', minHeight: 0 }}
+              >
+                {AGENTS.map((a, i) => (
+                  <Fragment key={a}>
+                    {i > 0 && (
+                      <div
+                        onMouseDown={startColDrag(i - 1)}
+                        title="드래그하여 크기 조정"
+                        style={{ width: 6, cursor: 'col-resize', background: '#333', flex: '0 0 auto' }}
+                      />
+                    )}
+                    <div
+                      style={{
+                        flex: sizes[i], display: 'flex', flexDirection: 'column', minWidth: 0,
+                        border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
+                        borderRadius: 4, overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        onClick={() => setAgent(a)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+                          padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
+                          background: a === agent ? '#23311f' : '#161616',
+                        }}
+                        title={`Shift+${i + 1}`}
+                      >
+                        <span style={{ color: STATUS_COLOR[statusOf(pid, a)], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
+                        <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{i + 1}</span>
+                      </div>
+                      <div style={{ flex: 1, minHeight: 0 }}>
+                        <AgentTerminal
+                          key={`${pid}:${a}`}
+                          sessionId={`${pid}:${a}`}
+                          command={a}
+                          args={[]}
+                          cwd={pcwd}
+                          onStatus={(s) => setAgentStatus(`${pid}:${a}`, s)}
+                          onActivate={() => setAgent(a)}
+                        />
+                      </div>
+                    </div>
+                  </Fragment>
+                ))}
+              </div>
+            )
+          })}
         </div>
       </div>
 
