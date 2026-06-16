@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, type SourceDoc } from './source-reader.js'
+import { planFolders } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
@@ -70,6 +71,7 @@ export const ARTIFACTS = {
   projectDiscovery: 'project-discovery-report',
   conversationHistory: 'conversation-history-report',
   documentIntent: 'document-intent-report',
+  folderPlan: 'folder-plan',
   nodeProposals: 'node-proposals',
   policyReport: 'policy-report',
   evidenceVerification: 'evidence-verification-report',
@@ -153,7 +155,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
     DOCUMENTS_CLASSIFIED: async (ctx) => {
       const data = await classifier.run({ ...run, engine: engineOf(ctx), label: `DOCUMENTS_CLASSIFIED-${classifier.name}`, input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery) } })
-      return { artifacts: [{ name: ARTIFACTS.documentIntent, data }] }
+      // PM router (spec §4): partition project docs into folder-aligned, window-sized work units. Emitted
+      // for visibility now; the NODE_PROPOSALS_CREATED fan-out consumes it next phase.
+      const folderPlan = planFolders(freshSources(ctx.projectId), maxPromptChars)
+      return { artifacts: [
+        { name: ARTIFACTS.documentIntent, data },
+        { name: ARTIFACTS.folderPlan, data: folderPlan },
+      ] }
     },
 
     NODE_PROPOSALS_CREATED: async (ctx) => {
