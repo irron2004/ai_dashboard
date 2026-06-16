@@ -1451,6 +1451,14 @@ textarea {
 .wikigen__summary { font-size: 0.85rem; color: #c5c9d3; display: flex; flex-direction: column; gap: 6px; }
 .wikigen__hint { color: #777; font-size: 0.78rem; }
 .wikigen__error { color: #f87171; }
+.wikigen__folders { margin-top: 8px; padding: 8px 10px; background: #1c1f27; border: 1px solid #2c2f38; border-radius: 6px; }
+.wikigen__folders h4 { margin: 0 0 4px; font-size: 0.8rem; color: #e2e6ef; }
+.wikigen__folders p { margin: 0 0 6px; color: #9aa0ad; font-size: 0.78rem; }
+.wikigen__folder-list { margin: 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.wikigen__folder-list li { font-size: 0.78rem; color: #c5c9d3; }
+.wikigen__folder-list small { color: #777; }
+.wikigen__folder-skipped { margin: 6px 0 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.wikigen__folder-skipped li { font-size: 0.78rem; color: #fbbf24; cursor: help; }
 .wikigen__placeholder { display: flex; align-items: center; justify-content: center; min-height: 120px; color: #666; font-size: 0.85rem; }
 .wikigen__promote { border-top: 1px solid #2c2f38; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; }
 .wikigen__promote-run { display: flex; gap: 8px; }
