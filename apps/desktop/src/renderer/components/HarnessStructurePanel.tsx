@@ -99,6 +99,17 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
             onChange={(e) => onModelChange({ model: e.target.value })}
           />
         </label>
+        <label>
+          폴더 워커 동시 실행 (1 = 순차)
+          <input
+            aria-label="워커 동시 실행"
+            type="number"
+            min={1}
+            max={16}
+            value={config.model.workerConcurrency ?? 1}
+            onChange={(e) => onModelChange({ workerConcurrency: Math.max(1, Number(e.target.value) || 1) })}
+          />
+        </label>
         {config.model.engine !== 'claude' && (
           <label>
             reasoning effort

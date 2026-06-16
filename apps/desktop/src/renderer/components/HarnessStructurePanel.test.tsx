@@ -53,6 +53,13 @@ describe('HarnessStructurePanel', () => {
     expect(onModelChange).toHaveBeenCalledWith({ sandbox: 'workspace-write' })
   })
 
+  test('worker concurrency control flows to onModelChange', () => {
+    const onModelChange = vi.fn()
+    render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} onModelChange={onModelChange} />)
+    fireEvent.change(screen.getByLabelText('워커 동시 실행'), { target: { value: '3' } })
+    expect(onModelChange).toHaveBeenCalledWith({ workerConcurrency: 3 })
+  })
+
   test('claude shows permission mode, not codex sandbox', () => {
     const config = createDefaultHarnessConfig() // engine defaults to claude
     render(<HarnessStructurePanel config={config} activeState={null} {...noop} />)

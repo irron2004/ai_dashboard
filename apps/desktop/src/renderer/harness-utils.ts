@@ -124,6 +124,8 @@ export type HarnessModelSettings = {
   sandbox?: EngineOptions['sandbox']
   approval?: EngineOptions['approval']
   permissionMode?: EngineOptions['permissionMode']
+  /** Folder workers to run concurrently (NODE_PROPOSALS_CREATED). Undefined/1 = sequential (safe). */
+  workerConcurrency?: number
 }
 
 /** Project the per-harness model settings to the EngineOptions the backend run accepts. Blank strings
