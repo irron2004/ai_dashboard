@@ -36,9 +36,9 @@ approach: 소스를 폴더 단위로 분할하고, PM(오케스트레이터)이 
 
 | 항목 | 결정(안) |
 |---|---|
-| 분할 경계 | **폴더 1차** + **토큰 윈도 2차 안전장치**. 폴더가 윈도 초과 시 그 폴더만 하위분할; 너무 작은 폴더는 묶음 |
-| 폴더 깊이 | 설정값 `folderDepth`(기본 1) — `raw/project-docs/<i>/` 기준 N 깊이에서 경계. 깊은 트리는 그 아래를 한 워커가 흡수 |
-| 워커 실행 | **병렬**(독립 폴더), 동시성 상한은 엔진/레이트리밋 고려 |
+| 분할 경계 | **자동 크기 기반 (확정)** — 고정 깊이 없이 폴더 트리를 토큰 예산으로 bin-packing: 폴더 단위를 보존하되 ① 한 폴더가 `maxPromptChars` 초과 → 하위 폴더/파일 그룹으로 **분할**, ② 연속된 작은 폴더 → 윈도 안에서 **묶음**. 폴더 = 의미 경계, 토큰 = 크기 경계 |
+| 워커 실행 | **병렬**(독립 배치), 동시성 상한은 엔진/레이트리밋 고려 (§11 미결) |
+| 부분 실패 | **그 폴더(배치)만 스킵, 나머지 진행 (확정)** — 실패 폴더는 리포트에 명시, 그 폴더 소스는 커버리지에 미반영으로 드러남. 전체 FAIL 아님 |
 | 대화 스코프 | 각 폴더 워커에 **그 폴더의 파일을 건드린 세션만** 매칭해 전달 (`session.filesTouched ∩ folder files`) |
 | 폴더 간 엣지 | 워커는 "타 폴더 참조 후보"를 남기고, **PM 병합(LEAD_MERGED)이 해소** |
 | 신규 에이전트 | 최소화 — 기존 5개 재배치. PM 라우터/리듀서는 기존 classifier/lead 역할 확장 |
@@ -96,19 +96,24 @@ PM: 병합·검수                  LEAD_MERGED / wiki-graph-lead        proposa
 ## 6. 데이터 구조 (신규/변경)
 
 ```ts
-// DOCUMENTS_CLASSIFIED 산출 — PM 라우터의 결과
-type FolderPlan = {
-  folders: Array<{
-    id: string                 // 안정 식별자(폴더 경로 해시)
-    path: string               // repo-relative, 예: 'paper-A' 또는 'paper-A/exp'
-    role: 'canonical' | 'reference' | 'scratch'
-    docSourceIds: string[]     // 이 폴더(+하위분할 범위)의 SourceDoc id
-    sessionIds: string[]       // filesTouched가 이 폴더와 겹치는 세션
-    estTokens: number          // 분할 판정 근거
-    splitOf?: string           // 큰 폴더를 쪼갠 경우 부모 폴더 id
-  }>
-  unfolderedSourceIds: string[] // 폴더에 못 들어간 소스(루트 파일 등)
+// DOCUMENTS_CLASSIFIED 산출 — PM 라우터의 결과.
+// 각 entry = 워커 1개가 처리할 "작업 단위(배치)". 자동 크기 기반 분할이므로 배치는
+//  (a) 폴더 1개, (b) 큰 폴더의 분할 조각(splitOf), 또는 (c) 작은 폴더 여러 개의 묶음(memberPaths) 중 하나.
+type WorkUnit = {
+  id: string                 // 안정 식별자
+  label: string              // 표시용, 예: 'paper-A' 또는 'paper-A (1/3)' 또는 'misc(3 folders)'
+  memberPaths: string[]      // 이 배치가 포함하는 폴더(들), repo-relative
+  role: 'canonical' | 'reference' | 'scratch' | 'mixed'
+  docSourceIds: string[]     // 이 배치의 SourceDoc id
+  sessionIds: string[]       // filesTouched가 이 배치 파일과 겹치는 세션
+  estTokens: number          // bin-packing 판정 근거(문자수 기반 근사)
+  splitOf?: string           // 큰 폴더를 쪼갠 경우 부모 폴더 식별자
 }
+type FolderPlan = {
+  units: WorkUnit[]
+  unplacedSourceIds: string[] // 어느 배치에도 못 들어간 소스(있다면 — 보통 없음)
+}
+```
 
 // 워커 출력에 추가되는 필드 — PM 리듀서가 해소
 type CrossFolderRef = {
@@ -157,12 +162,12 @@ type CrossFolderRef = {
 - 워커 간 실시간 협상(메시지 패싱). PM 경유의 단순 fan-out/reduce만.
 - 임베딩/RAG 기반 검색. (폴더 = 결정론적 파티션)
 
-## 11. 미결 질문 (사용자 결정 필요)
-1. **`folderDepth` 기본값** — 1(최상위 폴더 = 워커)이 적절한가? `docs/papers/` 아래 구조를 보고 정해야 함.
-2. **PM 검수 = 자동 vs 사람** — cross-folder 해소를 LLM(lead)이 자동으로? 아니면 사람 게이트를 하나 더? (기존엔 promote 전 human-review만)
-3. **병렬 동시성 상한** — codex 레이트리밋/세션 한도 고려. 폴더 N개를 몇 개씩?
-4. **reader의 위치** — 폴더 워커가 세션을 직접 읽게 할지(reader 흡수), 아니면 reader를 폴더별로 N번 돌릴지.
-5. **부분 실패 처리** — 워커 1개가 실패하면 전체 FAIL인가, 그 폴더만 스킵하고 나머지로 진행인가?
+## 11. 미결 질문 (남은 결정 — 해당 단계에서)
+- ✅ **폴더 경계** → 자동 크기 기반(bin-packing). (결정됨)
+- ✅ **부분 실패** → 실패 배치만 스킵, 나머지 진행. (결정됨)
+- ⬜ **PM 검수 = 자동 vs 사람** (3단계) — cross-folder 해소를 LLM(lead)이 자동으로? 아니면 사람 게이트 추가? (현재는 promote 전 human-review만)
+- ⬜ **병렬 동시성 상한** (2단계) — codex 레이트리밋/세션 한도 고려. 배치 N개를 동시 몇 개씩? (기본: 보수적으로 2~3)
+- ⬜ **reader의 위치** (4단계) — 폴더 워커가 세션을 직접 읽을지(reader 흡수) vs reader를 배치별로 N번 돌릴지.
 
 ---
 
