@@ -728,7 +728,7 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
     return id
   }
 
-  const registerTask = (proposalId: string, label: string, details?: string): string => {
+  const registerTask = (proposalId: string, label: string, details?: string, draftPath?: string): string => {
     const id = taskNodeId(proposalId)
     addNode(nodeMap, {
       id,
@@ -737,6 +737,9 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
       shape: 'diamond',
       color: colorForNode('task'),
       details,
+      // The proposed node's staging draft (the lead authors nodes/<node.id>.md). Carrying it lets a
+      // click on the proposal diamond open the draft for review, not just the file squares.
+      data: draftPath ? { path: draftPath } : undefined,
     })
     return id
   }
@@ -770,7 +773,8 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
       const proposals = asObject(entry.data)?.proposals as Array<any> | undefined
       for (const proposal of proposals ?? []) {
         const proposalId = String(proposal.proposal_id ?? proposal.node?.id ?? cryptoRandomId())
-        const taskId = registerTask(proposalId, String(proposal.node?.title ?? proposalId), String(proposal.node?.type ?? 'proposal'))
+        const draftPath = proposal.node?.id ? `nodes/${String(proposal.node.id)}.md` : undefined
+        const taskId = registerTask(proposalId, String(proposal.node?.title ?? proposalId), String(proposal.node?.type ?? 'proposal'), draftPath)
         addLink(links, { id: `${sourceArtifactId}->${taskId}`, source: sourceArtifactId, target: taskId, kind: 'proposal', label: 'proposal' })
         addLink(links, { id: `run:${run.runId}->${taskId}`, source: `run:${run.runId}`, target: taskId, kind: 'run-task', label: 'run' })
 

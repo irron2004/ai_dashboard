@@ -1,8 +1,22 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary } from './harness-utils.js'
-import type { HarnessRunArtifact } from './harness-utils.js'
+import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData } from './harness-utils.js'
+import type { HarnessRunArtifact, HarnessRunBundle } from './harness-utils.js'
 
 const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
+
+describe('buildHarnessGraphData', () => {
+  test('a proposal node carries its staging draft path so a click can open it', () => {
+    const bundle = {
+      runState: { runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'HUMAN_REVIEW_REQUIRED', artifacts: {} },
+      artifacts: [artifact('node-proposals', { proposals: [{
+        proposal_id: 'np-1', node: { id: 'attention-collapse', title: 'Attention collapse', type: 'DecisionNode' }, claims: [], evidence: [],
+      }] })],
+      mode: 'full-docs',
+    } as unknown as HarnessRunBundle
+    const task = buildHarnessGraphData(bundle).nodes.find((n) => n.id === 'task:np-1')
+    expect((task?.data as { path?: string } | undefined)?.path).toBe('nodes/attention-collapse.md')
+  })
+})
 
 describe('readFanoutSummary', () => {
   test('null when neither folder-plan nor fanout-report is present (legacy single-shot)', () => {
