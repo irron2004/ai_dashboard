@@ -1,7 +1,7 @@
 ---
 title: 폴더 기반 PM-워커(orchestrator-workers) 위키 생성 설계
 date: 2026-06-16
-status: design-draft
+status: implemented (phases 1–5)
 author: PM (Claude) + irron
 relates-to:
   - docs/superpowers/specs/2026-06-08-docs-to-wiki-coverage-design.md (현 단발 파이프라인)
@@ -139,6 +139,15 @@ type CrossFolderRef = {
 ### 7.3 대화는 폴더로 안 나뉜다
 - 문제: `raw/conversations/`의 세션은 문서 폴더 구조와 별개.
 - 해법: 라우터가 세션의 `filesTouched`(이미 존재: `generate-service.ts`, `sessionMatchesProject`)와 폴더 파일의 교집합으로 **폴더↔세션 매핑**을 만든다. 워커는 자기 폴더 + 매칭된 세션만 받는다. 어느 폴더에도 안 걸리는 세션은 "프로젝트 전역" 풀로 두고 PM 단계에서 처리.
+
+## 구현 현황 (2026-06-16, 모두 완료)
+- ✅ **1** 라우터 — `planFolders`(folder-plan.ts) bin-packing → `folder-plan` 아티팩트 (310aceb)
+- ✅ **2** 워커 fan-out — `NODE_PROPOSALS_CREATED` 폴더 루프, 실패 배치 스킵, `fanout-report` (a3356ea)
+- ✅ **3** 폴더 provenance — fan-out이 proposal→폴더 기록, lead에 전달(cross-folder reduce) (1440509)
+- ✅ **4** reader 스코프 — `isConversationSource`로 대화 소스만 (b91b978)
+- ✅ **5** UI — `readFanoutSummary` + WikiGen 요약에 폴더 워커 표시 (e1eff11)
+
+전 구간 typecheck/test/build 그린. 빈/단일 plan은 단발 fallback이라 기존 동작과 동치(회귀 0).
 
 ## 8. 단계적 도입 (리스크 최소)
 
