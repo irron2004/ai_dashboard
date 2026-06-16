@@ -96,7 +96,10 @@ export function KnowledgeView() {
       setPeek({ title, markdown: artifactToMarkdown(hit) })
       return
     }
-    const nodePath = (node.data as { path?: string } | undefined)?.path
+    // Write-plan ops carry the staging-relative path WITH a leading `vault-staging/` (e.g.
+    // `vault-staging/nodes/x.md`); readStagedDoc already resolves under <run>/vault-staging, so strip
+    // that prefix or it doubles to <run>/vault-staging/vault-staging/... and every draft reads as missing.
+    const nodePath = (node.data as { path?: string } | undefined)?.path?.replace(/^vault-staging[\\/]/, '')
     if (!nodePath || !/\.(md|mdx|txt)$/i.test(nodePath)) {
       setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
       return
