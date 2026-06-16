@@ -1438,6 +1438,9 @@ textarea {
 .wikigen__grid {
   flex: 1; min-height: 0; display: grid; gap: 10px;
   grid-template-columns: 300px minmax(0, 1fr);
+  /* Bound the single row to the available height (default is `auto`, which grows to content and pushes
+     the pinned promote bar + run-list scroll off-screen when Coverage/Proposals are long). */
+  grid-template-rows: minmax(0, 1fr);
 }
 .wikigen__grid--runs-collapsed { grid-template-columns: 52px minmax(0, 1fr); }
 .wikigen__grid--settings { grid-template-columns: 300px minmax(0, 1fr) 340px; }
