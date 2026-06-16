@@ -49,6 +49,9 @@ export type HarnessServiceDeps = {
   workspaceVaultFor?: (projectId: string) => WorkspaceVault | undefined
   /** 단계별 LLM 타임아웃(ms). 미설정 시 make-drivers 기본값(600s). */
   stepTimeoutMs?: number
+  /** reader/extractor 프롬프트에 넣는 소스 텍스트의 char 예산 — 엔진/모델의 토큰 윈도에 맞춘다.
+   *  미설정 시 make-drivers 기본값(200K). 큰 윈도 모델은 올릴 수 있다. */
+  maxPromptChars?: number
   /** path to feature-gates.yml; defaults to the shipped harness/feature-gates.yml. */
   gatesPath?: string
   preamble?: string
@@ -145,6 +148,7 @@ export class HarnessService {
       preamble: resolveProjectPreamble(vaultRoot, projectId, this.preamble),
       projectCwd,
       stepTimeoutMs: this.deps.stepTimeoutMs,
+      maxPromptChars: this.deps.maxPromptChars,
       sourceLedger: this.deps.sourceLedger,
       now: this.now,
     })

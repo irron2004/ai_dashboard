@@ -34,6 +34,9 @@ export type DriverDeps = {
   /** Per-LLM-step timeout (ms). Agentic CLI steps (project-discovery, node-extractor via claude-opus)
    * routinely exceed the old 180s default and got SIGKILLed mid-run; default 600s gives headroom. */
   stepTimeoutMs?: number
+  /** Char budget for the serialized sources embedded in the reader/extractor prompt — sized to the
+   *  engine/model's token context window. Defaults to DEFAULT_MAX_PROMPT_SOURCE_CHARS. */
+  maxPromptChars?: number
   /** Optional idempotency ledger. When present, sources already processed (same id + content hash)
    *  for the project are skipped, and the sources consumed by a run are recorded once it reaches
    *  HUMAN_REVIEW_REQUIRED — making re-requested/resumed generation incremental. */
@@ -46,11 +49,14 @@ export type DriverDeps = {
 /** Default per-step LLM timeout — 10 min. Overridable via DriverDeps.stepTimeoutMs. */
 const DEFAULT_STEP_TIMEOUT_MS = 600_000
 
-/** Char budget for the serialized `sources` embedded in a reader/extractor prompt. Kept well under
- *  codex's hard 1,048,576-char input limit (the rest of the prompt — preamble, role, schema, other
- *  inputs — adds tens of KB). Sources beyond the budget are dropped (and show as uncovered in the
- *  coverage report); the boundary source is truncated. See budgetSourcesForPrompt. */
-const MAX_PROMPT_SOURCE_CHARS = 800_000
+/** Default char budget for the serialized `sources` embedded in a reader/extractor prompt. Bounded not
+ *  by codex's hard 1,048,576-CHAR input limit (a budget of 800K passed that) but by the model's TOKEN
+ *  context window: gpt-5.5 via codex with xhigh reasoning rejected ~200K-token (≈800K-char) input with
+ *  "ran out of room in the model's context window". ~200K chars ≈ ~50K tokens leaves ample room for the
+ *  rest of the prompt + the model's reasoning reserve, across engines. Overridable per run via
+ *  DriverDeps.maxPromptChars (engines/models with larger windows can raise it). Sources beyond the
+ *  budget are dropped (and show as uncovered in the coverage report). See budgetSourcesForPrompt. */
+export const DEFAULT_MAX_PROMPT_SOURCE_CHARS = 200_000
 
 /**
  * Canonical artifact base names (#17). The writer (driver return `name`) and the reader (artifactByName
@@ -125,6 +131,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const mdYaml = new MarkdownYamlValidator()
   const links = new ObsidianLinkValidator()
   const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS }
+  const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_SOURCE_CHARS
 
   return {
     PROJECT_SCANNED: async (ctx) => {
@@ -137,7 +144,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // (LLM-generated) discovery report.
       const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
-        sources: budgetSourcesForPrompt(freshSources(ctx.projectId), MAX_PROMPT_SOURCE_CHARS).sources,
+        sources: budgetSourcesForPrompt(freshSources(ctx.projectId), maxPromptChars).sources,
       } })
       return { artifacts: [{ name: ARTIFACTS.conversationHistory, data }] }
     },
@@ -154,7 +161,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
         // Cap the embedded source text to the engine's input limit; the FULL `srcs` is still used below
         // for path normalization (which must see every materialized source to map cited paths).
-        sources: budgetSourcesForPrompt(srcs, MAX_PROMPT_SOURCE_CHARS).sources,
+        sources: budgetSourcesForPrompt(srcs, maxPromptChars).sources,
       } })
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
