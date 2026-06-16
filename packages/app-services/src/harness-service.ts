@@ -17,6 +17,8 @@ import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromote
 import { materializeProjectDocs, type RemoteDocFetcher } from './source-materializer.js'
 import { materializeConversations } from './conversation-materializer.js'
 import type { WorkspaceVault, WorkspaceExportResult } from './workspace-vault.js'
+import { buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
+import { dirname } from 'node:path'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
@@ -90,8 +92,24 @@ export class HarnessService {
       localRoot,
       pull: async () => {},
       pushInternal: async () => {},
+      pushRuns: async () => {},
       exportWiki: async () => ({ ok: false, reason: 'no workspace configured for this project' }),
     }
+  }
+
+  /** Save the agent-pipeline transcript (one JSONL line per agent step) for later study/training. Writes
+   *  the run dir copy always, plus a copy under the workspace `runs/` so it travels. Best-effort. */
+  private persistTranscript(runId: string, projectId: string, finalState: string, wv: WorkspaceVault): void {
+    try {
+      const runDir = join(this.deps.runsRoot, runId)
+      const steps = buildPipelineTranscript(runDir, { runId, projectId, finalState })
+      if (!steps.length) return
+      const jsonl = transcriptToJsonl(steps)
+      writeFileSync(join(runDir, 'pipeline-transcript.jsonl'), jsonl)
+      const dest = join(wv.localRoot, 'runs', `${runId}.jsonl`)
+      mkdirSync(dirname(dest), { recursive: true })
+      writeFileSync(dest, jsonl)
+    } catch { /* logging/learning artifact — never fail the run over it */ }
   }
 
   /** Keep the internal vault out of the user's git: a self-ignoring `.gitignore` inside `.apc-wiki`
@@ -201,12 +219,16 @@ export class HarnessService {
     const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const result = await this.advanceSafely(runId, runner, store, onProgress)
-    // Sync the updated internal state back to the workspace so it persists across machines. Done on
-    // any non-failed run; a failed run leaves the workspace untouched.
-    if (result.finalState !== 'FAILED') {
-      try { await wv.pushInternal(); log('internal state synced to workspace.\n') }
-      catch (e) { onEngineLog?.({ label: 'workspace', stream: 'stderr', chunk: `push failed: ${String(e)}\n` }) }
-    }
+    // Save the agent-pipeline transcript (run dir + workspace runs/) for later study — even on failure,
+    // since failed runs are the most instructive.
+    this.persistTranscript(runId, input.projectId, result.finalState, wv)
+    // Sync to the workspace so it persists across machines. A successful run pushes the full internal
+    // state (which includes the new transcript); a FAILED run leaves the wiki untouched but still pushes
+    // just the transcript so the failure is studyable from any machine.
+    try {
+      if (result.finalState !== 'FAILED') { await wv.pushInternal(); log('internal state synced to workspace.\n') }
+      else { await wv.pushRuns() }
+    } catch (e) { onEngineLog?.({ label: 'workspace', stream: 'stderr', chunk: `push failed: ${String(e)}\n` }) }
     return result
   }
 
@@ -230,7 +252,11 @@ export class HarnessService {
     try { await wv.pull() } catch { /* best-effort; the local working copy still holds the run's state */ }
     const runner = this.runnerFor(input.runId, prev.projectId, wv.localRoot)
     const result = await this.advanceSafely(input.runId, runner, store)
-    if (result.finalState !== 'FAILED') { try { await wv.pushInternal() } catch { /* non-fatal */ } }
+    this.persistTranscript(input.runId, prev.projectId, result.finalState, wv)
+    try {
+      if (result.finalState !== 'FAILED') { await wv.pushInternal() }
+      else { await wv.pushRuns() }
+    } catch { /* non-fatal */ }
     return result
   }
 

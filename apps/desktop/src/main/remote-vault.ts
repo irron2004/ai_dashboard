@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path'
 import {
   type WorkspaceVault, type WorkspaceExportResult,
-  internalStateFiles, publishableWikiFiles,
+  internalStateFiles, runTranscriptFiles, publishableWikiFiles,
 } from '@apc/app-services'
 import { parseSsh, sshExec, type SshExec, type SshTarget } from './ssh-exec.js'
 import { DOC_MARKER, END_MARKER, parseRemoteFileBlocks } from './remote-docs.js'
@@ -98,6 +98,13 @@ export class SshWorkspaceVault implements WorkspaceVault {
     const files = internalStateFiles(this.localRoot)
     if (!files.length) return
     await pushDir(this.ssh, this.localRoot, this.remote('.apc-wiki'), files, { mirror: true, exec: this.exec })
+  }
+
+  async pushRuns(): Promise<void> {
+    const files = runTranscriptFiles(this.localRoot)
+    if (!files.length) return
+    // Additive (no mirror): only writes runs/ transcripts, leaving the wiki state on the remote intact.
+    await pushDir(this.ssh, this.localRoot, this.remote('.apc-wiki'), files, { mirror: false, exec: this.exec })
   }
 
   async exportWiki(): Promise<WorkspaceExportResult> {

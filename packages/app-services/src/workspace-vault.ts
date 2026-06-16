@@ -23,6 +23,9 @@ export interface WorkspaceVault {
   readonly localRoot: string
   pull(): Promise<void>
   pushInternal(): Promise<void>
+  /** Push ONLY the `runs/` subtree (pipeline transcripts) to the workspace, additively — used so a
+   *  FAILED run's transcript still travels for later study without re-pushing the (unchanged) wiki. */
+  pushRuns(): Promise<void>
   exportWiki(): Promise<WorkspaceExportResult>
 }
 
@@ -55,6 +58,11 @@ export function internalStateFiles(localRoot: string): string[] {
   return walkVaultFiles(localRoot, (rel) => INTERNAL_EXCLUDE_TOP.has(rel.split('/')[0]))
 }
 
+/** Files under the `runs/` subtree (pipeline transcripts) — for an additive transcript-only push. */
+export function runTranscriptFiles(localRoot: string): string[] {
+  return walkVaultFiles(localRoot, (rel) => rel.split('/')[0] !== 'runs')
+}
+
 /** Is `rel` a publishable wiki file? Human-readable docs only — excludes draft proposals
  *  (`*.proposal.md`) and the `agent-runs/` run-summary history. */
 export function isPublishable(rel: string): boolean {
@@ -84,6 +92,7 @@ export class LocalWorkspaceVault implements WorkspaceVault {
   }
   async pull(): Promise<void> { /* canonical store is the local fs */ }
   async pushInternal(): Promise<void> { /* canonical store is the local fs */ }
+  async pushRuns(): Promise<void> { /* canonical store is the local fs */ }
   async exportWiki(): Promise<WorkspaceExportResult> {
     if (!existsSync(this.localRoot)) return { ok: false, reason: 'no generated wiki to export (run a generation first)' }
     const rels = publishableWikiFiles(this.localRoot)

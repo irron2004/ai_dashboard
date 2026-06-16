@@ -8,6 +8,7 @@ export * from './harness-cli.js'
 export { materializeProjectDocs, type MaterializeManifest, type RemoteDocFetcher } from './source-materializer.js'
 export {
   type WorkspaceVault, type WorkspaceExportResult, LocalWorkspaceVault,
-  walkVaultFiles, internalStateFiles, isPublishable, publishableWikiFiles, INTERNAL_EXCLUDE_TOP,
+  walkVaultFiles, internalStateFiles, runTranscriptFiles, isPublishable, publishableWikiFiles, INTERNAL_EXCLUDE_TOP,
 } from './workspace-vault.js'
+export { type PipelineStep, buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
 export * from './knowledge-indexer.js'

@@ -97,4 +97,19 @@ describe('SshWorkspaceVault', () => {
     const wv = new SshWorkspaceVault('ssh://u@h:22/remote/repo', 'p1', cache, async () => ok(''))
     expect(await wv.exportWiki()).toEqual({ ok: false, reason: 'no generated wiki to export (run a generation first)' })
   })
+
+  test('pushRuns additively pushes only runs/ transcripts (no mirror-clear of the wiki)', async () => {
+    let script = ''
+    const exec: SshExec = async (_t, _c, opts) => { script = opts?.stdin ?? ''; return ok('') }
+    const wv = new SshWorkspaceVault('ssh://u@h:22/remote/repo', 'p1', cache, exec)
+    mkdirSync(join(cache, 'p1', 'runs'), { recursive: true })
+    mkdirSync(join(cache, 'p1', 'concepts'), { recursive: true })
+    writeFileSync(join(cache, 'p1', 'runs', 'RUN-1.jsonl'), '{"seq":1}\n')
+    writeFileSync(join(cache, 'p1', 'concepts', 'n.md'), '# n') // wiki — must NOT be pushed by pushRuns
+
+    await wv.pushRuns()
+    expect(script).toContain(`base64 -d > '/remote/repo/.apc-wiki/runs/RUN-1.jsonl'`)
+    expect(script).not.toContain('concepts/n.md')
+    expect(script).not.toContain('-mindepth 1 -maxdepth 1') // additive: no mirror-clear
+  })
 })

@@ -37,6 +37,7 @@ class FakeWorkspaceVault implements WorkspaceVault {
   constructor(readonly localRoot: string) {}
   async pull(): Promise<void> { this.calls.push('pull') }
   async pushInternal(): Promise<void> { this.calls.push('push') }
+  async pushRuns(): Promise<void> { this.calls.push('pushRuns') }
   async exportWiki(): Promise<WorkspaceExportResult> { this.exported = true; return { ok: true, target: this.localRoot, files: 1 } }
 }
 
@@ -68,6 +69,10 @@ describe('HarnessService — workspace vault lifecycle', () => {
     expect(r.ok).toBe(true)
     expect(vault.calls).toEqual(['pull', 'push'])
 
+    // the agent-pipeline transcript is saved for later study — in the run dir AND the workspace runs/.
+    expect(existsSync(join(ws, 'runs', r.runId, 'pipeline-transcript.jsonl'))).toBe(true)
+    expect(existsSync(join(localRoot, 'runs', `${r.runId}.jsonl`))).toBe(true)
+
     // promote writes into the workspace's localRoot, not the global vaultRoot.
     const promoted = svc.promote({ runId: r.runId })
     expect(promoted.ok).toBe(true)
@@ -84,12 +89,14 @@ describe('HarnessService — workspace vault lifecycle', () => {
     expect(vault.calls).toEqual(['push'])
   })
 
-  test('a FAILED run pulls but does NOT push the workspace', async () => {
+  test('a FAILED run pushes only the transcript (pushRuns), not the wiki (pushInternal)', async () => {
     // No raw/a → evidence verification fails → run FAILED.
     rmSync(join(localRoot, 'raw', 'a'))
     const r = await service().run({ projectId: 'p1', engine: 'claude' })
     expect(r.finalState).toBe('FAILED')
-    expect(vault.calls).toEqual(['pull'])
+    expect(vault.calls).toEqual(['pull', 'pushRuns']) // transcript travels; wiki ('push') does not
+    // the failed run's transcript is still saved for study
+    expect(existsSync(join(ws, 'runs', r.runId, 'pipeline-transcript.jsonl'))).toBe(true)
   })
 
   test('exportWiki pushes the latest state then publishes', async () => {
