@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 import { useStore } from '../store.js'
-import { createDefaultHarnessConfig, runModeLabel, type HarnessRunBundle } from '../harness-utils.js'
+import { createDefaultHarnessConfig, runModeLabel, readFanoutSummary, type HarnessRunBundle } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 import { WikiProgress } from './WikiProgress.js'
@@ -56,6 +56,7 @@ export function WikiGenDashboard() {
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
   const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
+  const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
 
   return (
     <section className="wikigen">
@@ -117,6 +118,22 @@ export function WikiGenDashboard() {
                       {proposalsData ? ` · 노드 제안 ${proposalsData.length}개` : ''}
                     </p>
                     <p className="wikigen__hint">생성된 위키 문서는 📖 Knowledge 탭에서 읽습니다.</p>
+                    {fanout && (
+                      <div className="wikigen__folders">
+                        <h4>📁 폴더 워커 (orchestrator-workers)</h4>
+                        <p>{fanout.units}개 폴더 단위 · {fanout.ran}개 실행{fanout.skipped.length ? ` · ${fanout.skipped.length}개 스킵` : ''}</p>
+                        <ul className="wikigen__folder-list">
+                          {fanout.folders.map((f) => (
+                            <li key={f.label}>📁 {f.label}{f.members && f.members !== f.label ? <small> — {f.members}</small> : null}</li>
+                          ))}
+                        </ul>
+                        {fanout.skipped.length > 0 && (
+                          <ul className="wikigen__folder-skipped">
+                            {fanout.skipped.map((s) => <li key={s.unit} title={s.reason}>⚠ {s.unit} 스킵</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 {reviewTab === 'coverage' && (coverageData

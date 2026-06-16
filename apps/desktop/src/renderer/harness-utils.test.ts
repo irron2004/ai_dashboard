@@ -1,6 +1,26 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact } from './harness-utils.js'
+import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary } from './harness-utils.js'
 import type { HarnessRunArtifact } from './harness-utils.js'
+
+const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
+
+describe('readFanoutSummary', () => {
+  test('null when neither folder-plan nor fanout-report is present (legacy single-shot)', () => {
+    expect(readFanoutSummary([artifact('node-proposals', { proposals: [] })])).toBeNull()
+  })
+
+  test('summarizes folder units + fan-out run report', () => {
+    const s = readFanoutSummary([
+      artifact('folder-plan', { units: [{ label: 'paper-A', memberPaths: ['paper-A'] }, { label: 'misc (2 folders)', memberPaths: ['a', 'b'] }] }),
+      artifact('fanout-report', { units: 2, ran: 1, skipped: [{ unit: 'paper-A', reason: 'boom' }] }),
+    ])
+    expect(s).toEqual({
+      units: 2, ran: 1,
+      skipped: [{ unit: 'paper-A', reason: 'boom' }],
+      folders: [{ label: 'paper-A', members: 'paper-A' }, { label: 'misc (2 folders)', members: 'a, b' }],
+    })
+  })
+})
 
 describe('appendTailLines', () => {
   test('keeps only the last `max` lines', () => {
