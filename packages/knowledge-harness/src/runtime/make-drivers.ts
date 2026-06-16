@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, type SourceDoc } from './source-reader.js'
-import { planFolders } from './folder-plan.js'
+import { planFolders, type FolderPlan } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
@@ -72,6 +72,7 @@ export const ARTIFACTS = {
   conversationHistory: 'conversation-history-report',
   documentIntent: 'document-intent-report',
   folderPlan: 'folder-plan',
+  fanoutReport: 'fanout-report',
   nodeProposals: 'node-proposals',
   policyReport: 'policy-report',
   evidenceVerification: 'evidence-verification-report',
@@ -166,16 +167,50 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
     NODE_PROPOSALS_CREATED: async (ctx) => {
       const srcs = freshSources(ctx.projectId)  // A1: extractor cites paths/quotes from real source text
-      const raw = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
-        history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
-        intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
-        // Cap the embedded source text to the engine's input limit; the FULL `srcs` is still used below
-        // for path normalization (which must see every materialized source to map cited paths).
-        sources: budgetSourcesForPrompt(srcs, maxPromptChars).sources,
-      } })
+      const history = artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory)
+      const intents = artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent)
+      const byId = new Map(srcs.map((s) => [s.source_id, s]))
+
+      // Run one extractor call over a source subset (a folder work unit, or all sources in the single-shot
+      // fallback). The budget is the worker's last-resort guard; with folder units it rarely truncates.
+      const extractOver = async (sources: SourceDoc[], label: string): Promise<KhNodeProposal[]> => {
+        const raw = await extractor.run({ ...run, engine: engineOf(ctx), label, input: {
+          history, intents, sources: budgetSourcesForPrompt(sources, maxPromptChars).sources,
+        } })
+        return raw.proposals as KhNodeProposal[]
+      }
+
+      // PM worker fan-out (spec §5): one worker per folder unit. No usable plan (e.g. sources not under
+      // raw/project-docs, or materialize off) → single-shot over all sources, identical to legacy.
+      const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
+      const units = (plan?.units ?? []).filter((u) => u.docSourceIds.length > 0)
+      const proposals: KhNodeProposal[] = []
+      const fanout = { units: units.length, ran: 0, skipped: [] as Array<{ unit: string; reason: string }> }
+
+      if (units.length === 0) {
+        proposals.push(...await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
+      } else {
+        for (const u of units) {
+          const unitSources = u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s)
+          if (!unitSources.length) continue
+          try {
+            // A failed worker is skipped, not fatal (user decision) — its folder simply shows as uncovered.
+            proposals.push(...await extractOver(unitSources, `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`))
+            fanout.ran++
+          } catch (e) {
+            fanout.skipped.push({ unit: u.label, reason: e instanceof Error ? e.message : String(e) })
+          }
+        }
+        if (fanout.ran === 0) {
+          throw new Error(`all ${units.length} folder worker(s) failed: ` +
+            fanout.skipped.map((s) => `${s.unit}: ${s.reason}`).join(' | '))
+        }
+      }
+
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
-      const data = { ...raw, proposals: normalizeEvidencePaths(raw.proposals, srcs) }
+      // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
+      const data = { proposals: normalizeEvidencePaths(proposals, srcs) }
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
       const report = policy.check(data.proposals)
@@ -192,7 +227,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       }
       return { artifacts: [
         { name: ARTIFACTS.nodeProposals, data }, { name: ARTIFACTS.policyReport, data: report },
-        { name: ARTIFACTS.evidenceVerification, data: evidence },
+        { name: ARTIFACTS.evidenceVerification, data: evidence }, { name: ARTIFACTS.fanoutReport, data: fanout },
       ] }
     },
 
