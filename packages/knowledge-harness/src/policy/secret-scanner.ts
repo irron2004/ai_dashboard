@@ -11,7 +11,9 @@ function mask(s: string): string {
 const RULES: { rule: string; re: RegExp }[] = [
   { rule: 'aws_access_key_id', re: /AKIA[0-9A-Z]{16}/g },
   { rule: 'google_api_key', re: /AIza[0-9A-Za-z_\-]{35}/g },
-  { rule: 'openai_key', re: /sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}/g },
+  // \b so a key STARTS at a word boundary — otherwise `task-1-executable-inventory` (…ta·sk-1-…) and any
+  // word ending in "sk" false-positive as an OpenAI key.
+  { rule: 'openai_key', re: /\bsk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}/g },
   { rule: 'github_token', re: /gh[pousr]_[A-Za-z0-9]{36}/g },
   { rule: 'github_pat', re: /github_pat_[A-Za-z0-9_]{22,}/g },
   { rule: 'slack_token', re: /xox[baprs]-[A-Za-z0-9-]{10,}/g },
@@ -35,6 +37,17 @@ const RULES: { rule: string; re: RegExp }[] = [
   // lookahead must stay case-sensitive; key suffixes spell both lower and SCREAMING forms explicitly.
   { rule: 'credential_assignment', re: /[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)*[_-](?:secret|SECRET|token|TOKEN)\s*[:=]\s*["']?(?=[A-Za-z0-9_\-./+=]*[0-9])(?=[A-Za-z0-9_\-./+=]*[A-Z])[A-Za-z0-9_\-./+=]{16,}/g },
 ]
+
+/**
+ * Replace every secret-shaped span with its masked form. Used to make DETERMINISTICALLY-rendered node
+ * documents safe to publish — they inline the user's own evidence text, so a real secret must not reach
+ * the wiki, and a single match must not fail the whole run via PolicyGuard's secret_in_write block.
+ */
+export function redactSecrets(text: string): string {
+  let out = text
+  for (const { re } of RULES) out = out.replace(re, (m) => mask(m))
+  return out
+}
 
 /**
  * Deterministic regex catalog for obvious secrets. NOT a semantic detector — the optional LLM

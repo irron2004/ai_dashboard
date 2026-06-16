@@ -1,4 +1,5 @@
 import type { KhNodeProposal, KhGraphEdgeOp } from '@apc/shared'
+import { redactSecrets } from '../policy/secret-scanner.js'
 
 /** Korean labels for edge relation kinds, used in the rendered "관련 노드" section. */
 const EDGE_LABEL: Record<string, string> = {
@@ -64,5 +65,7 @@ export function renderNodeDoc(
     }
     lines.push('')
   }
-  return lines.join('\n')
+  // Mask any secret-shaped span so a published node never leaks a real secret AND a false positive can't
+  // trip PolicyGuard's secret_in_write block (which would fail the whole run over one node).
+  return redactSecrets(lines.join('\n'))
 }
