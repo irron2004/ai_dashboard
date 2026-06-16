@@ -19,6 +19,20 @@ describe('vault-fs', () => {
     expect(listMarkdown(dir).map(p => p.slice(dir.length + 1).split(sep).join('/'))).toContain('a/x.md')
   })
 
+  test('listMarkdown excludes raw/ source docs and infra trees (validators see only generated wiki)', () => {
+    writeFileSync(join(dir, 'current.md'), '#')                                   // wiki
+    mkdirSync(join(dir, 'concepts'), { recursive: true })
+    writeFileSync(join(dir, 'concepts', 'n1.md'), '#')                            // wiki
+    mkdirSync(join(dir, 'raw', 'project-docs', '0', 'A'), { recursive: true })
+    writeFileSync(join(dir, 'raw', 'project-docs', '0', 'A', 'README.md'), '[[plan/x]]') // source → excluded
+    mkdirSync(join(dir, 'vault-staging', 'wiki'), { recursive: true })
+    writeFileSync(join(dir, 'vault-staging', 'wiki', 'stale.md'), '#')            // leaked staging → excluded
+    mkdirSync(join(dir, 'node_modules', 'pkg'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'pkg', 'readme.md'), '#')             // infra → excluded
+    const rels = listMarkdown(dir).map(p => p.slice(dir.length + 1).split(sep).join('/')).sort()
+    expect(rels).toEqual(['concepts/n1.md', 'current.md'])
+  })
+
   test('isCanonical matches current.md / PRD.md / ADR-*.md anywhere in the path', () => {
     expect(isCanonical('current.md')).toBe(true)
     expect(isCanonical('projects/p1/PRD.md')).toBe(true)
