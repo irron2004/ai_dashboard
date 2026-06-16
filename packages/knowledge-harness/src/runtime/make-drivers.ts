@@ -50,7 +50,25 @@ export type DriverDeps = {
   sourceLedger?: SourceLedger
   /** Timestamp source for ledger records. Defaults to ISO-now. */
   now?: () => string
+  /** Optional live node stream: invoked with the node previews from each folder worker (and the
+   *  single-shot extractor) AS they complete during NODE_PROPOSALS_CREATED, so the UI can show the
+   *  knowledge graph building up mid-run. Best-effort — never gates or fails the run. */
+  onNodesDiscovered?: (ev: LiveNodesEvent) => void
   // Phase 3 will add: policy, validators
+}
+
+/** A folder worker's freshly-extracted nodes, surfaced for incremental display. `folder` is the work
+ *  unit label (or 'all' for the single-shot fallback); ids are pre-dedupe previews, not final graph ids. */
+export type LiveNodesEvent = { folder: string; nodes: Array<{ id: string; title: string; type: string; scope: string }> }
+
+/** Map raw proposals to the minimal node preview the live stream carries. */
+function liveNodesOf(proposals: KhNodeProposal[]): LiveNodesEvent['nodes'] {
+  return proposals.map((p) => ({
+    id: String(p.node?.id ?? p.proposal_id),
+    title: String(p.node?.title ?? p.node?.id ?? p.proposal_id),
+    type: String(p.node?.type ?? 'ConceptNode'),
+    scope: String(p.node?.scope ?? 'project'),
+  }))
 }
 
 /** Default per-step LLM timeout — 10 min. Overridable via DriverDeps.stepTimeoutMs. */
@@ -135,12 +153,19 @@ export async function runFolderWorkers(
   unitDocs: (u: WorkUnit) => SourceDoc[],
   concurrency: number,
   extractUnit: (docs: SourceDoc[], u: WorkUnit) => Promise<KhNodeProposal[]>,
+  onUnitProposals?: (proposals: KhNodeProposal[], u: WorkUnit) => void,
 ): Promise<FolderFanoutResult> {
   type UnitResult = { unit: WorkUnit; proposals?: KhNodeProposal[]; error?: string; empty?: true }
   const results = await runPool<WorkUnit, UnitResult>(units, concurrency, async (u) => {
     const docs = unitDocs(u)
     if (!docs.length) return { unit: u, empty: true }
-    try { return { unit: u, proposals: await extractUnit(docs, u) } }
+    try {
+      const proposals = await extractUnit(docs, u)
+      // Emit this folder's nodes the moment they land — drives the mid-run incremental graph. A throwing
+      // listener must not corrupt the fan-out, so failures here are swallowed.
+      try { onUnitProposals?.(proposals, u) } catch { /* live stream is best-effort */ }
+      return { unit: u, proposals }
+    }
     catch (e) { return { unit: u, error: e instanceof Error ? e.message : String(e) } }
   })
   const tagged: Array<{ p: KhNodeProposal; folder: string }> = []
@@ -258,6 +283,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
       if (units.length === 0) {
         proposals = dedupeProposalIds(await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
+        try { deps.onNodesDiscovered?.({ folder: 'all', nodes: liveNodesOf(proposals) }) } catch { /* best-effort */ }
       } else {
         // Out-of-repo context (ancestor CLAUDE.md/AGENTS.md, project memory) is project-wide governance —
         // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
@@ -268,6 +294,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
           (u) => u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s),
           deps.workerConcurrency ?? 1,
           (docs, u) => extractOver([...docs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`),
+          (unitProposals, u) => deps.onNodesDiscovered?.({ folder: u.label, nodes: liveNodesOf(unitProposals) }),
         )
         if (res.ran === 0) {
           throw new Error(`all ${units.length} folder worker(s) failed: ` +

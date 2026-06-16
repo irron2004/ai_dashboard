@@ -25,6 +25,7 @@ function createWindow(): void {
     vaultRoot: join(userData, 'vault'),
     emitHarnessProgress: (e) => win.webContents.send(CH.harnessProgress, e),
     emitHarnessEngineLog: (e) => win.webContents.send(CH.harnessEngineLog, e),
+    emitHarnessNodes: (e) => win.webContents.send(CH.harnessNodes, e),
   })
 
   registerIpc(ipcMain, container)

@@ -15,6 +15,7 @@ import type {
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
   ChangesListReq, ChangesListRes, ChangesDiffReq, ChangesDiffRes,
+  HarnessNodesEvent,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
 
@@ -30,6 +31,7 @@ declare global {
       onPtyExit(cb: (id: string, code: number) => void): () => void
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
+      onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void
     }
   }
 }
@@ -159,5 +161,8 @@ export const api = {
   },
   onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void {
     return window.apc.onHarnessEngineLog(cb)
+  },
+  onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void {
+    return window.apc.onHarnessNodes(cb)
   },
 }

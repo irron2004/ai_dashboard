@@ -31,4 +31,9 @@ contextBridge.exposeInMainWorld('apc', {
     ipcRenderer.on(CH.harnessEngineLog, handler)
     return () => ipcRenderer.removeListener(CH.harnessEngineLog, handler)
   },
+  onHarnessNodes: (cb: (e: { runId: string; folder: string; nodes: { id: string; title: string; type: string; scope: string }[] }) => void) => {
+    const handler = (_e: unknown, ev: { runId: string; folder: string; nodes: { id: string; title: string; type: string; scope: string }[] }) => cb(ev)
+    ipcRenderer.on(CH.harnessNodes, handler)
+    return () => ipcRenderer.removeListener(CH.harnessNodes, handler)
+  },
 })

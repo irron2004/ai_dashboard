@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto } from '../shared/ipc-contract.js'
+import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 import {
   appendTailLines,
@@ -47,6 +47,10 @@ type ApcStore = {
   harnessCanonicalProposals: HarnessCanonicalProposalsRes
   harnessLiveLabel: string | null
   harnessLiveTail: string[]
+  /** Nodes discovered DURING the active run (folder worker → IPC stream), shown incrementally in the
+   * Knowledge graph. Keyed to one runId; reset when a new run starts. De-duped by node id. */
+  harnessLiveNodes: HarnessLiveNode[]
+  harnessLiveNodesRunId: string | null
   /** Set when promote was blocked by a validation gate that `allowInvalid` can override; null otherwise.
    * Drives the "검증 무시하고 promote" force-override affordance in the UI. */
   harnessPromoteBlockedReason: string | null
@@ -93,6 +97,7 @@ type ApcStore = {
   clearHarnessMessage(): void
   setHarnessProgress(state: string | null): void
   appendHarnessEngineLog(e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }): void
+  addHarnessLiveNodes(e: HarnessNodesEvent): void
   attachProfileToActiveTask(profileId: string): Promise<void>
 }
 
@@ -143,6 +148,8 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessProgress: null,
   harnessLiveLabel: null,
   harnessLiveTail: [],
+  harnessLiveNodes: [],
+  harnessLiveNodesRunId: null,
   harnessPromoteBlockedReason: null,
   harnessCanonicalBlock: null,
   harnessConfigs: {},
@@ -298,7 +305,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
       const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model), workerConcurrency: config.model.workerConcurrency })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
@@ -482,6 +489,16 @@ export const useStore = create<ApcStore>((set, get) => ({
   setHarnessProgress(state) { set({ harnessProgress: state }) },
   appendHarnessEngineLog(e) {
     set((s) => ({ harnessLiveLabel: e.label, harnessLiveTail: appendTailLines(s.harnessLiveTail, e.chunk) }))
+  },
+  addHarnessLiveNodes(e) {
+    set((s) => {
+      // A new run's first batch resets the accumulator (the prior run's live nodes are stale).
+      const base = s.harnessLiveNodesRunId === e.runId ? s.harnessLiveNodes : []
+      const seen = new Set(base.map((n) => n.id))
+      const merged = [...base]
+      for (const n of e.nodes) if (!seen.has(n.id)) { seen.add(n.id); merged.push(n) }
+      return { harnessLiveNodes: merged, harnessLiveNodesRunId: e.runId }
+    })
   },
 
   async proposeWikiPolicy(projectId, engine) {

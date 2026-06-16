@@ -26,7 +26,7 @@ import type {
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   HarnessReadStagedDocReq, HarnessReadStagedDocRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
-  HarnessEngineLogEvent,
+  HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
@@ -133,6 +133,7 @@ export function buildContainer(opts: {
   harnessRunsRoot?: string
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
   emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
+  emitHarnessNodes?: (e: HarnessNodesEvent) => void
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -271,6 +272,7 @@ export function buildContainer(opts: {
       { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [], engineOptions: req.engineOptions, workerConcurrency: req.workerConcurrency },
       (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
       batchEngineLog(opts.emitHarnessEngineLog),
+      (e) => opts.emitHarnessNodes?.(e),
     )
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)

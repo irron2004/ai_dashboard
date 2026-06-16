@@ -855,6 +855,36 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
   return { nodes: [...nodeMap.values()], links }
 }
 
+function liveTypeHint(type: string): 'concept' | 'decision' | 'experiment' | 'task' {
+  const t = type.toLowerCase()
+  if (t.includes('decision')) return 'decision'
+  if (t.includes('experiment')) return 'experiment'
+  if (t.includes('concept')) return 'concept'
+  return 'task'
+}
+
+/** Build a lightweight graph from the LIVE node stream (mid-run, before the node-proposals artifact
+ *  exists): a run node + one task node per discovered proposal, so the Knowledge graph fills in as the
+ *  folder workers complete. Replaced by the full evidence/file graph once the run produces artifacts. */
+export function buildLiveGraphData(
+  runId: string,
+  nodes: Array<{ id: string; title: string; type: string; scope: string }>,
+): HarnessGraphData {
+  const out: HarnessGraphNode[] = []
+  const links: HarnessGraphLink[] = []
+  const runNodeId = `run:${runId}`
+  out.push({ id: runNodeId, label: runId, type: 'run', shape: 'square', color: colorForNode('run'), details: `생성 중 · ${nodes.length}개 노드` })
+  const seen = new Set<string>()
+  for (const n of nodes) {
+    const id = taskNodeId(n.id)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, label: n.title, type: 'task', shape: 'diamond', color: colorForNode(liveTypeHint(n.type)), details: `${n.type} · ${n.scope}` })
+    addLink(links, { id: `${runNodeId}->${id}`, source: runNodeId, target: id, kind: 'run-task', label: 'live' })
+  }
+  return { nodes: out, links }
+}
+
 export function parseUnifiedDiff(patch: string): HarnessDiffFile[] {
   const files: HarnessDiffFile[] = []
   let current: HarnessDiffFile | null = null

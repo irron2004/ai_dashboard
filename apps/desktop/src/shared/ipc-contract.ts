@@ -44,6 +44,7 @@ export const CH = {
   ptyExit: 'pty:exit',
   harnessProgress: 'harness:progress',
   harnessEngineLog: 'harness:engineLog',
+  harnessNodes: 'harness:nodes',
   configPreview: 'c:configPreview',
   configApply: 'c:configApply',
   configRollback: 'c:configRollback',
@@ -98,6 +99,9 @@ export type GenerateProjectRes = {
 // Knowledge Harness (evidence-based multi-agent pipeline) surface.
 export type HarnessProgressEvent = { runId: string; state: string }
 export type HarnessEngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
+/** Live node previews discovered mid-run (per folder worker) — for the Knowledge tab's incremental graph. */
+export type HarnessLiveNode = { id: string; title: string; type: string; scope: string }
+export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessLiveNode[] }
 export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }

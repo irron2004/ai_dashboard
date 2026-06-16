@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { useStore } from '../store.js'
 import {
-  artifactLabel, artifactToMarkdown, buildHarnessGraphData, isMarkdownArtifact, pickNodeArtifact,
+  artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, isMarkdownArtifact, pickNodeArtifact,
   type GraphNodeRef, type HarnessRunBundle,
 } from '../harness-utils.js'
 import { GraphVisualization } from './GraphVisualization.js'
@@ -19,7 +19,7 @@ function latestWikiRun(runs: HarnessRunBundle[]): HarnessRunBundle | null {
 }
 
 export function KnowledgeView() {
-  const { selectedProjectId, harnessRuns } = useStore()
+  const { selectedProjectId, harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading } = useStore()
   const [mode, setMode] = useState<Mode>('docs')
   const [selectedDoc, setSelectedDoc] = useState<DocRef | null>(null)
   const [fileContent, setFileContent] = useState<{ relPath: string; content: string } | { relPath: string; error: string } | null>(null)
@@ -31,6 +31,23 @@ export function KnowledgeView() {
   const run = useMemo(() => latestWikiRun(harnessRuns), [harnessRuns])
   const wikiArtifacts = useMemo(() => (run?.artifacts ?? []).filter(isMarkdownArtifact), [run])
   const graphData = useMemo(() => buildHarnessGraphData(run), [run])
+  // While a run is generating, prefer the LIVE stream graph (nodes appear folder-by-folder); the richer
+  // artifact graph takes over once the run finishes.
+  const liveActive = harnessLoading && harnessLiveNodes.length > 0
+  const liveGraph = useMemo(
+    () => buildLiveGraphData(harnessLiveNodesRunId ?? 'run', harnessLiveNodes),
+    [harnessLiveNodesRunId, harnessLiveNodes],
+  )
+  const effectiveGraph = liveActive ? liveGraph : graphData
+
+  // Auto-reveal the graph the first time live nodes arrive for a run, so generation is visible.
+  const revealedRunId = useRef<string | null>(null)
+  useEffect(() => {
+    if (liveActive && harnessLiveNodesRunId && revealedRunId.current !== harnessLiveNodesRunId) {
+      revealedRunId.current = harnessLiveNodesRunId
+      setMode('graph')
+    }
+  }, [liveActive, harnessLiveNodesRunId])
 
   useEffect(() => {
     if (!selectedProjectId) return
@@ -125,6 +142,11 @@ export function KnowledgeView() {
           <button type="button" aria-pressed={mode === 'docs'} className={mode === 'docs' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('docs')}>문서</button>
           <button type="button" aria-pressed={mode === 'graph'} className={mode === 'graph' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('graph')}>그래프</button>
         </div>
+        {liveActive && (
+          <span className="knowledge__live" title="생성 중 — 노드가 폴더별로 추가됩니다">
+            <span className="knowledge__live-dot" /> 생성 중 · {harnessLiveNodes.length}개 노드
+          </span>
+        )}
       </div>
 
       {mode === 'docs' ? (
@@ -164,7 +186,7 @@ export function KnowledgeView() {
       ) : (
         <div className={peek ? 'knowledge__graph knowledge__graph--peek' : 'knowledge__graph'}>
           <div className="knowledge__graph-canvas panel">
-            <GraphVisualization data={graphData} onNodeClick={handleNodeClick} />
+            <GraphVisualization data={effectiveGraph} onNodeClick={handleNodeClick} />
           </div>
           {peek && (
             <aside className="knowledge__peek panel">

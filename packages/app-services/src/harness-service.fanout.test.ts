@@ -51,10 +51,18 @@ describe('HarnessService — folder worker fan-out', () => {
       gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
     })
 
-    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    const liveNodes: Array<{ runId: string; folder: string; nodes: { id: string; title: string }[] }> = []
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' }, undefined, undefined,
+      (e) => liveNodes.push({ runId: e.runId, folder: e.folder, nodes: e.nodes.map((n) => ({ id: n.id, title: n.title })) }))
     expect(r.ok).toBe(true)
     if (!r.ok) return
     expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+
+    // the live stream emitted each folder worker's nodes mid-run, stamped with this run's id
+    expect(liveNodes.length).toBe(2)
+    expect(liveNodes.every((e) => e.runId === r.runId)).toBe(true)
+    expect(liveNodes.map((e) => e.folder).sort()).toEqual(['A', 'B'])
+    expect(liveNodes.flatMap((e) => e.nodes.map((n) => n.id)).sort()).toEqual(['n_A1', 'n_B1'])
 
     const shown = svc.show({ runId: r.runId })
     if (!shown.ok) throw new Error('show failed')
