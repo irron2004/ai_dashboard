@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import { resolveInside } from './vault-fs.js'
+import { resolveInside, isRaw } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
 import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
@@ -9,7 +9,7 @@ import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidenc
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
-  type KhState, type AgentType, type KhNodeProposal,
+  type KhState, type AgentType, type KhNodeProposal, type KhWritePlan,
 } from '@apc/shared'
 import type { AgentRunner, EngineOptions } from '@apc/llm-wiki'
 import type { Driver, RunnerContext } from './harness-runner.js'
@@ -104,6 +104,7 @@ export const ARTIFACTS = {
   leadWritePlan: 'lead-write-plan',
   writePlan: 'write-plan',
   appliedWriteReport: 'applied-write-report',
+  writeSanitize: 'write-plan-sanitize-report',
   gitDiffReport: 'git-diff-report',
   graphValidation: 'graph-validation-report',
   markdownYamlValidation: 'markdown-yaml-validation-report',
@@ -181,6 +182,29 @@ export async function runFolderWorkers(
   const proposals = dedupeProposalIds(tagged.map((t) => t.p))
   const provenance = proposals.map((p, i) => ({ proposalId: p.proposal_id, folder: tagged[i].folder }))
   return { proposals, provenance, ran, skipped }
+}
+
+/**
+ * Drop write ops that would author a NON-markdown file (e.g. the lead occasionally emits its own
+ * graph-update / shared-promotion plans as `.json` files under inbox/) — instead of failing the whole
+ * run on PolicyGuard's `non_markdown_write`. The wiki is markdown-only and those plans are already
+ * persisted as run artifacts, so the op is pure noise. Raw-path writes, deletes, and secret-bearing
+ * bodies are deliberately LEFT for PolicyGuard to hard-block — those are dangerous, not noise. Returns
+ * the cleaned plan + the dropped ops (surfaced as an artifact so the exclusion is visible).
+ */
+export function sanitizeWritePlan(
+  plan: KhWritePlan,
+): { plan: KhWritePlan; dropped: Array<{ op: string; path: string; reason: string }> } {
+  const dropped: Array<{ op: string; path: string; reason: string }> = []
+  const operations = plan.operations.filter((op) => {
+    const authoring = op.op === 'create_file' || op.op === 'append_section'
+    if (authoring && !isRaw(op.path) && !/\.md$/i.test(op.path)) {
+      dropped.push({ op: op.op, path: op.path, reason: 'non_markdown_write' })
+      return false
+    }
+    return true
+  })
+  return { plan: { ...plan, operations }, dropped }
 }
 
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
@@ -354,11 +378,14 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     STAGING_WRITTEN: async (ctx) => {
-      const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
-      // Pre-staging blocking gate (#21/#22/#26, #24): re-run PolicyGuard with the write plan and HALT before
-      // touching the staging vault if any op would write to raw/, delete, author a non-.md file, or carry a
-      // secret in its body. Scanning the op bodies HERE (not just the files at VALIDATED) means a secret or
-      // raw/non-md write is refused before it is ever authored — not flagged after the fact.
+      const parsed = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
+      // First sanitize: drop non-markdown authoring ops (e.g. the lead's own plan JSONs written into
+      // inbox/) — noise that would otherwise trip non_markdown_write and fail the whole run.
+      const { plan, dropped } = sanitizeWritePlan(parsed)
+      // Pre-staging blocking gate (#21/#22/#26): re-run PolicyGuard with the CLEANED write plan and HALT
+      // before touching the staging vault if any op would write to raw/, delete, or carry a secret in its
+      // body. Scanning the op bodies HERE (not just the files at VALIDATED) means a dangerous write is
+      // refused before it is ever authored — not flagged after the fact.
       const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
       const gate = policy.check(proposals, plan)
       if (!gate.ok) {
@@ -370,10 +397,12 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const applied = writer.apply(plan, staging)
       const patch = staging.diff()
       ctx.store.writeFile('diff.patch', patch)  // top-level deliverable (design §6.2)
-      return { artifacts: [
+      const artifacts: Array<{ name: string; data: unknown }> = [
         { name: ARTIFACTS.appliedWriteReport, data: applied },
         { name: ARTIFACTS.gitDiffReport, data: { patch } },
-      ] }
+      ]
+      if (dropped.length) artifacts.push({ name: ARTIFACTS.writeSanitize, data: { dropped } })
+      return { artifacts }
     },
 
     VALIDATED: async (ctx) => {
