@@ -174,7 +174,10 @@ type CrossFolderRef = {
 ## 11. 미결 질문 (남은 결정 — 해당 단계에서)
 - ✅ **폴더 경계** → 자동 크기 기반(bin-packing). (결정됨)
 - ✅ **부분 실패** → 실패 배치만 스킵, 나머지 진행. (결정됨)
-- ⬜ **PM 검수 = 자동 vs 사람** (3단계) — cross-folder 해소를 LLM(lead)이 자동으로? 아니면 사람 게이트 추가? (현재는 promote 전 human-review만)
+- ✅ **PM 검수 = 자동 (해소됨)** — lead가 cross-folder 엣지를 자동 생성하지만, 그 출력은
+  `STAGING_WRITTEN`(스테이징만) → `HUMAN_REVIEW_REQUIRED` → 사람 `promote`로만 실 vault에 반영된다.
+  즉 **기존 human-review→promote 게이트가 cross-folder 엣지를 이미 검수**하므로 별도 게이트는 중복.
+  자동 생성 + 기존 promote 검수가 완결된 설계다.
 - ⬜ **병렬 동시성 상한** (2단계) — codex 레이트리밋/세션 한도 고려. 배치 N개를 동시 몇 개씩? (기본: 보수적으로 2~3)
 - ⬜ **reader의 위치** (4단계) — 폴더 워커가 세션을 직접 읽을지(reader 흡수) vs reader를 배치별로 N번 돌릴지.
 
