@@ -93,6 +93,33 @@ describe('HarnessService — folder worker fan-out', () => {
     expect(readerPrompt).not.toContain('raw/project-docs/0/A/a.md')
   })
 
+  test('out-of-repo context (raw/context) is shared to every folder worker', async () => {
+    // bigger folder docs so the two folders don't merge at budget 700, but folder+context still fits
+    writeFileSync(join(vault, 'raw', 'project-docs', '0', 'A', 'a.md'), 'A'.repeat(400))
+    writeFileSync(join(vault, 'raw', 'project-docs', '0', 'B', 'b.md'), 'B'.repeat(400))
+    mkdirSync(join(vault, 'raw', 'context', 'home', 'h'), { recursive: true })
+    writeFileSync(join(vault, 'raw', 'context', 'home', 'h', 'CLAUDE.md'), 'gov')
+
+    const fake = new FakeAgentRunner([
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+      JSON.stringify({ proposals: [proposalFor('A1', 'raw/project-docs/0/A/a.md')] }),
+      JSON.stringify({ proposals: [proposalFor('B1', 'raw/project-docs/0/B/b.md')] }),
+      JSON.stringify(lead),
+    ])
+    const svc = new HarnessService({
+      runner: fake, vaultRoot: vault, runsRoot: join(ws, 'runs'),
+      maxPromptChars: 900, // one folder (~566) + context (~173) fits; two folders (~1132) do not → split
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok, r.reason).toBe(true)
+    // calls 3 and 4 are the two folder workers — both must see the shared context file
+    expect(fake.calls[3].prompt).toContain('raw/context/home/h/CLAUDE.md')
+    expect(fake.calls[4].prompt).toContain('raw/context/home/h/CLAUDE.md')
+  })
+
   test('a failed worker is skipped; the run still completes from the others', async () => {
     // unit A returns INVALID json → that worker throws (parse fail) → skipped; unit B succeeds.
     const outputs = [

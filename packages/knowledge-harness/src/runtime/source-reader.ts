@@ -52,6 +52,12 @@ export function isConversationSource(sourcePath: string): boolean {
   return sourcePath.replace(/\\/g, '/').startsWith('raw/conversations/')
 }
 
+/** A materialized out-of-repo CONTEXT source: `raw/context/…` (ancestor CLAUDE.md/AGENTS.md, project
+ *  memory). Project-wide governance — shared to every folder worker, not owned by any one folder. */
+export function isContextSource(sourcePath: string): boolean {
+  return sourcePath.replace(/\\/g, '/').startsWith('raw/context/')
+}
+
 export function budgetSourcesForPrompt(sources: SourceDoc[], maxJsonChars: number): { sources: SourceDoc[]; dropped: number } {
   const kept: SourceDoc[] = []
   let used = 2 // the enclosing "[]"

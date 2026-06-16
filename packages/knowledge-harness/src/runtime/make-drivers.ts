@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
-import { SourceReader, budgetSourcesForPrompt, isConversationSource, type SourceDoc } from './source-reader.js'
+import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
 import { planFolders, type FolderPlan } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
@@ -195,9 +195,14 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       if (units.length === 0) {
         proposals.push(...await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
       } else {
+        // Out-of-repo context (ancestor CLAUDE.md/AGENTS.md, project memory) is project-wide governance —
+        // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
+        // single-shot fallback that used to surface it no longer runs in fan-out mode).
+        const contextSources = srcs.filter((s) => isContextSource(s.source_path))
         for (const u of units) {
-          const unitSources = u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s)
-          if (!unitSources.length) continue
+          const unitDocs = u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s)
+          if (!unitDocs.length) continue
+          const unitSources = [...unitDocs, ...contextSources]
           try {
             // A failed worker is skipped, not fatal (user decision) — its folder simply shows as uncovered.
             const unitProposals = await extractOver(unitSources, `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`)
