@@ -12,7 +12,7 @@ type Props = {
   onToggleCollapse: () => void
   onSelectRun: (runId: string) => void
   onRefresh: () => void
-  onStartRun: (materialize: boolean) => void
+  onStartRun: (materialize: boolean, fullRegen?: boolean) => void
   onResumeRun: (runId: string) => void
 }
 
@@ -20,7 +20,7 @@ function toneClass(tone: string): string {
   return `harness-run-list__state--${tone}`
 }
 
-function StartRunDropdown({ loading, onStartRun }: { loading: boolean; onStartRun: (materialize: boolean) => void }) {
+function StartRunDropdown({ loading, onStartRun }: { loading: boolean; onStartRun: (materialize: boolean, fullRegen?: boolean) => void }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
 
@@ -47,6 +47,10 @@ function StartRunDropdown({ loading, onStartRun }: { loading: boolean; onStartRu
           <button type="button" role="menuitem" onClick={() => { setOpen(false); onStartRun(false) }}>
             최근 세션
             <small>최근 에이전트 세션만으로 빠르게 실행</small>
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); onStartRun(true, true) }}>
+            전체 재생성 (처음부터)
+            <small>이미 처리한 소스도 무시하고 전 문서를 다시 생성</small>
           </button>
         </div>
       )}

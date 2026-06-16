@@ -46,9 +46,12 @@ export type DriverDeps = {
    *  for engines with strict rate/session limits). Raise to parallelize independent folders. */
   workerConcurrency?: number
   /** Optional idempotency ledger. When present, sources already processed (same id + content hash)
-   *  for the project are skipped, and the sources consumed by a run are recorded once it reaches
-   *  HUMAN_REVIEW_REQUIRED — making re-requested/resumed generation incremental. */
+   *  for the project are skipped, making re-requested/resumed generation incremental. The "processed"
+   *  mark is written at PROMOTE (committed), not at HUMAN_REVIEW — an unpromoted run must NOT consume
+   *  sources, or the next run skips them and the wiki silently shrinks. */
   sourceLedger?: SourceLedger
+  /** Force a full regenerate: process EVERY source, ignoring the ledger (the UI's "전체 재생성"). */
+  ignoreLedger?: boolean
   /** Timestamp source for ledger records. Defaults to ISO-now. */
   now?: () => string
   /** Optional live node stream: invoked with the node previews from each folder worker (and the
@@ -115,6 +118,7 @@ export const ARTIFACTS = {
   evalReport: 'eval-report',
   coverageReport: 'coverage-report',
   finalReport: 'final-report',
+  processedSources: 'processed-sources',
 } as const
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
@@ -252,15 +256,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const evidenceVerifier = new EvidenceVerifier()
   const sources = new SourceReader(deps.vaultRoot)
   const ledger = deps.sourceLedger
-  const now = deps.now ?? (() => new Date().toISOString())
-
   // The sources this run should work on: all raw/ docs minus those the ledger already recorded as
-  // processed (unchanged) for this project. Without a ledger, this is every source (legacy behavior).
-  // Recomputed per call so every consuming step (reader, extractor, coverage) sees the same set
-  // within a run — the ledger is only written at HUMAN_REVIEW_REQUIRED, so it doesn't shift mid-run.
+  // processed (unchanged) for this project. Without a ledger — or with ignoreLedger (전체 재생성) — this is
+  // every source. Recomputed per call so every consuming step (reader, extractor, coverage) sees the same
+  // set within a run (the ledger isn't written mid-run, so it doesn't shift).
   const freshSources = (projectId: string): SourceDoc[] => {
     const all = sources.read()
-    return ledger ? all.filter((s) => !ledger.isProcessed(projectId, s.source_id, s.hash)) : all
+    return ledger && !deps.ignoreLedger ? all.filter((s) => !ledger.isProcessed(projectId, s.source_id, s.hash)) : all
   }
 
   const secrets = new SecretScanner()
@@ -502,13 +504,11 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       })
       // Generation reached human review → this run's sources are "processed". Record them so a
       // re-requested/resumed run skips them (and re-does only changed ones). Mark BEFORE building
-      // coverage (over the same set) — the ledger write is the durable idempotency signal.
+      // coverage (over the same set). The sources this run consumed are recorded as an artifact — NOT
+      // marked processed in the ledger yet. Marking happens at PROMOTE (HarnessService.promote): an
+      // unpromoted run must not consume sources, or the next run skips them and the wiki silently shrinks.
       const consumed = freshSources(ctx.projectId)
-      ledger?.markProcessed(
-        ctx.projectId, ctx.runId,
-        consumed.map((s) => ({ sourceId: s.source_id, sourceHash: s.hash })),
-        now(),
-      )
+      const processedSources = { sources: consumed.map((s) => ({ sourceId: s.source_id, sourceHash: s.hash })) }
       const coverage = buildCoverageReport(consumed.map((s) => s.source_path), proposals)
       const finalReport = [
         `# Harness Run ${ctx.runId}`,
@@ -524,6 +524,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         { name: ARTIFACTS.evalReport, data: evalReport },
         { name: ARTIFACTS.coverageReport, data: coverage },
         { name: ARTIFACTS.finalReport, data: { markdown: finalReport } },
+        { name: ARTIFACTS.processedSources, data: processedSources },
       ] }
     },
   }

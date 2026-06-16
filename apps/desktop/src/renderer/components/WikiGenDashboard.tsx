@@ -73,7 +73,7 @@ export function WikiGenDashboard() {
           onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
-          onStartRun={(materialize) => void startHarnessRun(materialize)}
+          onStartRun={(materialize, fullRegen) => void startHarnessRun(materialize, fullRegen)}
           onResumeRun={(runId) => void resumeHarnessRun(runId)}
         />
 

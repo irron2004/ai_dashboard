@@ -71,6 +71,10 @@ describe('HarnessService — incremental fan-out (ledger + folder workers)', () 
     expect(r1.ok, r1.reason).toBe(true)
     expect(fanOf(s1, r1.runId)).toMatchObject({ units: 2, ran: 2 })
 
+    // Sources are consumed at PROMOTE (committed), not at HUMAN_REVIEW — so promote run 1 to mark them.
+    const p1 = s1.promote({ runId: r1.runId })
+    expect(p1.ok, 'reason' in p1 ? p1.reason : '').toBe(true)
+
     // Change folder A only → B is unchanged (ledger filters it) → run 2 fans out over A alone.
     writeFileSync(join(vault, 'raw', 'project-docs', '0', 'A', 'a.md'), 'A v2 CHANGED\n')
     const s2 = svc(ledger, [
