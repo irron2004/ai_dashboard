@@ -5,7 +5,7 @@ import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSo
 import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
-import { dedupeProposalIds } from './merge-proposals.js'
+import { dedupeProposalIds, demoteUnderEvidencedShared } from './merge-proposals.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
@@ -280,7 +280,9 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
       // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
-      const data = { proposals: normalizeEvidencePaths(proposals, srcs) }
+      // demote: a folder worker can't judge cross-folder sharing, so an under-evidenced 'shared' proposal
+      // becomes 'project' here (the lead re-promotes it from the merged view) rather than failing the run.
+      const data = { proposals: demoteUnderEvidencedShared(normalizeEvidencePaths(proposals, srcs)) }
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
       const report = policy.check(data.proposals)
