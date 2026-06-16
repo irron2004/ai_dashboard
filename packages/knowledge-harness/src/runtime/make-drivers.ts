@@ -185,7 +185,10 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
       const units = (plan?.units ?? []).filter((u) => u.docSourceIds.length > 0)
       const proposals: KhNodeProposal[] = []
-      const fanout = { units: units.length, ran: 0, skipped: [] as Array<{ unit: string; reason: string }> }
+      // Folder provenance: which folder each proposal came from. The siloed workers can't see other
+      // folders, so the LEAD reducer uses this to link nodes ACROSS folders (spec §7.1).
+      const provenance: Array<{ proposalId: string; folder: string }> = []
+      const fanout = { units: units.length, ran: 0, skipped: [] as Array<{ unit: string; reason: string }>, provenance }
 
       if (units.length === 0) {
         proposals.push(...await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
@@ -195,7 +198,9 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
           if (!unitSources.length) continue
           try {
             // A failed worker is skipped, not fatal (user decision) — its folder simply shows as uncovered.
-            proposals.push(...await extractOver(unitSources, `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`))
+            const unitProposals = await extractOver(unitSources, `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`)
+            for (const p of unitProposals) provenance.push({ proposalId: p.proposal_id, folder: u.label })
+            proposals.push(...unitProposals)
             fanout.ran++
           } catch (e) {
             fanout.skipped.push({ unit: u.label, reason: e instanceof Error ? e.message : String(e) })
@@ -232,7 +237,15 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     LEAD_MERGED: async (ctx) => {
-      const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: { proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals) } })
+      // PM reducer (spec §7.1): the lead sees ALL folder workers' proposals + their folder provenance,
+      // so it can merge duplicates AND create edges across folders the siloed workers couldn't see.
+      const fan = artifactByName<{ provenance?: Array<{ proposalId: string; folder: string }> }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.fanoutReport)
+      const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
+      const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: {
+        proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals),
+        folders: plan?.units.map((u) => u.label),
+        provenance: fan?.provenance,
+      } })
       return { artifacts: [
         { name: ARTIFACTS.graphUpdatePlan, data: out.graph_update_plan },
         { name: ARTIFACTS.sharedPromotionPlan, data: out.shared_promotion_plan },

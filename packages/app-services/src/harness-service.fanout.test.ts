@@ -61,9 +61,14 @@ describe('HarnessService — folder worker fan-out', () => {
     const proposals = shown.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals: unknown[] }
     expect(proposals.proposals.length).toBe(2) // merged from both folder workers
 
-    const fan = shown.artifacts.find((a) => a.name === 'fanout-report')?.data as { units: number; ran: number; skipped: unknown[] }
+    const fan = shown.artifacts.find((a) => a.name === 'fanout-report')?.data as { units: number; ran: number; skipped: unknown[]; provenance: Array<{ proposalId: string; folder: string }> }
     expect(fan).toMatchObject({ units: 2, ran: 2 })
     expect(fan.skipped.length).toBe(0)
+    // folder provenance (phase 3) — each proposal tagged with the folder it came from, for the lead's
+    // cross-folder reduce.
+    expect([...fan.provenance].sort((a, b) => a.proposalId.localeCompare(b.proposalId))).toEqual([
+      { proposalId: 'A1', folder: 'A' }, { proposalId: 'B1', folder: 'B' },
+    ])
   })
 
   test('a failed worker is skipped; the run still completes from the others', async () => {
