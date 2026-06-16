@@ -21,7 +21,8 @@ export class EvidenceVerifier {
   readonly name = 'evidence-verifier'
 
   verify(proposals: KhNodeProposal[], vaultRoot: string): KhEvidenceVerificationReport {
-    const unverifiable: Finding[] = []
+    const unverifiable: Finding[] = []   // BLOCKING: the source itself is invalid (fabricated path)
+    const warnings: Finding[] = []       // NON-BLOCKING: source is real but the quote doesn't match verbatim
     for (const p of proposals) {
       for (const ev of p.evidence) {
         const base = { proposal_id: p.proposal_id, evidence_id: ev.evidence_id, source_path: ev.source_path }
@@ -31,15 +32,17 @@ export class EvidenceVerifier {
         } catch {
           unverifiable.push({ ...base, reason: 'path_escape' }); continue
         }
-        // Evidence must cite an immutable raw source that actually exists.
+        // Evidence must cite an immutable raw source that actually exists — that's the hard guarantee.
         if (!isRaw(ev.source_path) || !existsSync(abs)) {
           unverifiable.push({ ...base, reason: 'source_not_found' }); continue
         }
+        // The source is real. The quote is best-effort: `quote_or_summary` explicitly allows a SUMMARY,
+        // and LLMs paraphrase, so a non-verbatim match is a WARNING (for human review), not a run-killer.
         if (ev.quote_or_summary && !normalize(readFileSync(abs, 'utf8')).includes(normalize(ev.quote_or_summary))) {
-          unverifiable.push({ ...base, reason: 'quote_not_found' })
+          warnings.push({ ...base, reason: 'quote_not_found' })
         }
       }
     }
-    return KhEvidenceVerificationReportSchema.parse({ ok: unverifiable.length === 0, unverifiable })
+    return KhEvidenceVerificationReportSchema.parse({ ok: unverifiable.length === 0, unverifiable, warnings })
   }
 }
