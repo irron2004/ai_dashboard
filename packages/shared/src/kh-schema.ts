@@ -254,6 +254,9 @@ export const KhGraphUpdatePlanSchema = z.object({
     node_id: z.string().min(1),
     based_on_proposals: z.array(z.string()).default([]),
     note: z.string().default(''),
+    // Optional human-facing prose the lead adds for this node — woven into the deterministically-rendered
+    // node document as a context paragraph (the body itself is rendered from the proposal, not the LLM).
+    narrative: z.string().default(''),
   })).default([]),
   // Relationships between nodes. Defaults to [] so prior runs' plans still parse.
   edge_ops: z.array(KhGraphEdgeOpSchema).default([]),

@@ -9,7 +9,7 @@ import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidenc
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
-  type KhState, type AgentType, type KhNodeProposal, type KhWritePlan, type KhGraphUpdatePlan,
+  type KhState, type AgentType, type KhNodeProposal, type KhWritePlan, type KhGraphUpdatePlan, type KhGraphEdgeOp,
 } from '@apc/shared'
 import type { AgentRunner, EngineOptions } from '@apc/llm-wiki'
 import type { Driver, RunnerContext } from './harness-runner.js'
@@ -26,6 +26,7 @@ import {
   makeProjectDiscovery, makeConversationHistoryReader, makeDocumentIntentClassifier,
   makeKnowledgeNodeExtractor, makeWikiGraphLead,
 } from '../agents/index.js'
+import { renderNodeDoc } from '../agents/render-node-doc.js'
 
 export type DriverDeps = {
   runner: AgentRunner
@@ -406,14 +407,35 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
     STAGING_WRITTEN: async (ctx) => {
       const parsed = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
-      // First sanitize: drop non-markdown authoring ops (e.g. the lead's own plan JSONs written into
-      // inbox/) — noise that would otherwise trip non_markdown_write and fail the whole run.
-      const { plan, dropped } = sanitizeWritePlan(parsed)
+      const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
+      const graphPlan = artifactByName<KhGraphUpdatePlan>(ctx, 'LEAD_MERGED', ARTIFACTS.graphUpdatePlan)
+
+      // Author each node document DETERMINISTICALLY from its proposal (+ the lead's edges/narrative). The
+      // LLM only emits one-line stub descriptions, so rendering here is what produces a real, frontmatter'd,
+      // [[link]]-connected wiki. Replace any node-targeting op the lead wrote with the rendered one, and
+      // keep the lead's canonical-doc ops.
+      const edgesByFrom = new Map<string, KhGraphEdgeOp[]>()
+      for (const e of graphPlan?.edge_ops ?? []) edgesByFrom.set(e.from_node_id, [...(edgesByFrom.get(e.from_node_id) ?? []), e])
+      const narrativeOf = new Map((graphPlan?.node_ops ?? []).map((o) => [o.node_id, o.narrative]))
+      const nodeDocOps = proposals
+        .filter((p) => p.node?.id)
+        .map((p) => ({
+          op: 'create_file' as const,
+          path: `nodes/${p.node.id}.md`,
+          content: renderNodeDoc(p, { narrative: narrativeOf.get(p.node.id) || undefined, outgoing: edgesByFrom.get(p.node.id) }),
+          source_proposal: p.proposal_id,
+        }))
+      const isNodeOp = (o: { op: string; path: string }) =>
+        (o.op === 'create_file' || o.op === 'append_section') && /(^|\/)nodes\/.+\.md$/i.test(o.path)
+      const authored = KhWritePlanSchema.parse({ ...parsed, operations: [...nodeDocOps, ...parsed.operations.filter((o) => !isNodeOp(o))] })
+
+      // Then sanitize: drop non-markdown authoring ops (e.g. the lead's own plan JSONs written into inbox/)
+      // — noise that would otherwise trip non_markdown_write and fail the whole run.
+      const { plan, dropped } = sanitizeWritePlan(authored)
       // Pre-staging blocking gate (#21/#22/#26): re-run PolicyGuard with the CLEANED write plan and HALT
       // before touching the staging vault if any op would write to raw/, delete, or carry a secret in its
       // body. Scanning the op bodies HERE (not just the files at VALIDATED) means a dangerous write is
       // refused before it is ever authored — not flagged after the fact.
-      const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
       const gate = policy.check(proposals, plan)
       if (!gate.ok) {
         throw new Error(`PolicyGuard blocked the write plan before staging: ` +

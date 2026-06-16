@@ -24,11 +24,14 @@ const ROLE = [
   'folder that depends_on a shared protocol/dataset defined in another). from_node_id/to_node_id MUST be',
   'node_ids you create in node_ops or that already exist — never invent ids. Aim for a connected graph:',
   'most nodes should have at least one edge; avoid leaving nodes orphaned.',
-  'In the WritePlan, ALSO weave Obsidian [[node-id]] wikilinks into each node body that point to the',
-  'related nodes you linked with edge_ops, so the published markdown graph mirrors the edges.',
+  'NODE BODIES ARE RENDERED FOR YOU: each node document (nodes/<node_id>.md) is generated deterministically',
+  'from its proposal (frontmatter, title, summary, claims, evidence, and the [[links]] from your edge_ops).',
+  'So do NOT hand-write node bodies in the WritePlan. Instead, for each node_op set an optional `narrative`:',
+  'a 2-3 sentence human-facing context paragraph (how this node fits the bigger picture / cross-folder',
+  'relationships) that gets woven into the rendered document. Keep the WritePlan for canonical-doc updates',
+  'only (append_section/update_frontmatter on current.md/PRD.md/ADR-* with mode=proposal_only).',
   'Produce a graph_update_plan, a shared_promotion_plan (shared requires >=2 evidence AND human review),',
-  'a stale_doc_report, and a WritePlan. The WritePlan MUST target vault-staging only, MUST set',
-  'mode=proposal_only for any op touching canonical docs (current.md/PRD.md/ADR-*), and MUST NOT contain',
+  'a stale_doc_report, and a WritePlan. The WritePlan MUST target vault-staging only and MUST NOT contain',
   'delete operations.',
 ].join(' ')
 
