@@ -40,6 +40,9 @@ export type DriverDeps = {
   maxPromptChars?: number
   /** Per-harness engine tuning (model/reasoning/permission) → CLI flags on every agent call. */
   engineOptions?: EngineOptions
+  /** Max folder workers to run concurrently in NODE_PROPOSALS_CREATED. Default 1 (sequential — safest
+   *  for engines with strict rate/session limits). Raise to parallelize independent folders. */
+  workerConcurrency?: number
   /** Optional idempotency ledger. When present, sources already processed (same id + content hash)
    *  for the project are skipped, and the sources consumed by a run are recorded once it reaches
    *  HUMAN_REVIEW_REQUIRED — making re-requested/resumed generation incremental. */
@@ -94,6 +97,22 @@ export const ARTIFACTS = {
 } as const
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
+
+/**
+ * Run `fn` over `items` with at most `limit` concurrent in flight, returning results in INPUT order.
+ * `limit <= 1` is plain sequential. A throwing `fn` rejects the whole call — callers needing per-item
+ * error handling must catch inside `fn`. Used to parallelize independent folder workers.
+ */
+export async function runPool<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) results[i] = await fn(items[i], i)
+  }
+  const lanes = Math.max(1, Math.min(Math.floor(limit) || 1, items.length || 1))
+  await Promise.all(Array.from({ length: lanes }, worker))
+  return results
+}
 
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
  *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
@@ -199,19 +218,25 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
         // single-shot fallback that used to surface it no longer runs in fan-out mode).
         const contextSources = srcs.filter((s) => isContextSource(s.source_path))
-        for (const u of units) {
+        type UnitResult = { unit: typeof units[number]; proposals?: KhNodeProposal[]; error?: string; empty?: true }
+        // Workers are independent → run up to `workerConcurrency` at once (default 1 = sequential).
+        const results = await runPool<typeof units[number], UnitResult>(units, deps.workerConcurrency ?? 1, async (u) => {
           const unitDocs = u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s)
-          if (!unitDocs.length) continue
-          const unitSources = [...unitDocs, ...contextSources]
+          if (!unitDocs.length) return { unit: u, empty: true }
           try {
-            // A failed worker is skipped, not fatal (user decision) — its folder simply shows as uncovered.
-            const unitProposals = await extractOver(unitSources, `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`)
-            for (const p of unitProposals) provenance.push({ proposalId: p.proposal_id, folder: u.label })
-            proposals.push(...unitProposals)
-            fanout.ran++
+            return { unit: u, proposals: await extractOver([...unitDocs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`) }
           } catch (e) {
-            fanout.skipped.push({ unit: u.label, reason: e instanceof Error ? e.message : String(e) })
+            // A failed worker is skipped, not fatal (user decision) — its folder simply shows as uncovered.
+            return { unit: u, error: e instanceof Error ? e.message : String(e) }
           }
+        })
+        // Accumulate in unit order (deterministic regardless of concurrency).
+        for (const r of results) {
+          if (r.empty) continue
+          if (r.error !== undefined) { fanout.skipped.push({ unit: r.unit.label, reason: r.error }); continue }
+          for (const p of r.proposals ?? []) provenance.push({ proposalId: p.proposal_id, folder: r.unit.label })
+          proposals.push(...(r.proposals ?? []))
+          fanout.ran++
         }
         if (fanout.ran === 0) {
           throw new Error(`all ${units.length} folder worker(s) failed: ` +

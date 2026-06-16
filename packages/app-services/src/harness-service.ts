@@ -54,6 +54,8 @@ export type HarnessServiceDeps = {
   maxPromptChars?: number
   /** 서비스 전역 기본 엔진 옵션. run()의 per-call engineOptions가 우선한다. */
   engineOptions?: EngineOptions
+  /** 폴더 워커 동시 실행 개수. 기본 1(순차). 레이트리밋 여유가 있으면 올린다. */
+  workerConcurrency?: number
   /** path to feature-gates.yml; defaults to the shipped harness/feature-gates.yml. */
   gatesPath?: string
   preamble?: string
@@ -152,6 +154,7 @@ export class HarnessService {
       stepTimeoutMs: this.deps.stepTimeoutMs,
       maxPromptChars: this.deps.maxPromptChars,
       engineOptions: engineOptions ?? this.deps.engineOptions,
+      workerConcurrency: this.deps.workerConcurrency,
       sourceLedger: this.deps.sourceLedger,
       now: this.now,
     })
