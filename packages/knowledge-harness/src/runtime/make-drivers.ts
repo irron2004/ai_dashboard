@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
-import { planFolders, type FolderPlan } from './folder-plan.js'
+import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
 import { dedupeProposalIds } from './merge-proposals.js'
@@ -115,6 +115,49 @@ export async function runPool<T, R>(items: readonly T[], limit: number, fn: (ite
   return results
 }
 
+export type FolderFanoutResult = {
+  /** Deduped proposals in unit order (workers can emit colliding ids). */
+  proposals: KhNodeProposal[]
+  /** proposal_id → folder, aligned to the FINAL (deduped) ids — for the lead's cross-folder reduce. */
+  provenance: Array<{ proposalId: string; folder: string }>
+  ran: number
+  skipped: Array<{ unit: string; reason: string }>
+}
+
+/**
+ * Fan a folder-unit list across at most `concurrency` workers, accumulate proposals in unit order,
+ * de-duplicate ids across workers, and build folder provenance aligned to the final ids. A unit with no
+ * docs is skipped silently; a unit whose worker throws is recorded in `skipped` (not fatal — user
+ * decision). Pure given `unitDocs`/`extractUnit` (no LLM or harness state) → directly unit-testable.
+ */
+export async function runFolderWorkers(
+  units: WorkUnit[],
+  unitDocs: (u: WorkUnit) => SourceDoc[],
+  concurrency: number,
+  extractUnit: (docs: SourceDoc[], u: WorkUnit) => Promise<KhNodeProposal[]>,
+): Promise<FolderFanoutResult> {
+  type UnitResult = { unit: WorkUnit; proposals?: KhNodeProposal[]; error?: string; empty?: true }
+  const results = await runPool<WorkUnit, UnitResult>(units, concurrency, async (u) => {
+    const docs = unitDocs(u)
+    if (!docs.length) return { unit: u, empty: true }
+    try { return { unit: u, proposals: await extractUnit(docs, u) } }
+    catch (e) { return { unit: u, error: e instanceof Error ? e.message : String(e) } }
+  })
+  const tagged: Array<{ p: KhNodeProposal; folder: string }> = []
+  const skipped: Array<{ unit: string; reason: string }> = []
+  let ran = 0
+  for (const r of results) {
+    if (r.empty) continue
+    if (r.error !== undefined) { skipped.push({ unit: r.unit.label, reason: r.error }); continue }
+    for (const p of r.proposals ?? []) tagged.push({ p, folder: r.unit.label })
+    ran++
+  }
+  // Order-preserving dedupe keeps deduped ids index-aligned with `tagged`, so provenance uses final ids.
+  const proposals = dedupeProposalIds(tagged.map((t) => t.p))
+  const provenance = proposals.map((p, i) => ({ proposalId: p.proposal_id, folder: tagged[i].folder }))
+  return { proposals, provenance, ran, skipped }
+}
+
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
  *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
 function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
@@ -206,56 +249,38 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // raw/project-docs, or materialize off) → single-shot over all sources, identical to legacy.
       const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
       const units = (plan?.units ?? []).filter((u) => u.docSourceIds.length > 0)
-      // Each proposal tagged with the folder it came from (undefined in the single-shot path), so folder
-      // provenance can be built AFTER de-duplication keeps proposal ids aligned.
-      const tagged: Array<{ p: KhNodeProposal; folder?: string }> = []
+      let proposals: KhNodeProposal[]
       const fanout = {
-        units: units.length, ran: 0, skipped: [] as Array<{ unit: string; reason: string }>,
-        // Folder provenance: which folder each proposal came from. The siloed workers can't see other
-        // folders, so the LEAD reducer uses this to link nodes ACROSS folders (spec §7.1). Filled below.
+        units: units.length, ran: 0,
+        skipped: [] as Array<{ unit: string; reason: string }>,
         provenance: [] as Array<{ proposalId: string; folder: string }>,
       }
 
       if (units.length === 0) {
-        for (const p of await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`)) tagged.push({ p })
+        proposals = dedupeProposalIds(await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
       } else {
         // Out-of-repo context (ancestor CLAUDE.md/AGENTS.md, project memory) is project-wide governance —
         // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
         // single-shot fallback that used to surface it no longer runs in fan-out mode).
         const contextSources = srcs.filter((s) => isContextSource(s.source_path))
-        type UnitResult = { unit: typeof units[number]; proposals?: KhNodeProposal[]; error?: string; empty?: true }
-        // Workers are independent → run up to `workerConcurrency` at once (default 1 = sequential).
-        const results = await runPool<typeof units[number], UnitResult>(units, deps.workerConcurrency ?? 1, async (u) => {
-          const unitDocs = u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s)
-          if (!unitDocs.length) return { unit: u, empty: true }
-          try {
-            return { unit: u, proposals: await extractOver([...unitDocs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`) }
-          } catch (e) {
-            // A failed worker is skipped, not fatal (user decision) — its folder simply shows as uncovered.
-            return { unit: u, error: e instanceof Error ? e.message : String(e) }
-          }
-        })
-        // Accumulate in unit order (deterministic regardless of concurrency).
-        for (const r of results) {
-          if (r.empty) continue
-          if (r.error !== undefined) { fanout.skipped.push({ unit: r.unit.label, reason: r.error }); continue }
-          for (const p of r.proposals ?? []) tagged.push({ p, folder: r.unit.label })
-          fanout.ran++
-        }
-        if (fanout.ran === 0) {
+        const res = await runFolderWorkers(
+          units,
+          (u) => u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s),
+          deps.workerConcurrency ?? 1,
+          (docs, u) => extractOver([...docs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`),
+        )
+        if (res.ran === 0) {
           throw new Error(`all ${units.length} folder worker(s) failed: ` +
-            fanout.skipped.map((s) => `${s.unit}: ${s.reason}`).join(' | '))
+            res.skipped.map((s) => `${s.unit}: ${s.reason}`).join(' | '))
         }
+        proposals = res.proposals
+        fanout.ran = res.ran; fanout.skipped = res.skipped; fanout.provenance = res.provenance
       }
 
-      // dedupe first: separate folder workers can emit colliding proposal_id/node.id (no-op single-shot).
-      // Order-preserving, so the deduped ids stay index-aligned with `tagged` → provenance uses the FINAL ids.
-      const deduped = dedupeProposalIds(tagged.map((t) => t.p))
-      fanout.provenance = deduped.flatMap((p, i) => tagged[i].folder ? [{ proposalId: p.proposal_id, folder: tagged[i].folder! }] : [])
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
       // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
-      const data = { proposals: normalizeEvidencePaths(deduped, srcs) }
+      const data = { proposals: normalizeEvidencePaths(proposals, srcs) }
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
       const report = policy.check(data.proposals)
