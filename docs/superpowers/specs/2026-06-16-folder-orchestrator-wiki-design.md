@@ -1,0 +1,174 @@
+---
+title: 폴더 기반 PM-워커(orchestrator-workers) 위키 생성 설계
+date: 2026-06-16
+status: design-draft
+author: PM (Claude) + irron
+relates-to:
+  - docs/superpowers/specs/2026-06-08-docs-to-wiki-coverage-design.md (현 단발 파이프라인)
+  - memory/workspace-vault-model.md (워크스페이스 vault 모델)
+branch: feat/workspace-vault (또는 신규 feat/folder-orchestrator)
+approach: 소스를 폴더 단위로 분할하고, PM(오케스트레이터)이 폴더별 역할을 분류·워커를 할당, 폴더 워커가 자기 폴더의 문서+관련 세션으로 노드를 제안, PM이 폴더 간 엣지를 해소하며 병합·검수한다. 기존 5개 에이전트를 폴더 스코프 루프로 재배치한다(신규 에이전트 최소).
+---
+
+# 폴더 기반 PM-워커 위키 생성
+
+## 1. 배경 / 문제
+
+현재 하니스는 **모든 소스를 한 프롬프트에 직렬화하는 단발(single-shot)** 구조다:
+- `SOURCES_EXTRACTED`(conversation-history-reader): `{discovery, sources: 전체}`
+- `NODE_PROPOSALS_CREATED`(knowledge-node-extractor): `{history, intents, sources: 전체}`
+
+`SourceReader`(`source-reader.ts`)에 **파일당** 64KB 캡은 있으나 **총량 캡이 없어**, 실제 규모(문서 200개) 프로젝트에서 프롬프트가 모델 토큰 윈도를 초과한다. 실측 실패:
+- `Input exceeds the maximum length of 1048576 characters` (codex 전송 하드 char 한도)
+- `ran out of room in the model's context window` (gpt-5.5 토큰 윈도 + xhigh reasoning 예약분)
+
+현재 임시 대응으로 `budgetSourcesForPrompt`(기본 200K자)가 초과분 소스를 **드롭**한다 — 크래시는 막지만 **커버리지 손실**(드롭된 문서는 위키에 미반영). 이는 band-aid이며 구조적 해결이 아니다.
+
+**결론:** 단발 구조를 버리고, 의미 단위(폴더)로 분할하는 **orchestrator-workers** 구조로 전환한다.
+
+## 2. 핵심 아이디어
+
+> PM이 폴더별로 탐색·역할을 분류하고, 폴더마다 워커를 할당한다. 워커는 자기 폴더의 문서와 그 폴더를 건드린 세션을 읽고 그래프 노드를 제안한다. PM이 폴더 간 연결을 해소하며 병합·검수한다.
+
+평면적 청킹(바이트 단위)보다 우월한 이유: **폴더는 응집된 의미 단위**라 워커가 끊기지 않은 맥락을 받는다. 그리고 소스를 드롭하지 않는다(전 폴더 처리).
+
+## 3. 설계 결정 (초안 — 검토 필요)
+
+| 항목 | 결정(안) |
+|---|---|
+| 분할 경계 | **폴더 1차** + **토큰 윈도 2차 안전장치**. 폴더가 윈도 초과 시 그 폴더만 하위분할; 너무 작은 폴더는 묶음 |
+| 폴더 깊이 | 설정값 `folderDepth`(기본 1) — `raw/project-docs/<i>/` 기준 N 깊이에서 경계. 깊은 트리는 그 아래를 한 워커가 흡수 |
+| 워커 실행 | **병렬**(독립 폴더), 동시성 상한은 엔진/레이트리밋 고려 |
+| 대화 스코프 | 각 폴더 워커에 **그 폴더의 파일을 건드린 세션만** 매칭해 전달 (`session.filesTouched ∩ folder files`) |
+| 폴더 간 엣지 | 워커는 "타 폴더 참조 후보"를 남기고, **PM 병합(LEAD_MERGED)이 해소** |
+| 신규 에이전트 | 최소화 — 기존 5개 재배치. PM 라우터/리듀서는 기존 classifier/lead 역할 확장 |
+| 상태 머신 | **신규 state 없음** — 기존 driver 내부를 fan-out 루프로 변경 |
+
+## 4. 기존 에이전트/상태에 매핑 (재사용)
+
+```
+당신 설계                         기존 (state / agent)                바뀌는 점
+─────────────────────────────────────────────────────────────────────────────
+PM: 폴더 탐색·역할 분류·할당   DOCUMENTS_CLASSIFIED                 문서 1개씩 → 폴더 단위 분류 +
+                                / document-intent-classifier        FolderPlan(폴더→역할→워커) 산출
+                                + project-discovery(폴더 트리)
+
+폴더 워커: 대화 파악 → 노드    NODE_PROPOSALS_CREATED               전체 1회 → 폴더마다 N회(자기
+                                / knowledge-node-extractor          폴더 문서+세션만). 결과 누적
+                                (+ conversation-history-reader를     + cross-folder 후보 표시
+                                 폴더 세션 요약으로 스코프)
+
+PM: 병합·검수                  LEAD_MERGED / wiki-graph-lead        proposal 병합(이미) +
+                                + policy-guard                       폴더 간 엣지 해소(신규 책임)
+```
+
+핵심: **`NODE_PROPOSALS_CREATED` 드라이버가 단일 호출에서 폴더 fan-out 루프로 바뀌는 것**이 변경의 중심. 상태 머신·아티팩트 메커니즘은 그대로.
+
+## 5. 아키텍처 / 데이터 흐름
+
+```
+[전체 문서 실행]
+   │
+   ├─ PROJECT_SCANNED        : (기존) 프로젝트 지도
+   │
+   ├─ DOCUMENTS_CLASSIFIED   : PM 라우터
+   │     · raw/project-docs/<i>/ 아래를 folderDepth로 폴더 경계 산출
+   │     · 폴더별 역할 분류(canonical/reference/scratch 등)
+   │     · 폴더별 토큰 추정 → 큰 폴더 하위분할 / 작은 폴더 묶음
+   │     · 폴더↔세션 매핑(filesTouched 교집합)
+   │     → FolderPlan artifact
+   │
+   ├─ NODE_PROPOSALS_CREATED : 폴더 워커 fan-out (병렬)
+   │     for each folder in FolderPlan:
+   │        worker.run({ folderDocs, folderSessions, role })
+   │          → proposals[] (+ cross_folder_refs[])
+   │     누적 → normalizeEvidencePaths(전체 소스) → PolicyGuard → EvidenceVerifier
+   │     → node-proposals artifact (병합 전 누적분)
+   │
+   ├─ LEAD_MERGED            : PM 리듀서
+   │     · 중복 노드 병합(기존)
+   │     · cross_folder_refs 해소 → 폴더 간 엣지/링크 생성 (신규)
+   │     → graph-update-plan / write-plan
+   │
+   └─ … (STAGING_WRITTEN → VALIDATED → HUMAN_REVIEW → promote, 기존)
+```
+
+## 6. 데이터 구조 (신규/변경)
+
+```ts
+// DOCUMENTS_CLASSIFIED 산출 — PM 라우터의 결과
+type FolderPlan = {
+  folders: Array<{
+    id: string                 // 안정 식별자(폴더 경로 해시)
+    path: string               // repo-relative, 예: 'paper-A' 또는 'paper-A/exp'
+    role: 'canonical' | 'reference' | 'scratch'
+    docSourceIds: string[]     // 이 폴더(+하위분할 범위)의 SourceDoc id
+    sessionIds: string[]       // filesTouched가 이 폴더와 겹치는 세션
+    estTokens: number          // 분할 판정 근거
+    splitOf?: string           // 큰 폴더를 쪼갠 경우 부모 폴더 id
+  }>
+  unfolderedSourceIds: string[] // 폴더에 못 들어간 소스(루트 파일 등)
+}
+
+// 워커 출력에 추가되는 필드 — PM 리듀서가 해소
+type CrossFolderRef = {
+  from_node_id: string
+  to_hint: string              // 참조 대상 설명(타 폴더 개념/파일)
+  evidence_id?: string
+}
+```
+
+## 7. 반드시 풀어야 할 3가지 난점 + 해법(안)
+
+### 7.1 폴더 간 엣지 (가장 어려움)
+- 문제: 워커가 자기 폴더만 보면 cross-folder 링크를 못 만든다.
+- 해법: 워커는 **노드를 만들되, 타 폴더를 참조하는 부분은 `cross_folder_refs`에 후보로만** 남긴다. `LEAD_MERGED`(PM 리듀서)가 전체 노드 집합을 보고 후보를 실제 엣지로 해소한다. 해소 못 하면 inference_note로 남기고 사람 검수로 넘긴다(기존 human-review 철학 일관).
+
+### 7.2 폴더 크기 편차
+- 문제: 큰 폴더는 그 자체로 윈도 초과, 작은 폴더는 워커 낭비.
+- 해법: 라우터가 폴더별 `estTokens`(문자수 기반 근사) 계산 →
+  - `> maxPromptChars` → 그 폴더를 하위 경계(또는 파일 그룹)로 **하위분할**(`splitOf`)
+  - 연속된 작은 폴더 → **묶어서** 한 워커. 단 묶음도 윈도 안에 들도록.
+- 즉 폴더 = 1차 경계, `maxPromptChars`(per-harness 설정) = 2차 안전장치. 기존 `budgetSourcesForPrompt`는 **워커 내부 최후 방어선**으로만 잔존(여기서 드롭이 일어나면 그건 진짜 비정상 → 로그).
+
+### 7.3 대화는 폴더로 안 나뉜다
+- 문제: `raw/conversations/`의 세션은 문서 폴더 구조와 별개.
+- 해법: 라우터가 세션의 `filesTouched`(이미 존재: `generate-service.ts`, `sessionMatchesProject`)와 폴더 파일의 교집합으로 **폴더↔세션 매핑**을 만든다. 워커는 자기 폴더 + 매칭된 세션만 받는다. 어느 폴더에도 안 걸리는 세션은 "프로젝트 전역" 풀로 두고 PM 단계에서 처리.
+
+## 8. 단계적 도입 (리스크 최소)
+
+1. **라우터(FolderPlan) 추가** — `DOCUMENTS_CLASSIFIED`가 폴더 경계+역할+세션매핑 산출. 아직 fan-out은 안 함(기존 extractor 유지). FolderPlan을 아티팩트로 노출해 UI에서 확인.
+2. **워커 fan-out** — `NODE_PROPOSALS_CREATED`를 폴더 루프로. 단일 폴더(=전체)일 때 기존과 동치임을 테스트로 고정 → 회귀 0 확인 후 다중 폴더.
+3. **PM 리듀서 cross-folder 해소** — `LEAD_MERGED`에 cross_folder_refs 해소 로직.
+4. **대화 스코프** — reader를 폴더 세션 요약으로 스코프(7.3).
+5. **UI** — FolderPlan/워커 진행을 구조도에 표시(폴더별 카드/진행률).
+
+각 단계 typecheck+test 그린 + 커밋. 1·2단계만으로도 윈도 초과는 해소된다.
+
+## 9. 테스트 전략
+
+- 라우터: 폴더 경계 산출(깊이/하위분할/묶음), 폴더↔세션 매핑 — 순수 함수로 단위 테스트.
+- 워커 fan-out: FakeAgentRunner로 2폴더 → 워커 2회 호출, proposal 누적, 단일 폴더=기존 동치.
+- 리듀서: cross_folder_refs가 엣지로 해소되는지 / 미해소는 inference로 남는지.
+- 전체: 기존 harness-service 통합 테스트가 다폴더에서도 HUMAN_REVIEW 도달.
+
+## 10. 비목표 (이번 범위 아님)
+- 폴더 자동 재구성/리네이밍. (읽기만, 원본 폴더 구조 존중)
+- 워커 간 실시간 협상(메시지 패싱). PM 경유의 단순 fan-out/reduce만.
+- 임베딩/RAG 기반 검색. (폴더 = 결정론적 파티션)
+
+## 11. 미결 질문 (사용자 결정 필요)
+1. **`folderDepth` 기본값** — 1(최상위 폴더 = 워커)이 적절한가? `docs/papers/` 아래 구조를 보고 정해야 함.
+2. **PM 검수 = 자동 vs 사람** — cross-folder 해소를 LLM(lead)이 자동으로? 아니면 사람 게이트를 하나 더? (기존엔 promote 전 human-review만)
+3. **병렬 동시성 상한** — codex 레이트리밋/세션 한도 고려. 폴더 N개를 몇 개씩?
+4. **reader의 위치** — 폴더 워커가 세션을 직접 읽게 할지(reader 흡수), 아니면 reader를 폴더별로 N번 돌릴지.
+5. **부분 실패 처리** — 워커 1개가 실패하면 전체 FAIL인가, 그 폴더만 스킵하고 나머지로 진행인가?
+
+---
+
+## 부록 A — 현재 코드 참조점
+- 분할 대상 소스: `packages/knowledge-harness/src/runtime/source-reader.ts` (`raw/project-docs/<i>/<rel>`)
+- fan-out 지점: `packages/knowledge-harness/src/runtime/make-drivers.ts` `NODE_PROPOSALS_CREATED`
+- 병합 지점: 동 파일 `LEAD_MERGED` + `packages/knowledge-harness/src/agents/wiki-graph-lead.ts`
+- 폴더↔세션 매핑 재료: `packages/app-services/src/conversation-materializer.ts` `sessionMatchesProject`, `generate-service.ts` `filesTouched`
+- per-harness 윈도 설정: `DriverDeps.maxPromptChars`, `EngineOptions`(이미 구현)
