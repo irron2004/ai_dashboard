@@ -71,6 +71,28 @@ describe('HarnessService — folder worker fan-out', () => {
     ])
   })
 
+  test('the reader is scoped to conversation sources, not project docs', async () => {
+    mkdirSync(join(vault, 'raw', 'conversations', 'codex', 's1'), { recursive: true })
+    writeFileSync(join(vault, 'raw', 'conversations', 'codex', 's1', '001q_a.txt'), 'Q: hi\nA: hello\n')
+    const fake = new FakeAgentRunner([
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+      JSON.stringify({ proposals: [proposalFor('A1', 'raw/project-docs/0/A/a.md'), proposalFor('B1', 'raw/project-docs/0/B/b.md')] }),
+      JSON.stringify(lead),
+    ])
+    const svc = new HarnessService({
+      runner: fake, vaultRoot: vault, runsRoot: join(ws, 'runs'),
+      maxPromptChars: 1_000_000, // folders merge into one unit; not the point of this test
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok, r.reason).toBe(true)
+    const readerPrompt = fake.calls[1].prompt // call 0 = discovery, call 1 = reader (SOURCES_EXTRACTED)
+    expect(readerPrompt).toContain('raw/conversations/codex/s1/001q_a.txt')
+    expect(readerPrompt).not.toContain('raw/project-docs/0/A/a.md')
+  })
+
   test('a failed worker is skipped; the run still completes from the others', async () => {
     // unit A returns INVALID json → that worker throws (parse fail) → skipped; unit B succeeds.
     const outputs = [

@@ -47,6 +47,11 @@ export class SourceReader {
  * so the cap surfaces as uncovered sources rather than silently vanishing. Returns the kept sources and
  * how many were dropped.
  */
+/** A materialized conversation source: `raw/conversations/<engine>/<session>/…` (vs project docs/context). */
+export function isConversationSource(sourcePath: string): boolean {
+  return sourcePath.replace(/\\/g, '/').startsWith('raw/conversations/')
+}
+
 export function budgetSourcesForPrompt(sources: SourceDoc[], maxJsonChars: number): { sources: SourceDoc[]; dropped: number } {
   const kept: SourceDoc[] = []
   let used = 2 // the enclosing "[]"

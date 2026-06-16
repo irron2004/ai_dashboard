@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveInside } from './vault-fs.js'
-import { SourceReader, budgetSourcesForPrompt, type SourceDoc } from './source-reader.js'
+import { SourceReader, budgetSourcesForPrompt, isConversationSource, type SourceDoc } from './source-reader.js'
 import { planFolders, type FolderPlan } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
@@ -145,11 +145,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     SOURCES_EXTRACTED: async (ctx) => {
-      // A1: materialize the real raw/ source text so the reader reasons over actual content, not just the
-      // (LLM-generated) discovery report.
+      // The reader summarizes CONVERSATION sessions — scope it to conversation sources (spec §7.3). Project
+      // docs are handled per-folder by the extractor workers, so feeding all docs here is both the wrong
+      // scope and a window-overflow risk (the step that previously failed). Workers still get this summary.
+      const convSources = freshSources(ctx.projectId).filter((s) => isConversationSource(s.source_path))
       const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
-        sources: budgetSourcesForPrompt(freshSources(ctx.projectId), maxPromptChars).sources,
+        sources: budgetSourcesForPrompt(convSources, maxPromptChars).sources,
       } })
       return { artifacts: [{ name: ARTIFACTS.conversationHistory, data }] }
     },
