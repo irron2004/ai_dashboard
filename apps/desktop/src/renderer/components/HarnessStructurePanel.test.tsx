@@ -17,7 +17,7 @@ describe('HarnessStructurePanel', () => {
     const onPromptChange = vi.fn()
     render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} onPromptChange={onPromptChange} />)
     fireEvent.click(screen.getByText('node-extractor'))
-    const textarea = screen.getByRole('textbox')
+    const textarea = screen.getByLabelText('프롬프트 오버라이드')
     fireEvent.change(textarea, { target: { value: 'new prompt' } })
     expect(onPromptChange).toHaveBeenCalledWith('knowledgeNodeExtractor', 'new prompt')
   })
@@ -40,6 +40,24 @@ describe('HarnessStructurePanel', () => {
     fireEvent.click(screen.getByText('project-discovery'))
     fireEvent.change(screen.getByLabelText('엔진'), { target: { value: 'codex' } })
     expect(onModelChange).toHaveBeenCalledWith({ engine: 'codex' })
+  })
+
+  test('engine settings: model + sandbox flow to onModelChange (codex)', () => {
+    const onModelChange = vi.fn()
+    const config = createDefaultHarnessConfig()
+    config.model.engine = 'codex'
+    render(<HarnessStructurePanel config={config} activeState={null} {...noop} onModelChange={onModelChange} />)
+    fireEvent.change(screen.getByLabelText('모델'), { target: { value: 'gpt-5.5' } })
+    expect(onModelChange).toHaveBeenCalledWith({ model: 'gpt-5.5' })
+    fireEvent.change(screen.getByLabelText('sandbox'), { target: { value: 'workspace-write' } })
+    expect(onModelChange).toHaveBeenCalledWith({ sandbox: 'workspace-write' })
+  })
+
+  test('claude shows permission mode, not codex sandbox', () => {
+    const config = createDefaultHarnessConfig() // engine defaults to claude
+    render(<HarnessStructurePanel config={config} activeState={null} {...noop} />)
+    expect(screen.getByLabelText('permission mode')).toBeDefined()
+    expect(screen.queryByLabelText('sandbox')).toBeNull()
   })
 
   test('close button calls onClose', () => {

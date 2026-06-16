@@ -1,5 +1,5 @@
 import type { AgentRunner, RunInput, RunResult } from '@apc/llm-wiki'
-import { CliAgentRunner } from '@apc/llm-wiki'
+import { CliAgentRunner, engineArgsShell } from '@apc/llm-wiki'
 import { parseSsh, sshExec, loginShell, ENGINE_CMD, type SshExec } from './ssh-exec.js'
 
 // `bash -lic` (loginShell) prints these to stderr when there's no TTY. Harmless, but being on stderr
@@ -22,7 +22,7 @@ export class SshAgentRunner implements AgentRunner {
     const ssh = parseSsh(input.cwd ?? '')
     if (!ssh) return { ok: false, output: '', raw: 'SshAgentRunner: cwd is not an ssh:// target' }
     const cdPath = ssh.path.replace(/'/g, `'\\''`)
-    const engineCmd = `cd '${cdPath}' && ${ENGINE_CMD[input.agent]}`
+    const engineCmd = `cd '${cdPath}' && ${ENGINE_CMD[input.agent]}${engineArgsShell(input.agent, input.engineOptions)}`
     const startedAt = Date.now()
     const r = await this.exec(ssh, loginShell(engineCmd), { stdin: input.prompt, timeoutMs: input.timeoutMs, onChunk: input.onChunk })
     const stderr = stripLoginShellNoise(r.stderr)

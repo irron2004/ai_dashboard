@@ -11,6 +11,7 @@ import {
   saveHarnessConfig,
   saveHarnessRuns,
   saveHarnessSelectedRun,
+  modelSettingsToEngineOptions,
   type HarnessAgentPromptKey,
   type HarnessConfig,
   type HarnessFeatureGateKey,
@@ -297,7 +298,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const config = getHarnessConfig(get(), projectId)
     set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
-      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize })
+      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model) })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {

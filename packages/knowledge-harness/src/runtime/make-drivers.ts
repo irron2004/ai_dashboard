@@ -9,7 +9,7 @@ import {
   KhWritePlanSchema, KhSecretScanReportSchema,
   type KhState, type AgentType, type KhNodeProposal,
 } from '@apc/shared'
-import type { AgentRunner } from '@apc/llm-wiki'
+import type { AgentRunner, EngineOptions } from '@apc/llm-wiki'
 import type { Driver, RunnerContext } from './harness-runner.js'
 import { StagingVault } from '../staging/staging-vault.js'
 import { ObsidianWikiWriter } from '../agents/obsidian-wiki-writer.js'
@@ -37,6 +37,8 @@ export type DriverDeps = {
   /** Char budget for the serialized sources embedded in the reader/extractor prompt — sized to the
    *  engine/model's token context window. Defaults to DEFAULT_MAX_PROMPT_SOURCE_CHARS. */
   maxPromptChars?: number
+  /** Per-harness engine tuning (model/reasoning/permission) → CLI flags on every agent call. */
+  engineOptions?: EngineOptions
   /** Optional idempotency ledger. When present, sources already processed (same id + content hash)
    *  for the project are skipped, and the sources consumed by a run are recorded once it reaches
    *  HUMAN_REVIEW_REQUIRED — making re-requested/resumed generation incremental. */
@@ -130,7 +132,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
   const links = new ObsidianLinkValidator()
-  const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS }
+  const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS, engineOptions: deps.engineOptions }
   const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_SOURCE_CHARS
 
   return {

@@ -3,6 +3,7 @@ import type { AgentType } from '@apc/shared'
 import type { WikiPolicyRecordDto } from '../../shared/ipc-contract.js'
 import {
   GATE_WIRING, GATE_WIRING_LABEL, HARNESS_FEATURE_GATES, STRUCTURE_STAGES, stageForState,
+  REASONING_EFFORTS, CODEX_SANDBOXES, CODEX_APPROVALS, CLAUDE_PERMISSION_MODES,
   type HarnessAgentPromptKey, type HarnessConfig, type HarnessFeatureGateKey, type StructureStageId,
 } from '../harness-utils.js'
 
@@ -79,6 +80,63 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
         )}
       </section>
 
+      <section className="structure-panel__engine-cfg">
+        <h3>엔진 / 모델 / 권한 (하니스별)</h3>
+        <p className="muted">모든 에이전트 호출에 적용됩니다. 비워두면 엔진 기본값을 씁니다.</p>
+        <label>
+          엔진
+          <select aria-label="엔진" value={config.model.engine} onChange={(e) => onModelChange({ engine: e.target.value as AgentType })}>
+            {ENGINES.map((engine) => <option key={engine} value={engine}>{engine}</option>)}
+          </select>
+        </label>
+        <label>
+          모델 (예: {config.model.engine === 'claude' ? 'claude-opus-4-8' : config.model.engine === 'codex' ? 'gpt-5.5' : 'provider/model'})
+          <input
+            aria-label="모델"
+            type="text"
+            value={config.model.model ?? ''}
+            placeholder="엔진 기본값"
+            onChange={(e) => onModelChange({ model: e.target.value })}
+          />
+        </label>
+        {config.model.engine !== 'claude' && (
+          <label>
+            reasoning effort
+            <select aria-label="reasoning effort" value={config.model.reasoningEffort ?? ''} onChange={(e) => onModelChange({ reasoningEffort: (e.target.value || undefined) as HarnessConfig['model']['reasoningEffort'] })}>
+              <option value="">엔진 기본값</option>
+              {REASONING_EFFORTS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+        )}
+        {config.model.engine === 'codex' && (
+          <>
+            <label>
+              sandbox
+              <select aria-label="sandbox" value={config.model.sandbox ?? ''} onChange={(e) => onModelChange({ sandbox: (e.target.value || undefined) as HarnessConfig['model']['sandbox'] })}>
+                <option value="">엔진 기본값</option>
+                {CODEX_SANDBOXES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label>
+              approval
+              <select aria-label="approval" value={config.model.approval ?? ''} onChange={(e) => onModelChange({ approval: (e.target.value || undefined) as HarnessConfig['model']['approval'] })}>
+                <option value="">엔진 기본값</option>
+                {CODEX_APPROVALS.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </label>
+          </>
+        )}
+        {config.model.engine === 'claude' && (
+          <label>
+            permission mode
+            <select aria-label="permission mode" value={config.model.permissionMode ?? ''} onChange={(e) => onModelChange({ permissionMode: (e.target.value || undefined) as HarnessConfig['model']['permissionMode'] })}>
+              <option value="">엔진 기본값</option>
+              {CLAUDE_PERMISSION_MODES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </label>
+        )}
+      </section>
+
       <div className="structure-panel__pipe">
         {STRUCTURE_STAGES.map((s) => (
           <button
@@ -105,12 +163,6 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
       {stage?.kind === 'agent' && stage.promptKey && (
         <div className="structure-panel__edit">
           <b>{stage.icon} {stage.name} 편집</b>
-          <label>
-            엔진
-            <select aria-label="엔진" value={config.model.engine} onChange={(e) => onModelChange({ engine: e.target.value as AgentType })}>
-              {ENGINES.map((engine) => <option key={engine} value={engine}>{engine}</option>)}
-            </select>
-          </label>
           <label>
             프롬프트 오버라이드
             <textarea

@@ -1,13 +1,13 @@
 import type { ZodType, ZodTypeDef, ZodTypeAny } from 'zod'
 import type { AgentType } from '@apc/shared'
-import { type AgentRunner, unwrapAgentJson, parseStructured } from '@apc/llm-wiki'
+import { type AgentRunner, type EngineOptions, unwrapAgentJson, parseStructured } from '@apc/llm-wiki'
 import { zodToJsonSchema } from './zod-to-json-schema.js'
 
 // Leave the Zod Input param unconstrained: with `.default()` fields a schema's input type differs
 // from its output type, so `ZodType<O>` (which ties Input===Output===O) would mis-infer O as the
 // input. `ZodType<O, ZodTypeDef, unknown>` binds O cleanly to the OUTPUT (post-parse) type.
 export type LlmAgentConfig<O> = { name: string; role: string; schema: ZodType<O, ZodTypeDef, unknown>; preamble: string }
-export type LlmRunArgs = { runner: AgentRunner; engine: AgentType; input: unknown; timeoutMs?: number; cwd?: string; label?: string }
+export type LlmRunArgs = { runner: AgentRunner; engine: AgentType; input: unknown; timeoutMs?: number; cwd?: string; label?: string; engineOptions?: EngineOptions }
 
 /**
  * Pull the engine's own error message out of its stdout when a run fails. The CLIs report real
@@ -55,7 +55,7 @@ export class LlmAgent<O> {
   }
 
   async run(args: LlmRunArgs): Promise<O> {
-    const res = await args.runner.run({ agent: args.engine, prompt: this.buildPrompt(args.input), timeoutMs: args.timeoutMs ?? 180000, cwd: args.cwd, label: args.label })
+    const res = await args.runner.run({ agent: args.engine, prompt: this.buildPrompt(args.input), timeoutMs: args.timeoutMs ?? 180000, cwd: args.cwd, label: args.label, engineOptions: args.engineOptions })
     if (!res.ok) {
       // Prefer the engine's own error message (claude/codex emit it in stdout JSON) so a real failure
       // like a 429 session limit surfaces instead of benign shell noise. Fall back to stderr, then raw.

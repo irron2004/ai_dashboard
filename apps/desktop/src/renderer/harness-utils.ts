@@ -1,4 +1,4 @@
-import type { AgentType, KhState, RunState, FeatureGateKey } from '@apc/shared'
+import type { AgentType, KhState, RunState, FeatureGateKey, EngineOptions, ReasoningEffort } from '@apc/shared'
 
 export const HARNESS_STATE_ORDER: KhState[] = [
   'CREATED', 'PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED',
@@ -118,7 +118,30 @@ export type HarnessModelSettings = {
   engine: AgentType
   temperature: number
   maxTokens: number
+  /** Engine CLI tuning (per harness) — empty/undefined means "use the engine default". */
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  sandbox?: EngineOptions['sandbox']
+  approval?: EngineOptions['approval']
+  permissionMode?: EngineOptions['permissionMode']
 }
+
+/** Project the per-harness model settings to the EngineOptions the backend run accepts. Blank strings
+ *  become undefined so they add no CLI flag. */
+export function modelSettingsToEngineOptions(m: HarnessModelSettings): EngineOptions {
+  return {
+    model: m.model?.trim() || undefined,
+    reasoningEffort: m.reasoningEffort,
+    sandbox: m.sandbox,
+    approval: m.approval,
+    permissionMode: m.permissionMode,
+  }
+}
+
+export const REASONING_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
+export const CODEX_SANDBOXES: NonNullable<EngineOptions['sandbox']>[] = ['read-only', 'workspace-write', 'danger-full-access']
+export const CODEX_APPROVALS: NonNullable<EngineOptions['approval']>[] = ['untrusted', 'on-failure', 'on-request', 'never']
+export const CLAUDE_PERMISSION_MODES: NonNullable<EngineOptions['permissionMode']>[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 
 export type HarnessSafetySettings = {
   secretScanSensitivity: 'low' | 'medium' | 'high'

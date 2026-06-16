@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { readdirSync, statSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
 import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal } from '@apc/shared'
 import { KhProjectDiscoveryReportSchema } from '@apc/shared'
-import { LoggingAgentRunner, type AgentRunner } from '@apc/llm-wiki'
+import { LoggingAgentRunner, type AgentRunner, type EngineOptions } from '@apc/llm-wiki'
 import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
   makeProjectDiscovery, makeWikiPolicyAdvisor,
@@ -52,6 +52,8 @@ export type HarnessServiceDeps = {
   /** reader/extractor 프롬프트에 넣는 소스 텍스트의 char 예산 — 엔진/모델의 토큰 윈도에 맞춘다.
    *  미설정 시 make-drivers 기본값(200K). 큰 윈도 모델은 올릴 수 있다. */
   maxPromptChars?: number
+  /** 서비스 전역 기본 엔진 옵션. run()의 per-call engineOptions가 우선한다. */
+  engineOptions?: EngineOptions
   /** path to feature-gates.yml; defaults to the shipped harness/feature-gates.yml. */
   gatesPath?: string
   preamble?: string
@@ -134,7 +136,7 @@ export class HarnessService {
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
    * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
    * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
-  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void): HarnessRunner {
+  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions): HarnessRunner {
     const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
     const runner: AgentRunner = !onEngineLog ? logging : {
       run: (i) => logging.run({
@@ -149,6 +151,7 @@ export class HarnessService {
       projectCwd,
       stepTimeoutMs: this.deps.stepTimeoutMs,
       maxPromptChars: this.deps.maxPromptChars,
+      engineOptions: engineOptions ?? this.deps.engineOptions,
       sourceLedger: this.deps.sourceLedger,
       now: this.now,
     })
@@ -172,7 +175,7 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[] }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void): Promise<HarnessRunResult> {
     const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
     // The wiki lives in the project's workspace. Bring the canonical internal state (graph/proposals/
     // runs/projects) into the local working vault before the run; raw/ is re-materialized below.
@@ -220,7 +223,7 @@ export class HarnessService {
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog)
+    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const result = await this.advanceSafely(runId, runner, store, onProgress)
     // Save the agent-pipeline transcript (run dir + workspace runs/) for later study — even on failure,

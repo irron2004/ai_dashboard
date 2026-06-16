@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -98,7 +98,7 @@ export type GenerateProjectRes = {
 // Knowledge Harness (evidence-based multi-agent pipeline) surface.
 export type HarnessProgressEvent = { runId: string; state: string }
 export type HarnessEngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
-export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean }
+export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
 export type HarnessGetRunReq = { runId: string }
