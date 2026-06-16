@@ -5,7 +5,7 @@ import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSo
 import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
-import { dedupeProposalIds, demoteUnderEvidencedShared } from './merge-proposals.js'
+import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidence } from './merge-proposals.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
@@ -280,22 +280,22 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
       // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
-      // demote: a folder worker can't judge cross-folder sharing, so an under-evidenced 'shared' proposal
-      // becomes 'project' here (the lead re-promotes it from the merged view) rather than failing the run.
-      const data = { proposals: demoteUnderEvidencedShared(normalizeEvidencePaths(proposals, srcs)) }
-      // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
-      // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
+      const normalized = normalizeEvidencePaths(proposals, srcs)
+      // A2: deterministic evidence verification. A non-existent/escaping source = unverifiable (a real raw
+      // source is the hard guarantee); a non-verbatim quote is a warning. Instead of failing the run on a
+      // few unverifiable citations (a worker can cite a remote file we didn't materialize), PRUNE the
+      // unverifiable evidence and drop any now-unsupported proposal — the verified majority still flows.
+      const evidence = evidenceVerifier.verify(normalized, deps.vaultRoot)
+      const pruned = pruneUnverifiableEvidence(normalized, evidence.unverifiable)
+      // demote AFTER pruning: a 'shared' proposal that dropped below 2 evidence becomes 'project' (the lead
+      // re-promotes it from the merged cross-folder view) rather than tripping PolicyGuard's shared floor.
+      const data = { proposals: demoteUnderEvidencedShared(pruned.proposals) }
+      // PolicyGuard checkpoint (design §4): the cleaned set must still satisfy the deterministic rules
+      // (no_evidence, shared floor, secrets). A block here is a genuine violation, not citation noise.
       const report = policy.check(data.proposals)
       if (!report.ok) {
         throw new Error(`PolicyGuard blocked ${report.blocked_proposal_ids.length} proposal(s): ` +
           report.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id}:${v.rule}`).join(', '))
-      }
-      // A2: deterministic evidence verification — every declared evidence must resolve to a real raw source
-      // (and its quote, if any, must be present). Fabricated evidence is a hard stop, like no-evidence.
-      const evidence = evidenceVerifier.verify(data.proposals, deps.vaultRoot)
-      if (!evidence.ok) {
-        throw new Error(`EvidenceVerifier blocked ${evidence.unverifiable.length} evidence item(s): ` +
-          evidence.unverifiable.map(u => `${u.proposal_id}/${u.evidence_id}:${u.reason}`).join(', '))
       }
       return { artifacts: [
         { name: ARTIFACTS.nodeProposals, data }, { name: ARTIFACTS.policyReport, data: report },

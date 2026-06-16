@@ -108,27 +108,38 @@ describe('HarnessService', () => {
   })
 
   // A2 (#1/#7/#34): a proposal citing a source_path that doesn't exist under raw/ fails the run.
-  test('fabricated evidence (source_path not in raw/) → run FAILED', async () => {
+  test('fabricated evidence (source_path not in raw/) is PRUNED, not run-fatal', async () => {
     const proposals = { proposals: [{
       proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
       node: { id: 'n1', type: 'ConceptNode', title: 'T' },
       evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/ghost.jsonl', evidence_type: 'd' }],
       claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
     }] }
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [] },
+    }
     const svc = new HarnessService({
       runner: new FakeAgentRunner([
         JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
         JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
         JSON.stringify({ generated_by: 'classifier', documents: [] }),
         JSON.stringify(proposals),
+        JSON.stringify(lead),
       ]),
       vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES',
       now: () => '2026-06-02T00:00:00Z',
     })
     const r = await svc.run({ projectId: 'p1', engine: 'claude' })
-    expect(r.ok).toBe(false)
-    expect(r.finalState).toBe('FAILED')
-    expect(r.reason).toContain('EvidenceVerifier')
+    // The run is NOT killed; the un-sourced proposal is excluded and recorded.
+    expect(r.ok, r.reason).toBe(true)
+    expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+    const shown = svc.show({ runId: r.runId })
+    if (!shown.ok) throw new Error('show failed')
+    const nodeProps = shown.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals: unknown[] }
+    expect(nodeProps.proposals).toEqual([]) // pruned (its only evidence was unverifiable)
+    const ev = shown.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as { unverifiable: { reason: string }[] }
+    expect(ev.unverifiable[0].reason).toBe('source_not_found') // still recorded for visibility
   })
 
   // D1: a bundled Electron app cannot reach harness/ via import.meta.url path-walking. Constructing the
@@ -244,17 +255,25 @@ describe('HarnessService', () => {
     expect(r.reason).toMatch(/already in progress/)
   })
 
-  test('a PolicyGuard block surfaces as FAILED with a reason (not dropped)', async () => {
-    // evidence-less proposal → PolicyGuard blocks → run FAILED
+  test('a PolicyGuard block (forbidden write op) surfaces as FAILED with a reason', async () => {
+    // a well-sourced proposal survives, but the lead's write plan has a forbidden delete op → PolicyGuard
+    // blocks before staging and the error propagates end-to-end as FAILED.
     const proposals = { proposals: [{
       proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
-      node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [], claims: [],
+      node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }],
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
     }] }
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'delete_file', path: 'old.md' }] },
+    }
     const outs = [
       JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
       JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
       JSON.stringify({ generated_by: 'classifier', documents: [] }),
       JSON.stringify(proposals),
+      JSON.stringify(lead),
     ]
     const svc = new HarnessService({
       runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),

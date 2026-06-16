@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { dedupeProposalIds, demoteUnderEvidencedShared } from './merge-proposals.js'
+import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidence } from './merge-proposals.js'
 import type { KhNodeProposal } from '@apc/shared'
 
 const p = (proposal_id: string, nodeId: string): KhNodeProposal => ({
@@ -36,6 +36,40 @@ describe('dedupeProposalIds', () => {
   test('preserves order and other fields', () => {
     const out = dedupeProposalIds([p('X', 'nx')])
     expect(out[0]).toMatchObject({ proposal_id: 'X', proposed_by: 'extractor', node: { id: 'nx', title: 'nx' } })
+  })
+})
+
+describe('pruneUnverifiableEvidence', () => {
+  const withEv = (proposal_id: string, evs: Array<[string, string]>): KhNodeProposal => ({
+    proposal_id, proposed_by: 'extractor', created_at: 't',
+    node: { id: `n_${proposal_id}`, type: 'ConceptNode', title: proposal_id },
+    evidence: evs.map(([evidence_id, source_path]) => ({ evidence_id, source_id: 's', source_path, evidence_type: 'd' })),
+    claims: [{ claim_id: 'c1', text: 'x', evidence_ids: evs.map(([id]) => id) }],
+  } as unknown as KhNodeProposal)
+
+  test('drops only the unverifiable evidence; keeps the proposal when valid evidence remains', () => {
+    const r = pruneUnverifiableEvidence(
+      [withEv('A', [['e1', 'raw/ok.md'], ['e2', 'raw/ghost.md']])],
+      [{ proposal_id: 'A', evidence_id: 'e2' }],
+    )
+    expect(r.droppedEvidence).toBe(1)
+    expect(r.droppedProposals).toBe(0)
+    expect(r.proposals[0].evidence.map((e) => e.evidence_id)).toEqual(['e1'])
+    expect(r.proposals[0].claims[0].evidence_ids).toEqual(['e1']) // dropped id trimmed from the claim
+  })
+
+  test('drops a proposal whose every evidence is unverifiable', () => {
+    const r = pruneUnverifiableEvidence(
+      [withEv('A', [['e1', 'raw/ghost.md']]), withEv('B', [['e1', 'raw/ok.md']])],
+      [{ proposal_id: 'A', evidence_id: 'e1' }],
+    )
+    expect(r.droppedProposals).toBe(1)
+    expect(r.proposals.map((p) => p.proposal_id)).toEqual(['B'])
+  })
+
+  test('no findings → unchanged', () => {
+    const input = [withEv('A', [['e1', 'raw/ok.md']])]
+    expect(pruneUnverifiableEvidence(input, []).proposals).toEqual(input)
   })
 })
 

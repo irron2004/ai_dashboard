@@ -109,11 +109,18 @@ describe('makeDrivers — adversarial agent output', () => {
     expect(rs.error).toContain('non_markdown_write')
   })
 
-  test('evidence citing a nonexistent raw source fails the run (EvidenceVerifier)', async () => {
-    const { store, runner } = drive([discovery, reader, classifier, proposalsJson('raw/ghost.jsonl'), leadJson([])])
+  test('evidence citing a nonexistent raw source is PRUNED, not run-fatal (EvidenceVerifier)', async () => {
+    // its only evidence is un-sourced → the proposal is excluded; the run continues (here to an empty wiki).
+    const emptyLead = JSON.stringify({
+      graph_update_plan: { created_by: 'lead', node_ops: [] },
+      shared_promotion_plan: { created_by: 'lead', candidates: [] },
+      stale_doc_report: { generated_by: 'lead', stale: [] },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [] },
+    })
+    const { store, runner } = drive([discovery, reader, classifier, proposalsJson('raw/ghost.jsonl'), emptyLead])
     const rs = await runner.advance(store)
-    expect(rs.state).toBe('FAILED')
-    expect(rs.error).toContain('EvidenceVerifier')
+    expect(rs.error ?? '').not.toContain('EvidenceVerifier') // pruned, not blocked
+    expect(rs.state).toBe('HUMAN_REVIEW_REQUIRED')
   })
 
   test('malformed (truncated) JSON from an agent fails the run with a parse error', async () => {

@@ -63,10 +63,12 @@ describe('phase-3 e2e — policy/verify/eval wired into the pipeline', () => {
     expect(evalReport.evidence_quality.node_proposals_total).toBe(1)
   })
 
-  test('an evidence-less proposal is blocked by PolicyGuard → run FAILED', async () => {
+  test('an evidence-less proposal is PRUNED (excluded), not run-fatal → run completes', async () => {
     const { store, runner } = driveWith(false)
     const rs = await runner.advance(store)
-    expect(rs.state).toBe('FAILED')
-    expect(rs.error).toContain('PolicyGuard blocked')
+    expect(rs.state).toBe('HUMAN_REVIEW_REQUIRED') // graceful: the run is not killed by one un-evidenced proposal
+    const nodeProps = store.readArtifact<{ proposals: unknown[] }>(
+      rs.artifacts['NODE_PROPOSALS_CREATED'].find(p => p.endsWith('node-proposals.json'))!)
+    expect(nodeProps.proposals).toEqual([]) // the un-evidenced proposal was excluded, not promoted
   })
 })

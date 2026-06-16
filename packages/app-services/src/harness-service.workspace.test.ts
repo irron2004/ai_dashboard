@@ -90,9 +90,17 @@ describe('HarnessService — workspace vault lifecycle', () => {
   })
 
   test('a FAILED run pushes only the transcript (pushRuns), not the wiki (pushInternal)', async () => {
-    // No raw/a → evidence verification fails → run FAILED.
-    rmSync(join(localRoot, 'raw', 'a'))
-    const r = await service().run({ projectId: 'p1', engine: 'claude' })
+    // Lead emits a forbidden delete_file write op → PolicyGuard blocks before staging → run FAILED.
+    const outs = cannedOutputs()
+    outs[4] = JSON.stringify({
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'delete_file', path: 'old.md' }] },
+    })
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'unused-global-vault'), runsRoot: join(ws, 'runs'),
+      workspaceVaultFor: () => vault, gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
     expect(r.finalState).toBe('FAILED')
     expect(vault.calls).toEqual(['pull', 'pushRuns']) // transcript travels; wiki ('push') does not
     // the failed run's transcript is still saved for study
