@@ -75,6 +75,16 @@ describe('planFolders', () => {
     ])
   })
 
+  test('derives role: a unit holding a canonical doc is canonical, else reference', () => {
+    const canon = doc('raw/project-docs/0/canon/current.md')
+    const notes = doc('raw/project-docs/0/notes/x.md')
+    const oneFolder = planFolders([canon], HUGE).units[0].estChars
+    const plan = planFolders([canon, notes], oneFolder + 1) // keep them as separate units
+    const byLabel = Object.fromEntries(plan.units.map((u) => [u.label, u.role]))
+    expect(byLabel['canon']).toBe('canonical')
+    expect(byLabel['notes']).toBe('reference')
+  })
+
   test('deterministic', () => {
     const sources = [doc('raw/project-docs/0/z/1.md'), doc('raw/project-docs/0/a/1.md'), doc('raw/project-docs/0/a/2.md')]
     expect(JSON.stringify(planFolders(sources, 5000))).toBe(JSON.stringify(planFolders(sources, 5000)))

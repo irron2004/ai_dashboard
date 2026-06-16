@@ -1457,6 +1457,7 @@ textarea {
 .wikigen__folder-list { margin: 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .wikigen__folder-list li { font-size: 0.78rem; color: #c5c9d3; }
 .wikigen__folder-list small { color: #777; }
+.wikigen__folder-role { color: #7dd3fc; font-style: normal; font-size: 0.7rem; text-transform: uppercase; opacity: 0.8; }
 .wikigen__folder-skipped { margin: 6px 0 0; padding-left: 4px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .wikigen__folder-skipped li { font-size: 0.78rem; color: #fbbf24; cursor: help; }
 .wikigen__placeholder { display: flex; align-items: center; justify-content: center; min-height: 120px; color: #666; font-size: 0.85rem; }

@@ -229,13 +229,13 @@ export type FanoutSummary = {
   units: number
   ran: number
   skipped: { unit: string; reason: string }[]
-  folders: { label: string; members: string }[]
+  folders: { label: string; members: string; role?: string }[]
 }
 
 /** Extract the folder-worker summary from a run's artifacts, or null if the run wasn't folder-fanned-out
  *  (e.g. legacy single-shot, or a run before this feature). Pure — unit-tested. */
 export function readFanoutSummary(artifacts: HarnessRunArtifact[]): FanoutSummary | null {
-  const plan = artifacts.find((a) => a.name === 'folder-plan')?.data as { units?: Array<{ label: string; memberPaths: string[] }> } | undefined
+  const plan = artifacts.find((a) => a.name === 'folder-plan')?.data as { units?: Array<{ label: string; memberPaths: string[]; role?: string }> } | undefined
   const fan = artifacts.find((a) => a.name === 'fanout-report')?.data as { units?: number; ran?: number; skipped?: { unit: string; reason: string }[] } | undefined
   const planUnits = plan?.units ?? []
   if (!planUnits.length && !fan) return null
@@ -243,7 +243,7 @@ export function readFanoutSummary(artifacts: HarnessRunArtifact[]): FanoutSummar
     units: fan?.units ?? planUnits.length,
     ran: fan?.ran ?? 0,
     skipped: fan?.skipped ?? [],
-    folders: planUnits.map((u) => ({ label: u.label, members: (u.memberPaths ?? []).join(', ') })),
+    folders: planUnits.map((u) => ({ label: u.label, members: (u.memberPaths ?? []).join(', '), role: u.role })),
   }
 }
 

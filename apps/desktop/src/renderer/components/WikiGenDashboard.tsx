@@ -124,7 +124,7 @@ export function WikiGenDashboard() {
                         <p>{fanout.units}개 폴더 단위 · {fanout.ran}개 실행{fanout.skipped.length ? ` · ${fanout.skipped.length}개 스킵` : ''}</p>
                         <ul className="wikigen__folder-list">
                           {fanout.folders.map((f) => (
-                            <li key={f.label}>📁 {f.label}{f.members && f.members !== f.label ? <small> — {f.members}</small> : null}</li>
+                            <li key={f.label}>📁 {f.label}{f.role ? <em className="wikigen__folder-role"> {f.role}</em> : null}{f.members && f.members !== f.label ? <small> — {f.members}</small> : null}</li>
                           ))}
                         </ul>
                         {fanout.skipped.length > 0 && (

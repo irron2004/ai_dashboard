@@ -11,13 +11,13 @@ describe('readFanoutSummary', () => {
 
   test('summarizes folder units + fan-out run report', () => {
     const s = readFanoutSummary([
-      artifact('folder-plan', { units: [{ label: 'paper-A', memberPaths: ['paper-A'] }, { label: 'misc (2 folders)', memberPaths: ['a', 'b'] }] }),
+      artifact('folder-plan', { units: [{ label: 'paper-A', memberPaths: ['paper-A'], role: 'canonical' }, { label: 'misc (2 folders)', memberPaths: ['a', 'b'], role: 'reference' }] }),
       artifact('fanout-report', { units: 2, ran: 1, skipped: [{ unit: 'paper-A', reason: 'boom' }] }),
     ])
     expect(s).toEqual({
       units: 2, ran: 1,
       skipped: [{ unit: 'paper-A', reason: 'boom' }],
-      folders: [{ label: 'paper-A', members: 'paper-A' }, { label: 'misc (2 folders)', members: 'a, b' }],
+      folders: [{ label: 'paper-A', members: 'paper-A', role: 'canonical' }, { label: 'misc (2 folders)', members: 'a, b', role: 'reference' }],
     })
   })
 })

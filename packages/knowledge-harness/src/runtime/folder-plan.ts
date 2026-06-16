@@ -1,4 +1,5 @@
 import type { SourceDoc } from './source-reader.js'
+import { isCanonical } from './vault-fs.js'
 
 /**
  * A work unit = the set of sources one folder-worker processes (spec §6). Auto size-based partitioning:
@@ -43,6 +44,11 @@ function folderLabel(folderKey: string): string {
   const rel = folderKey.replace(/^\d+\//, '')
   return rel === '' ? '(root)' : rel
 }
+
+/** A unit's role: 'canonical' if it holds a canonical doc (current.md/PRD.md/ADR-*), else 'reference'.
+ *  Deterministic — derived from paths, no LLM. (source_id === source_path for materialized sources.) */
+const roleOf = (sourcePaths: string[]): WorkUnit['role'] =>
+  sourcePaths.some(isCanonical) ? 'canonical' : 'reference'
 
 /** Greedily pack docs into sub-groups each ≤ maxChars (for splitting an oversized single folder). */
 function packDocs(docs: SourceDoc[], maxChars: number): SourceDoc[][] {
@@ -89,7 +95,7 @@ export function planFolders(sources: SourceDoc[], maxChars: number): FolderPlan 
       id: id(),
       label: multi ? `misc (${bin.paths.length} folders)` : folderLabel(bin.paths[0]),
       memberPaths: bin.paths.map(folderLabel),
-      role: 'mixed',
+      role: roleOf(bin.ids),
       docSourceIds: bin.ids,
       sessionIds: [],
       estChars: bin.chars,
@@ -109,7 +115,7 @@ export function planFolders(sources: SourceDoc[], maxChars: number): FolderPlan 
           id: id(),
           label: groups.length > 1 ? `${folderLabel(folder)} (${i + 1}/${groups.length})` : folderLabel(folder),
           memberPaths: [folderLabel(folder)],
-          role: 'mixed',
+          role: roleOf(group.map((d) => d.source_path)),
           docSourceIds: group.map((d) => d.source_id),
           sessionIds: [],
           estChars: group.reduce((n, d) => n + sizeOf(d), 0),
