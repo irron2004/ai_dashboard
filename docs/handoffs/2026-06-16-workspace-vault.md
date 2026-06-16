@@ -22,6 +22,8 @@ The goal (user-confirmed): the wiki is generated **in the workspace you connect 
 | `014d8d3` | **Fix: export from vault root.** The harness writes nodes at the vault root (`concepts/x.md`), not `projects/<id>/`; `exportWiki` was reading the wrong dir and always published 0 files. Now publishes the whole vault minus `raw/` (and drafts/agent-runs). |
 | `cc6be8c` | **Fix: persist promote.** promote writes the local working vault; an ssh project's next pull wipes it, so an approved-but-unexported draft was lost. `syncWorkspaceForRun` now pushes after a successful promote (container boundary; promote stays sync). |
 | `1b76499` | **Fix: no self-ingestion.** `.apc-wiki`/`wiki` now live in the repo, so doc materialization (local walk + remote `find`) re-ingested our own raw sources, proposals and output → corpus pollution + generate-from-own-output loop. Both are excluded now. |
+| `be662c6` | **Fix: prompt size budget.** "전체 문서" on a real project fed every source into the reader/extractor prompt (2 MB) → codex rejected it (>1,048,576 chars). `budgetSourcesForPrompt` caps the embedded sources (800K); dropped sources show as uncovered. Follow-up: chunk for full coverage. |
+| `79b7766` | **Feat: pipeline transcript.** Each run's agent-to-agent conversation is saved as JSONL (one step per line: prompt+output+meta) to the run dir AND `.apc-wiki/runs/<runId>.jsonl` (for study/training). Saved for FAILED runs too via the new additive `WorkspaceVault.pushRuns()`. |
 
 ## Layout (in the workspace; `<repo>` = `repoPaths[0]`)
 
@@ -42,9 +44,9 @@ The goal (user-confirmed): the wiki is generated **in the workspace you connect 
 
 - **Live verification pending.** The ssh pull/push scripts are unit-tested with an injected exec, but
   not run against `hskim@10.10.100.45`. Verify there once the engine limit resets.
-- **Run history is NOT in `.apc-wiki`.** Harness run artifacts live in the separate `apc-harness-runs`
-  root (outside the vault), so the original design's `.apc-wiki/runs/` isn't populated — only the wiki
-  + proposals + policy sync to the workspace. Wire run history in if it should travel too.
+- **Run transcripts now reach `.apc-wiki/runs/`** (was a gap). Each run's agent-pipeline JSONL travels
+  to the workspace. The full per-step run artifacts still live in the separate `apc-harness-runs` root;
+  only the consolidated transcript syncs. Sources/raw still don't sync (re-materialized each run).
 - **Policy on ssh is single-machine.** Policy methods write to the local working vault and only reach
   the workspace via the next run's pushInternal; proposing/approving policy on one machine without a
   run won't sync to another. Fine for the common flow; revisit if multi-machine policy editing matters.
