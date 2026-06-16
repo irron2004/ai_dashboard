@@ -5,6 +5,7 @@ import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSo
 import { planFolders, type FolderPlan } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
+import { dedupeProposalIds } from './merge-proposals.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
@@ -247,7 +248,8 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
       // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
-      const data = { proposals: normalizeEvidencePaths(proposals, srcs) }
+      // dedupe first: separate folder workers can emit colliding proposal_id/node.id (no-op single-shot).
+      const data = { proposals: normalizeEvidencePaths(dedupeProposalIds(proposals), srcs) }
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
       const report = policy.check(data.proposals)
