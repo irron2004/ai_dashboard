@@ -1328,6 +1328,45 @@ textarea {
 .quality__value { font-variant-numeric: tabular-nums; }
 
 /* ── Proposals inspector ─────────────────────────────── */
+/* ---- 검수 (human review) panel ---- */
+.review { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 10px; height: 100%; min-height: 0; }
+.review__list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding-right: 4px; min-height: 0; }
+.review__item { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; text-align: left; background: #161a22; border: 1px solid #2c2f38; border-radius: 6px; padding: 7px 9px; cursor: pointer; color: #d6d9e0; }
+.review__item:hover { border-color: #3a8a4a; }
+.review__item--on { background: #1d2a1d; border-color: #4a8a4a; }
+.review__item-title { font-size: 0.82rem; font-weight: 600; line-height: 1.25; }
+.review__item-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.review__type { font-size: 0.66rem; color: #8a8f9a; font-style: normal; text-transform: uppercase; letter-spacing: 0.03em; }
+.review__flag { font-size: 0.64rem; padding: 1px 5px; border-radius: 999px; background: #2a2f3a; color: #aeb4c0; }
+.review__flag--warn { background: #3a2f17; color: #f0c060; }
+.review__flag--err { background: #3a1c1c; color: #f08080; }
+.review__flag--ask { background: #1c2c3a; color: #7dd3fc; }
+.review__detail { overflow-y: auto; min-height: 0; padding-right: 6px; display: flex; flex-direction: column; gap: 14px; }
+.review__detail-head h3 { margin: 0 0 6px; font-size: 1.02rem; }
+.review__badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.review__badge { font-size: 0.68rem; padding: 2px 8px; border-radius: 999px; background: #23311f; border: 1px solid #3a5a3a; color: #b8e0b8; }
+.review__badge--muted { background: #20232b; border-color: #2c2f38; color: #8a8f9a; }
+.review__summary { margin: 8px 0 0; font-size: 0.85rem; color: #c0c4cc; line-height: 1.45; }
+.review__opinions { background: #14171e; border: 1px solid #2c2f38; border-radius: 8px; padding: 10px 12px; }
+.review__opinions h4, .review__claims h4, .review__evidence h4 { margin: 0 0 8px; font-size: 0.82rem; color: #9aa0ac; }
+.review__opinion { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px solid #23262e; }
+.review__opinion:first-of-type { border-top: none; }
+.review__agent { font-size: 0.74rem; color: #8a8f9a; }
+.review__opinion p { margin: 0 0 4px; font-size: 0.82rem; line-height: 1.4; }
+.review__question { color: #7dd3fc; }
+.review__ok { color: #6fbf73; }
+.review__warnline { color: #f0c060; }
+.review__warnline--err { color: #f08080; }
+.review__warnline small, .review__claim-meta, .review__opinion small { color: #7a7f8a; font-size: 0.72rem; }
+.review__risk--high { color: #f08080; } .review__risk--medium { color: #f0c060; } .review__risk--low { color: #6fbf73; }
+.review__claim { background: #14171e; border-left: 2px solid #3a5a3a; padding: 6px 10px; border-radius: 0 6px 6px 0; margin-bottom: 6px; }
+.review__claim p { margin: 0 0 3px; font-size: 0.84rem; line-height: 1.4; }
+.review__claim-meta em { font-style: normal; text-transform: uppercase; letter-spacing: 0.03em; }
+.review__ev { margin-bottom: 8px; }
+.review__ev-src { font-size: 0.72rem; color: #7dd3fc; word-break: break-all; }
+.review__ev blockquote { margin: 4px 0 0; padding: 4px 10px; border-left: 2px solid #2c2f38; color: #aab0bc; font-size: 0.8rem; }
+.review__draft { margin-top: 4px; border: 1px solid #2c2f38; border-radius: 8px; padding: 8px 12px; }
+.review__draft summary { cursor: pointer; font-size: 0.82rem; color: #9aa0ac; }
 .proposals { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
 .proposals__summary { font-weight: 600; font-size: 0.9rem; }
 .proposals__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }

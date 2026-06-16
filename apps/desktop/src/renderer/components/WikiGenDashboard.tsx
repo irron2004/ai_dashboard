@@ -8,13 +8,14 @@ import { WikiProgress } from './WikiProgress.js'
 import { CoverageMatrix } from './CoverageMatrix.js'
 import { QualityPanel } from './QualityPanel.js'
 import { ProposalsPanel } from './ProposalsPanel.js'
+import { ReviewPanel, type EvidenceFinding, type PolicyViolation } from './ReviewPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
 
-type ReviewTab = 'summary' | 'coverage' | 'quality' | 'proposals' | 'flow'
+type ReviewTab = 'summary' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
 
 const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
-  { id: 'summary', label: '요약' }, { id: 'coverage', label: 'Coverage' }, { id: 'quality', label: 'Quality' },
-  { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
+  { id: 'summary', label: '요약' }, { id: 'review', label: '🔎 검수' }, { id: 'coverage', label: 'Coverage' },
+  { id: 'quality', label: 'Quality' }, { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
 ]
 
 export function WikiGenDashboard() {
@@ -55,6 +56,9 @@ export function WikiGenDashboard() {
   const coverageData = currentRun?.artifacts.find((a) => a.name === 'coverage-report')?.data as KhCoverageReport | undefined
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
   const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
+  // The verifier + policy agents' per-proposal findings — surfaced alongside each node in the 검수 tab.
+  const evidenceWarnings = (currentRun?.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as { warnings?: EvidenceFinding[] } | undefined)?.warnings ?? []
+  const policyViolations = (currentRun?.artifacts.find((a) => a.name === 'policy-report')?.data as { violations?: PolicyViolation[] } | undefined)?.violations ?? []
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
   const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
 
@@ -136,6 +140,9 @@ export function WikiGenDashboard() {
                     )}
                   </div>
                 )}
+                {reviewTab === 'review' && (proposalsData && proposalsData.length > 0
+                  ? <ReviewPanel runId={currentRun.runState.runId} projectId={selectedProjectId} proposals={proposalsData} warnings={evidenceWarnings} violations={policyViolations} />
+                  : <div className="wikigen__placeholder">검수할 노드 제안이 없습니다 — 전체 문서 모드로 실행하세요.</div>)}
                 {reviewTab === 'coverage' && (coverageData
                   ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
                   : <div className="wikigen__placeholder">커버리지 데이터 없음 — 전체 문서 모드로 실행하세요.</div>)}
