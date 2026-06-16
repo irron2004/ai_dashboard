@@ -57,3 +57,36 @@ The goal (user-confirmed): the wiki is generated **in the workspace you connect 
 - `packages/app-services/src/workspace-vault.ts`, `harness-service.ts`
 - `apps/desktop/src/main/remote-vault.ts`, `container.ts`, `ipc.ts`, `remote-docs.ts` (exported markers)
 - `apps/desktop/src/shared/ipc-contract.ts`, `renderer/{api,store}.ts`, `renderer/components/WikiGenDashboard.tsx`
+
+---
+
+## Follow-on work on this branch (same session, after the vault relocation)
+
+The branch grew well past the vault relocation. Full picture for whoever picks it up (root tests now
+~483 green / desktop ~191 / build clean; still **no live remote run**):
+
+### A. Prompt-size + engine fixes
+- **Prompt source budget** — `budgetSourcesForPrompt` (`source-reader.ts`) caps the serialized sources
+  in the reader/extractor prompt. Default `DEFAULT_MAX_PROMPT_SOURCE_CHARS=200K` (codex hit both the hard
+  1,048,576-char limit AND the model token window). Configurable via `DriverDeps.maxPromptChars`.
+- **Per-harness engine settings** — `EngineOptions` (`@apc/shared`) → `buildEngineArgs` (`@apc/llm-wiki`)
+  maps model / reasoning effort / sandbox / approval / permission-mode to each CLI's flags; threaded
+  config→IPC(`HarnessRunReq.engineOptions`)→runners. UI in `HarnessStructurePanel` engine section.
+
+### B. Pipeline transcript (study/training)
+- Each run's agent-to-agent conversation saved as JSONL (`pipeline-transcript.ts`) to the run dir AND
+  `.apc-wiki/runs/<runId>.jsonl` (FAILED runs too, via additive `WorkspaceVault.pushRuns`).
+
+### C. Folder orchestrator-workers (the big one) — replaces single-shot
+See **`docs/superpowers/specs/2026-06-16-folder-orchestrator-wiki-design.md`** (status: implemented 1–5).
+Fixes the model-window overflow by partitioning docs into folder work units, fanning out the extractor
+per folder, and reducing in the lead. Key files: `folder-plan.ts` (`planFolders` bin-packing),
+`make-drivers.ts` (`NODE_PROPOSALS_CREATED` fan-out + `runPool` concurrency + provenance),
+`merge-proposals.ts` (`dedupeProposalIds`). Reader scoped to `raw/conversations/*`; `raw/context/*`
+shared to every worker; `workerConcurrency` user-settable (default 1). Empty/single plan → single-shot
+fallback (legacy-equivalent). See memory `folder-orchestrator.md`.
+
+### Still pending (needs the user)
+- **🔴 Live remote run** on `hskim@10.10.100.45` — lower reasoning effort + "전체 문서". Only FakeLLM
+  integration is verified so far.
+- cross-folder reduce: auto (lead, current) vs an added human gate — undecided.
