@@ -120,6 +120,32 @@ describe('HarnessService — folder worker fan-out', () => {
     expect(fake.calls[4].prompt).toContain('raw/context/home/h/CLAUDE.md')
   })
 
+  test('colliding ids from two workers are de-duplicated, and provenance tracks the FINAL ids', async () => {
+    // both workers emit proposal_id "DUP" (node n_DUP) → dedupe must split them, provenance stays aligned
+    const outputs = [
+      JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
+      JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
+      JSON.stringify({ generated_by: 'classifier', documents: [] }),
+      JSON.stringify({ proposals: [proposalFor('DUP', 'raw/project-docs/0/A/a.md')] }),
+      JSON.stringify({ proposals: [proposalFor('DUP', 'raw/project-docs/0/B/b.md')] }),
+      JSON.stringify(lead),
+    ]
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(outputs), vaultRoot: vault, runsRoot: join(ws, 'runs'),
+      maxPromptChars: 200, gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const r = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(r.ok, r.reason).toBe(true)
+    const shown = svc.show({ runId: r.runId })
+    if (!shown.ok) throw new Error('show failed')
+    const proposals = (shown.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals: { proposal_id: string }[] }).proposals
+    expect(proposals.map((p) => p.proposal_id).sort()).toEqual(['DUP', 'DUP-2'])
+    const fan = shown.artifacts.find((a) => a.name === 'fanout-report')?.data as { provenance: { proposalId: string; folder: string }[] }
+    // provenance references the de-duplicated ids (DUP / DUP-2), one per folder
+    expect(fan.provenance.map((x) => x.proposalId).sort()).toEqual(['DUP', 'DUP-2'])
+    expect(fan.provenance.map((x) => x.folder).sort()).toEqual(['A', 'B'])
+  })
+
   test('a failed worker is skipped; the run still completes from the others', async () => {
     // unit A returns INVALID json → that worker throws (parse fail) → skipped; unit B succeeds.
     const outputs = [

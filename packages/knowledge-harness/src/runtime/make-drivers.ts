@@ -206,14 +206,18 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // raw/project-docs, or materialize off) → single-shot over all sources, identical to legacy.
       const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
       const units = (plan?.units ?? []).filter((u) => u.docSourceIds.length > 0)
-      const proposals: KhNodeProposal[] = []
-      // Folder provenance: which folder each proposal came from. The siloed workers can't see other
-      // folders, so the LEAD reducer uses this to link nodes ACROSS folders (spec §7.1).
-      const provenance: Array<{ proposalId: string; folder: string }> = []
-      const fanout = { units: units.length, ran: 0, skipped: [] as Array<{ unit: string; reason: string }>, provenance }
+      // Each proposal tagged with the folder it came from (undefined in the single-shot path), so folder
+      // provenance can be built AFTER de-duplication keeps proposal ids aligned.
+      const tagged: Array<{ p: KhNodeProposal; folder?: string }> = []
+      const fanout = {
+        units: units.length, ran: 0, skipped: [] as Array<{ unit: string; reason: string }>,
+        // Folder provenance: which folder each proposal came from. The siloed workers can't see other
+        // folders, so the LEAD reducer uses this to link nodes ACROSS folders (spec §7.1). Filled below.
+        provenance: [] as Array<{ proposalId: string; folder: string }>,
+      }
 
       if (units.length === 0) {
-        proposals.push(...await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
+        for (const p of await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`)) tagged.push({ p })
       } else {
         // Out-of-repo context (ancestor CLAUDE.md/AGENTS.md, project memory) is project-wide governance —
         // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
@@ -235,8 +239,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         for (const r of results) {
           if (r.empty) continue
           if (r.error !== undefined) { fanout.skipped.push({ unit: r.unit.label, reason: r.error }); continue }
-          for (const p of r.proposals ?? []) provenance.push({ proposalId: p.proposal_id, folder: r.unit.label })
-          proposals.push(...(r.proposals ?? []))
+          for (const p of r.proposals ?? []) tagged.push({ p, folder: r.unit.label })
           fanout.ran++
         }
         if (fanout.ran === 0) {
@@ -245,11 +248,14 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         }
       }
 
+      // dedupe first: separate folder workers can emit colliding proposal_id/node.id (no-op single-shot).
+      // Order-preserving, so the deduped ids stay index-aligned with `tagged` → provenance uses the FINAL ids.
+      const deduped = dedupeProposalIds(tagged.map((t) => t.p))
+      fanout.provenance = deduped.flatMap((p, i) => tagged[i].folder ? [{ proposalId: p.proposal_id, folder: tagged[i].folder! }] : [])
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
       // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
       // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
-      // dedupe first: separate folder workers can emit colliding proposal_id/node.id (no-op single-shot).
-      const data = { proposals: normalizeEvidencePaths(dedupeProposalIds(proposals), srcs) }
+      const data = { proposals: normalizeEvidencePaths(deduped, srcs) }
       // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
       // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
       const report = policy.check(data.proposals)
