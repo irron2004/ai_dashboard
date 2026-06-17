@@ -1077,6 +1077,22 @@ export function pickNodeArtifact(arts: HarnessRunArtifact[], node: GraphNodeRef)
   return pick(viewable) ?? pick(arts)
 }
 
+/** Resolve a clicked graph node to a real staged-doc relPath. Returns undefined for non-node targets so
+ * callers can fall back to project-file reads. */
+export function resolveStagedRel(
+  node: GraphNodeRef,
+  entries: ReadonlyArray<{ relPath: string; nodeId?: string }>,
+): string | undefined {
+  const stemOf = (s: string): string => s.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
+  const byNodeId = new Map(entries.filter((e) => e.nodeId).map((e) => [e.nodeId as string, e.relPath]))
+  const byStem = new Map(entries.map((e) => [stemOf(e.relPath), e.relPath]))
+  const id = node.id.replace(/^(artifact|file|task|evidence|run|document|node):/, '')
+  const path = (node.data as { path?: string } | undefined)?.path?.replace(/^vault-staging[\\/]/, '')
+  return byNodeId.get(id)
+    ?? (path ? (byStem.get(stemOf(path)) ?? byNodeId.get(stemOf(path))) : undefined)
+    ?? byStem.get(id)
+}
+
 /** 진행 상태(KhState) → 구조도 단계. 실행 중 현재 단계 하이라이트와 본문 스테퍼가 같은 매핑을 쓴다. */
 export function stageForState(state: KhState): StructureStageId {
   switch (state) {

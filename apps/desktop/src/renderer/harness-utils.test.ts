@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData } from './harness-utils.js'
+import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, resolveStagedRel } from './harness-utils.js'
 import type { HarnessRunArtifact, HarnessRunBundle } from './harness-utils.js'
 
 const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
@@ -143,5 +143,30 @@ describe('pickNodeArtifact', () => {
     // id-target 'architecture' substring-matches BOTH paths; viewable pool (the .md) must win.
     const hit = pickNodeArtifact(artsWithRaw, { id: 'document:architecture' })
     expect(hit?.name).toBe('wiki-architecture')
+  })
+})
+
+describe('resolveStagedRel', () => {
+  const entries = [
+    { relPath: 'nodes/decision.real.md', nodeId: 'decision.real' },
+    { relPath: 'nodes/concept_x.md', nodeId: 'concept.x' },
+  ]
+
+  test('task-style id + data.path=nodes/<node_id>.md resolves by path stem', () => {
+    expect(resolveStagedRel({ id: 'task:prop-1', label: 'x', data: { path: 'nodes/decision.real.md' } }, entries))
+      .toBe('nodes/decision.real.md')
+  })
+
+  test('node with no data.path resolves by node_id', () => {
+    expect(resolveStagedRel({ id: 'decision.real', label: 'x' }, entries)).toBe('nodes/decision.real.md')
+  })
+
+  test('leading vault-staging/ prefix is stripped before matching', () => {
+    expect(resolveStagedRel({ id: 'n', data: { path: 'vault-staging/nodes/concept_x.md' } }, entries))
+      .toBe('nodes/concept_x.md')
+  })
+
+  test('a non-node project doc returns undefined so caller can use disk fallback', () => {
+    expect(resolveStagedRel({ id: 'document:plan', data: { path: 'docs/plan.md' } }, entries)).toBeUndefined()
   })
 })

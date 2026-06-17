@@ -3,6 +3,7 @@ import { api } from '../api.js'
 import { useStore } from '../store.js'
 import {
   artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, isMarkdownArtifact, pickNodeArtifact,
+  resolveStagedRel,
   type GraphNodeRef, type HarnessRunBundle,
 } from '../harness-utils.js'
 import { GraphVisualization } from './GraphVisualization.js'
@@ -13,8 +14,8 @@ type Mode = 'docs' | 'graph'
 /** 트리/뷰어가 가리키는 문서: run 아티팩트 · 디스크의 md · staging의 생성된 노드(검수중). */
 type DocRef = { kind: 'artifact'; path: string } | { kind: 'file'; relPath: string } | { kind: 'staged'; relPath: string }
 const nodeIdOf = (rel: string): string => rel.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
-/** 그래프 노드 미리보기. relPath가 있으면 디스크 폴백으로 연 파일(→ 문서 모드로 점프 가능). */
-type Peek = { title: string; relPath?: string; markdown?: string; error?: string }
+/** 그래프 노드 미리보기. relPath가 있으면 문서 모드로 점프 가능하다. */
+type Peek = { title: string; relPath?: string; docKind?: 'file' | 'staged'; markdown?: string; error?: string }
 
 function latestWikiRun(runs: HarnessRunBundle[]): HarnessRunBundle | null {
   return runs.find((r) => ['MERGED', 'HUMAN_REVIEW_REQUIRED', 'VALIDATED'].includes(r.runState.state)) ?? runs[0] ?? null
@@ -144,7 +145,8 @@ export function KnowledgeView() {
     // Write-plan ops carry the staging-relative path WITH a leading `vault-staging/` (e.g.
     // `vault-staging/nodes/x.md`); readStagedDoc already resolves under <run>/vault-staging, so strip
     // that prefix or it doubles to <run>/vault-staging/vault-staging/... and every draft reads as missing.
-    const nodePath = (node.data as { path?: string } | undefined)?.path?.replace(/^vault-staging[\\/]/, '')
+    const stagedRel = resolveStagedRel(node, nodeDocs)
+    const nodePath = stagedRel ?? (node.data as { path?: string } | undefined)?.path?.replace(/^vault-staging[\\/]/, '')
     if (!nodePath || !/\.(md|mdx|txt)$/i.test(nodePath)) {
       setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
       return
@@ -158,13 +160,13 @@ export function KnowledgeView() {
         try {
           const staged = await api.harnessReadStagedDoc({ runId, relPath: nodePath })
           if (reqId !== peekReq.current) return
-          if (staged.ok) { setPeek({ title, relPath: nodePath, markdown: staged.content }); return }
+          if (staged.ok) { setPeek({ title, relPath: nodePath, docKind: stagedRel ? 'staged' : 'file', markdown: staged.content }); return }
         } catch { /* staging channel unavailable (e.g. dev hot-reload) — fall through to disk */ }
       }
       if (selectedProjectId) {
         const res = await api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath })
         if (reqId !== peekReq.current) return
-        if (res.ok && res.content !== undefined) { setPeek({ title, relPath: nodePath, markdown: res.content }); return }
+        if (res.ok && res.content !== undefined) { setPeek({ title, relPath: nodePath, docKind: 'file', markdown: res.content }); return }
         setPeek({ title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
         return
       }
@@ -175,7 +177,7 @@ export function KnowledgeView() {
   const openPeekAsDoc = (p: Peek) => {
     setMode('docs')
     if (p.relPath) {
-      setSelectedDoc({ kind: 'file', relPath: p.relPath })
+      setSelectedDoc({ kind: p.docKind === 'staged' ? 'staged' : 'file', relPath: p.relPath })
     } else {
       const hit = run ? pickNodeArtifact(run.artifacts, { id: `document:${p.title}`, label: p.title }) : undefined
       if (hit) setSelectedDoc({ kind: 'artifact', path: hit.path })

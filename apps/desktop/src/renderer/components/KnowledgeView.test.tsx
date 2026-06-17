@@ -23,7 +23,10 @@ vi.mock('../api.js', () => ({
 
 vi.mock('./GraphVisualization.js', () => ({
   GraphVisualization: ({ onNodeClick }: { onNodeClick: (n: { id: string; label?: string; data?: unknown }) => void }) => (
-    <button onClick={() => onNodeClick({ id: 'document:plan', label: 'plan', data: { path: 'docs/plan.md' } })}>GRAPH-STUB</button>
+    <>
+      <button onClick={() => onNodeClick({ id: 'document:plan', label: 'plan', data: { path: 'docs/plan.md' } })}>GRAPH-STUB</button>
+      <button onClick={() => onNodeClick({ id: 'decision.real', label: 'Real Title' })}>GRAPH-NODE</button>
+    </>
   ),
 }))
 
@@ -98,6 +101,27 @@ describe('KnowledgeView', () => {
     expect(await screen.findByText('staged draft body')).toBeDefined()
     expect(harnessReadStagedDoc).toHaveBeenCalledWith({ runId: 'RUN-w', relPath: 'docs/plan.md' })
     expect(fsReadDoc).not.toHaveBeenCalled()   // staging hit → no disk fallback
+  })
+
+  test('graph staged node resolves by node_id and 문서로 열기 keeps staged reader', async () => {
+    harnessListStagedDocs.mockResolvedValueOnce({ docs: [
+      { relPath: 'nodes/decision.real.md', isNode: true, nodeId: 'decision.real', nodeType: 'DecisionNode', title: 'Real Title' },
+    ] } as never)
+    harnessReadStagedDoc
+      .mockResolvedValueOnce({ ok: true, content: '# Real Title\n\npeek body' } as never)
+      .mockResolvedValueOnce({ ok: true, content: '# Real Title\n\ndoc body' } as never)
+    render(<KnowledgeView />)
+    await screen.findByText(/진짜 노드 1개/)
+    fireEvent.click(screen.getByRole('button', { name: '그래프' }))
+    fireEvent.click(await screen.findByText('GRAPH-NODE'))
+    expect(await screen.findByText('peek body')).toBeDefined()
+    expect(harnessReadStagedDoc).toHaveBeenCalledWith({ runId: 'RUN-w', relPath: 'nodes/decision.real.md' })
+
+    fireEvent.click(screen.getByRole('button', { name: /문서로 열기/ }))
+    await waitFor(() => expect(harnessReadStagedDoc).toHaveBeenCalledTimes(2))
+    expect(harnessReadStagedDoc).toHaveBeenLastCalledWith({ runId: 'RUN-w', relPath: 'nodes/decision.real.md' })
+    expect(await screen.findByText('doc body')).toBeDefined()
+    expect(fsReadDoc).not.toHaveBeenCalled()
   })
 
   test('그래프 peek → 문서로 열기 jumps to the disk file in 문서 mode', async () => {
