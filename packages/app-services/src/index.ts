@@ -4,6 +4,7 @@ export * from './current-promotion-service.js'
 export * from './generate-service.js'
 export * from './harness-promote-service.js'
 export * from './harness-service.js'
+export * from './staged-docs.js'
 export * from './harness-cli.js'
 export { materializeProjectDocs, type MaterializeManifest, type RemoteDocFetcher } from './source-materializer.js'
 export {
