@@ -8,12 +8,14 @@ const fsReadDoc = vi.fn(async () => ({ ok: true, content: '# from disk' }))
 const fsListDocs = vi.fn(async () => ({ docs: [{ relPath: 'docs/plan.md', mtimeMs: 1 }] }))
 // default: no staged draft → graph clicks fall through to the disk read
 const harnessReadStagedDoc = vi.fn(async () => ({ ok: false, reason: 'no staging' }))
+const harnessListStagedDocs = vi.fn(async () => ({ docs: [] as Array<{ relPath: string; isNode: boolean; nodeId?: string; nodeType?: string; title?: string }> }))
 vi.mock('../api.js', () => ({
   api: new Proxy({}, {
     get: (_t, prop) => {
       if (prop === 'fsReadDoc') return (...a: unknown[]) => fsReadDoc(...a as [])
       if (prop === 'fsListDocs') return (...a: unknown[]) => fsListDocs(...a as [])
       if (prop === 'harnessReadStagedDoc') return (...a: unknown[]) => harnessReadStagedDoc(...a as [])
+      if (prop === 'harnessListStagedDocs') return (...a: unknown[]) => harnessListStagedDocs(...a as [])
       return vi.fn(async () => ({ ok: true }))
     },
   }),
@@ -56,6 +58,28 @@ describe('KnowledgeView', () => {
     fireEvent.click(await screen.findByText('docs/plan.md'))
     await waitFor(() => expect(fsReadDoc).toHaveBeenCalledWith({ projectId: 'p1', relPath: 'docs/plan.md' }))
     expect(await screen.findByText('from disk')).toBeDefined()
+  })
+
+  test('docs tree shows only real nodes from staging and hides stubs', async () => {
+    harnessListStagedDocs.mockResolvedValueOnce({ docs: [
+      { relPath: 'nodes/decision.real.md', isNode: true, nodeId: 'decision.real', nodeType: 'DecisionNode', title: 'Real Title' },
+      { relPath: 'nodes/old-stub.md', isNode: false },
+    ] } as never)
+    render(<KnowledgeView />)
+    expect(await screen.findByRole('button', { name: /Real Title/ })).toBeDefined()
+    expect(screen.queryByRole('button', { name: /old-stub/ })).toBeNull()
+    expect(screen.getByText(/진짜 노드 1개/)).toBeDefined()
+  })
+
+  test('clicking a real staged node loads it via harnessReadStagedDoc', async () => {
+    harnessListStagedDocs.mockResolvedValueOnce({ docs: [
+      { relPath: 'nodes/decision.real.md', isNode: true, nodeId: 'decision.real', nodeType: 'DecisionNode', title: 'Real Title' },
+    ] } as never)
+    harnessReadStagedDoc.mockResolvedValueOnce({ ok: true, content: '# Real Title\n\nbody' } as never)
+    render(<KnowledgeView />)
+    fireEvent.click(await screen.findByRole('button', { name: /Real Title/ }))
+    await waitFor(() => expect(harnessReadStagedDoc).toHaveBeenCalledWith({ runId: 'RUN-w', relPath: 'nodes/decision.real.md' }))
+    expect(await screen.findByText('body')).toBeDefined()
   })
 
   test('그래프 mode: node click opens peek with disk fallback when no artifact matches', async () => {

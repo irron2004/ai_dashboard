@@ -7,6 +7,7 @@ import {
 } from '../harness-utils.js'
 import { GraphVisualization } from './GraphVisualization.js'
 import { MarkdownContent } from './MarkdownContent.js'
+import type { StagedDocDto } from '../../shared/ipc-contract.js'
 
 type Mode = 'docs' | 'graph'
 /** 트리/뷰어가 가리키는 문서: run 아티팩트 · 디스크의 md · staging의 생성된 노드(검수중). */
@@ -17,6 +18,14 @@ type Peek = { title: string; relPath?: string; markdown?: string; error?: string
 
 function latestWikiRun(runs: HarnessRunBundle[]): HarnessRunBundle | null {
   return runs.find((r) => ['MERGED', 'HUMAN_REVIEW_REQUIRED', 'VALIDATED'].includes(r.runState.state)) ?? runs[0] ?? null
+}
+
+function runStateLabel(state: string | undefined): string {
+  if (!state) return '상태 없음'
+  if (state === 'HUMAN_REVIEW_REQUIRED') return '검수중'
+  if (state === 'MERGED') return '병합됨'
+  if (state === 'VALIDATED') return '검증됨'
+  return state.replace(/_/g, ' ')
 }
 
 export function KnowledgeView() {
@@ -34,19 +43,20 @@ export function KnowledgeView() {
   const runId = run?.runState.runId
   const wikiArtifacts = useMemo(() => (run?.artifacts ?? []).filter(isMarkdownArtifact), [run])
   const graphData = useMemo(() => buildHarnessGraphData(run), [run])
-  // The actual generated wiki nodes (staging md). Prefer what was really written (applied-write-report);
-  // fall back to one doc per proposal. These are the browsable, [[link]]-navigable documents.
-  const stagedDocs = useMemo(() => {
-    const applied = (run?.artifacts.find((a) => a.name === 'applied-write-report')?.data as { applied?: string[] } | undefined)?.applied ?? []
-    let docs = applied.filter((p) => /\.md$/i.test(p))
-    if (docs.length === 0) {
-      const props = (run?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: { node?: { id?: string } }[] } | undefined)?.proposals ?? []
-      docs = props.map((p) => p.node?.id).filter((id): id is string => !!id).map((id) => `nodes/${id}.md`)
-    }
-    return Array.from(new Set(docs)).sort()
-  }, [run])
-  // node id (filename stem) → staging relPath, so a [[node-id]] click can jump to the right doc.
-  const stagedById = useMemo(() => new Map(stagedDocs.map((rel) => [nodeIdOf(rel), rel])), [stagedDocs])
+  // Actual staged docs listed from disk, not inferred from reports. Only frontmatter'd docs are real nodes.
+  const [stagedEntries, setStagedEntries] = useState<StagedDocDto[]>([])
+  useEffect(() => {
+    if (!runId) { setStagedEntries([]); return }
+    let stale = false
+    void api.harnessListStagedDocs({ runId })
+      .then((res) => { if (!stale) setStagedEntries(res.docs ?? []) })
+      .catch(() => { if (!stale) setStagedEntries([]) })
+    return () => { stale = true }
+  }, [runId])
+  const nodeDocs = useMemo(() => stagedEntries.filter((e) => e.isNode), [stagedEntries])
+  const byNodeId = useMemo(() => new Map(nodeDocs.filter((e) => e.nodeId).map((e) => [e.nodeId as string, e.relPath])), [nodeDocs])
+  const byStem = useMemo(() => new Map(nodeDocs.map((e) => [nodeIdOf(e.relPath), e.relPath])), [nodeDocs])
+  const nodeTitleByRel = useMemo(() => new Map(nodeDocs.map((e) => [e.relPath, e.title ?? nodeIdOf(e.relPath)])), [nodeDocs])
   // While a run is generating, prefer the LIVE stream graph (nodes appear folder-by-folder); the richer
   // artifact graph takes over once the run finishes.
   const liveActive = harnessLoading && harnessLiveNodes.length > 0
@@ -91,6 +101,7 @@ export function KnowledgeView() {
     if (!runId || selectedDoc?.kind !== 'staged') return
     const relPath = selectedDoc.relPath
     let stale = false
+    setStagedContent(null)
     void api.harnessReadStagedDoc({ runId, relPath }).then((res) => {
       if (stale) return
       setStagedContent(res.ok ? { relPath, content: res.content } : { relPath, error: res.reason ?? '읽기 실패' })
@@ -110,13 +121,13 @@ export function KnowledgeView() {
     : (loadedFile && 'content' in loadedFile ? loadedFile.content : null)
   const viewerTitle = selectedArtifact
     ? artifactLabel(selectedArtifact.name)
-    : selectedDoc?.kind === 'staged' ? nodeIdOf(selectedDoc.relPath)
+    : selectedDoc?.kind === 'staged' ? nodeTitleByRel.get(selectedDoc.relPath) ?? nodeIdOf(selectedDoc.relPath)
     : selectedDoc?.kind === 'file' ? selectedDoc.relPath : wikiArtifacts[0] ? artifactLabel(wikiArtifacts[0].name) : '문서를 선택하세요'
   const fallbackMarkdown = !selectedDoc && wikiArtifacts[0] ? artifactToMarkdown(wikiArtifacts[0]) : null
 
   const openWikiLink = (target: string) => {
     // [[node-id]] → the matching generated wiki node (so the rendered graph is navigable like a wiki).
-    const stagedRel = stagedById.get(target) ?? stagedById.get(nodeIdOf(target))
+    const stagedRel = byNodeId.get(target) ?? byStem.get(target) ?? byStem.get(nodeIdOf(target))
     if (stagedRel) { setSelectedDoc({ kind: 'staged', relPath: stagedRel }); return }
     const hit = run ? pickNodeArtifact(run.artifacts, { id: `document:${target}`, label: target }) : undefined
     if (hit) setSelectedDoc({ kind: 'artifact', path: hit.path })
@@ -179,6 +190,7 @@ export function KnowledgeView() {
           <button type="button" aria-pressed={mode === 'docs'} className={mode === 'docs' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('docs')}>문서</button>
           <button type="button" aria-pressed={mode === 'graph'} className={mode === 'graph' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('graph')}>그래프</button>
         </div>
+        <span className="knowledge__trust">진짜 노드 {nodeDocs.length}개 · {runStateLabel(run?.runState.state)}</span>
         {liveActive && (
           <span className="knowledge__live" title="생성 중 — 노드가 폴더별로 추가됩니다">
             <span className="knowledge__live-dot" /> 생성 중 · {harnessLiveNodes.length}개 노드
@@ -189,13 +201,13 @@ export function KnowledgeView() {
       {mode === 'docs' ? (
         <div className="knowledge__docs">
           <aside className="knowledge__tree panel">
-            <div className="knowledge__tree-group">🧩 노드 (생성됨{run?.runState.state === 'HUMAN_REVIEW_REQUIRED' ? ' · 검수중' : ''})</div>
-            {stagedDocs.length === 0 && <div className="knowledge__tree-empty">아직 노드 없음 — ⚙ Wiki Gen에서 생성</div>}
-            {stagedDocs.map((rel) => (
-              <button key={rel} type="button"
-                className={selectedDoc?.kind === 'staged' && selectedDoc.relPath === rel ? 'knowledge__tree-item knowledge__tree-item--on' : 'knowledge__tree-item'}
-                onClick={() => setSelectedDoc({ kind: 'staged', relPath: rel })}>
-                {nodeIdOf(rel)}
+            <div className="knowledge__tree-group">노드</div>
+            {nodeDocs.length === 0 && <div className="knowledge__tree-empty">아직 노드 없음 — ⚙ Wiki Gen에서 생성</div>}
+            {nodeDocs.map((entry) => (
+              <button key={entry.relPath} type="button"
+                className={selectedDoc?.kind === 'staged' && selectedDoc.relPath === entry.relPath ? 'knowledge__tree-item knowledge__tree-item--on' : 'knowledge__tree-item'}
+                onClick={() => setSelectedDoc({ kind: 'staged', relPath: entry.relPath })}>
+                {entry.nodeType && <span className="knowledge__tree-type">{entry.nodeType}</span>} {entry.title ?? nodeIdOf(entry.relPath)}
               </button>
             ))}
             {wikiArtifacts.length > 0 && <div className="knowledge__tree-group">리포트</div>}
