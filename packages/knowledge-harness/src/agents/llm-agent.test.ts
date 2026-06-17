@@ -63,6 +63,16 @@ describe('LlmAgent failure + cwd', () => {
     expect(String(err)).toContain('TAIL_REAL_ERROR')
   })
 
+  test('surfaces the engine JSON error (e.g. claude 429 session limit) over shell noise', async () => {
+    // claude --output-format json reports the real failure in stdout; stderr here is just shell noise.
+    const claudeJson = JSON.stringify({ type: 'result', is_error: true, api_error_status: 429, result: "You've hit your session limit · resets 9am (UTC)" })
+    const failing: AgentRunner = { run: async () => ({ ok: false, output: claudeJson, raw: claudeJson, stderr: 'bash: no job control in this shell' }) }
+    const err = await tinyAgent().run({ runner: failing, engine: 'claude', input: {} }).catch((e: Error) => e)
+    expect(String(err)).toContain('session limit')
+    expect(String(err)).toContain('HTTP 429')
+    expect(String(err)).not.toContain('no job control')
+  })
+
   test('prefers stderr over raw when present', async () => {
     const failing: AgentRunner = { run: async () => ({ ok: false, output: '', raw: 'file-listing-noise', stderr: 'codex: not authenticated' }) }
     const err = await tinyAgent().run({ runner: failing, engine: 'codex', input: {} }).catch((e: Error) => e)

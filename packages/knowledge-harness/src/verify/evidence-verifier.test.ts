@@ -43,11 +43,12 @@ describe('EvidenceVerifier', () => {
     expect(r.unverifiable[0].reason).toBe('source_not_found')
   })
 
-  test('flags a quote that is not present in the source', () => {
+  test('a non-verbatim quote is a non-blocking WARNING (source is real; field allows a summary)', () => {
     writeFileSync(join(vault, 'raw', 'a.jsonl'), 'totally unrelated text')
     const r = ev.verify([proposal([{ source_path: 'raw/a.jsonl', quote_or_summary: 'a quote that is absent' }])], vault)
-    expect(r.ok).toBe(false)
-    expect(r.unverifiable[0].reason).toBe('quote_not_found')
+    expect(r.ok).toBe(true)                       // does NOT fail the run
+    expect(r.unverifiable).toEqual([])            // not a blocking finding
+    expect(r.warnings[0].reason).toBe('quote_not_found') // surfaced for human review
   })
 
   test('flags a non-raw source path (evidence must cite immutable raw/)', () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { listMarkdown, isCanonical, isRaw, resolveInside } from './vault-fs.js'
 
 describe('vault-fs', () => {
@@ -14,7 +14,23 @@ describe('vault-fs', () => {
     writeFileSync(join(dir, 'a', 'x.md'), '#')
     writeFileSync(join(dir, 'y.txt'), 'no')
     expect(listMarkdown(join(dir, 'nope'))).toEqual([])
-    expect(listMarkdown(dir).map(p => p.replace(dir + '/', ''))).toContain('a/x.md')
+    // listMarkdown returns OS-native absolute paths (back-slashes on Windows); normalize the separator
+    // before comparing so the assertion holds on every platform this app ships to.
+    expect(listMarkdown(dir).map(p => p.slice(dir.length + 1).split(sep).join('/'))).toContain('a/x.md')
+  })
+
+  test('listMarkdown excludes raw/ source docs and infra trees (validators see only generated wiki)', () => {
+    writeFileSync(join(dir, 'current.md'), '#')                                   // wiki
+    mkdirSync(join(dir, 'concepts'), { recursive: true })
+    writeFileSync(join(dir, 'concepts', 'n1.md'), '#')                            // wiki
+    mkdirSync(join(dir, 'raw', 'project-docs', '0', 'A'), { recursive: true })
+    writeFileSync(join(dir, 'raw', 'project-docs', '0', 'A', 'README.md'), '[[plan/x]]') // source → excluded
+    mkdirSync(join(dir, 'vault-staging', 'wiki'), { recursive: true })
+    writeFileSync(join(dir, 'vault-staging', 'wiki', 'stale.md'), '#')            // leaked staging → excluded
+    mkdirSync(join(dir, 'node_modules', 'pkg'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'pkg', 'readme.md'), '#')             // infra → excluded
+    const rels = listMarkdown(dir).map(p => p.slice(dir.length + 1).split(sep).join('/')).sort()
+    expect(rels).toEqual(['concepts/n1.md', 'current.md'])
   })
 
   test('isCanonical matches current.md / PRD.md / ADR-*.md anywhere in the path', () => {

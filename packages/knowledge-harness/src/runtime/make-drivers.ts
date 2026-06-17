@@ -1,13 +1,17 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import { resolveInside } from './vault-fs.js'
-import { SourceReader } from './source-reader.js'
+import { resolveInside, isRaw } from './vault-fs.js'
+import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
+import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
+import type { SourceLedger } from './source-ledger.js'
+import { normalizeEvidencePaths } from './evidence-normalize.js'
+import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidence } from './merge-proposals.js'
 import { EvidenceVerifier } from '../verify/evidence-verifier.js'
 import {
   KhWritePlanSchema, KhSecretScanReportSchema,
-  type KhState, type AgentType, type KhNodeProposal,
+  type KhState, type AgentType, type KhNodeProposal, type KhWritePlan, type KhGraphUpdatePlan, type KhGraphEdgeOp,
 } from '@apc/shared'
-import type { AgentRunner } from '@apc/llm-wiki'
+import type { AgentRunner, EngineOptions } from '@apc/llm-wiki'
 import type { Driver, RunnerContext } from './harness-runner.js'
 import { StagingVault } from '../staging/staging-vault.js'
 import { ObsidianWikiWriter } from '../agents/obsidian-wiki-writer.js'
@@ -22,6 +26,7 @@ import {
   makeProjectDiscovery, makeConversationHistoryReader, makeDocumentIntentClassifier,
   makeKnowledgeNodeExtractor, makeWikiGraphLead,
 } from '../agents/index.js'
+import { renderNodeDoc } from '../agents/render-node-doc.js'
 
 export type DriverDeps = {
   runner: AgentRunner
@@ -32,11 +37,55 @@ export type DriverDeps = {
   /** Per-LLM-step timeout (ms). Agentic CLI steps (project-discovery, node-extractor via claude-opus)
    * routinely exceed the old 180s default and got SIGKILLed mid-run; default 600s gives headroom. */
   stepTimeoutMs?: number
+  /** Char budget for the serialized sources embedded in the reader/extractor prompt — sized to the
+   *  engine/model's token context window. Defaults to DEFAULT_MAX_PROMPT_SOURCE_CHARS. */
+  maxPromptChars?: number
+  /** Per-harness engine tuning (model/reasoning/permission) → CLI flags on every agent call. */
+  engineOptions?: EngineOptions
+  /** Max folder workers to run concurrently in NODE_PROPOSALS_CREATED. Default 1 (sequential — safest
+   *  for engines with strict rate/session limits). Raise to parallelize independent folders. */
+  workerConcurrency?: number
+  /** Optional idempotency ledger. When present, sources already processed (same id + content hash)
+   *  for the project are skipped, making re-requested/resumed generation incremental. The "processed"
+   *  mark is written at PROMOTE (committed), not at HUMAN_REVIEW — an unpromoted run must NOT consume
+   *  sources, or the next run skips them and the wiki silently shrinks. */
+  sourceLedger?: SourceLedger
+  /** Force a full regenerate: process EVERY source, ignoring the ledger (the UI's "전체 재생성"). */
+  ignoreLedger?: boolean
+  /** Timestamp source for ledger records. Defaults to ISO-now. */
+  now?: () => string
+  /** Optional live node stream: invoked with the node previews from each folder worker (and the
+   *  single-shot extractor) AS they complete during NODE_PROPOSALS_CREATED, so the UI can show the
+   *  knowledge graph building up mid-run. Best-effort — never gates or fails the run. */
+  onNodesDiscovered?: (ev: LiveNodesEvent) => void
   // Phase 3 will add: policy, validators
+}
+
+/** A folder worker's freshly-extracted nodes, surfaced for incremental display. `folder` is the work
+ *  unit label (or 'all' for the single-shot fallback); ids are pre-dedupe previews, not final graph ids. */
+export type LiveNodesEvent = { folder: string; nodes: Array<{ id: string; title: string; type: string; scope: string }> }
+
+/** Map raw proposals to the minimal node preview the live stream carries. */
+function liveNodesOf(proposals: KhNodeProposal[]): LiveNodesEvent['nodes'] {
+  return proposals.map((p) => ({
+    id: String(p.node?.id ?? p.proposal_id),
+    title: String(p.node?.title ?? p.node?.id ?? p.proposal_id),
+    type: String(p.node?.type ?? 'ConceptNode'),
+    scope: String(p.node?.scope ?? 'project'),
+  }))
 }
 
 /** Default per-step LLM timeout — 10 min. Overridable via DriverDeps.stepTimeoutMs. */
 const DEFAULT_STEP_TIMEOUT_MS = 600_000
+
+/** Default char budget for the serialized `sources` embedded in a reader/extractor prompt. Bounded not
+ *  by codex's hard 1,048,576-CHAR input limit (a budget of 800K passed that) but by the model's TOKEN
+ *  context window: gpt-5.5 via codex with xhigh reasoning rejected ~200K-token (≈800K-char) input with
+ *  "ran out of room in the model's context window". ~200K chars ≈ ~50K tokens leaves ample room for the
+ *  rest of the prompt + the model's reasoning reserve, across engines. Overridable per run via
+ *  DriverDeps.maxPromptChars (engines/models with larger windows can raise it). Sources beyond the
+ *  budget are dropped (and show as uncovered in the coverage report). See budgetSourcesForPrompt. */
+export const DEFAULT_MAX_PROMPT_SOURCE_CHARS = 200_000
 
 /**
  * Canonical artifact base names (#17). The writer (driver return `name`) and the reader (artifactByName
@@ -48,6 +97,8 @@ export const ARTIFACTS = {
   projectDiscovery: 'project-discovery-report',
   conversationHistory: 'conversation-history-report',
   documentIntent: 'document-intent-report',
+  folderPlan: 'folder-plan',
+  fanoutReport: 'fanout-report',
   nodeProposals: 'node-proposals',
   policyReport: 'policy-report',
   evidenceVerification: 'evidence-verification-report',
@@ -57,6 +108,7 @@ export const ARTIFACTS = {
   leadWritePlan: 'lead-write-plan',
   writePlan: 'write-plan',
   appliedWriteReport: 'applied-write-report',
+  writeSanitize: 'write-plan-sanitize-report',
   gitDiffReport: 'git-diff-report',
   graphValidation: 'graph-validation-report',
   markdownYamlValidation: 'markdown-yaml-validation-report',
@@ -66,9 +118,118 @@ export const ARTIFACTS = {
   evalReport: 'eval-report',
   coverageReport: 'coverage-report',
   finalReport: 'final-report',
+  processedSources: 'processed-sources',
 } as const
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
+
+/**
+ * Run `fn` over `items` with at most `limit` concurrent in flight, returning results in INPUT order.
+ * `limit <= 1` is plain sequential. A throwing `fn` rejects the whole call — callers needing per-item
+ * error handling must catch inside `fn`. Used to parallelize independent folder workers.
+ */
+export async function runPool<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) results[i] = await fn(items[i], i)
+  }
+  const lanes = Math.max(1, Math.min(Math.floor(limit) || 1, items.length || 1))
+  await Promise.all(Array.from({ length: lanes }, worker))
+  return results
+}
+
+export type FolderFanoutResult = {
+  /** Deduped proposals in unit order (workers can emit colliding ids). */
+  proposals: KhNodeProposal[]
+  /** proposal_id → folder, aligned to the FINAL (deduped) ids — for the lead's cross-folder reduce. */
+  provenance: Array<{ proposalId: string; folder: string }>
+  ran: number
+  skipped: Array<{ unit: string; reason: string }>
+}
+
+/**
+ * Fan a folder-unit list across at most `concurrency` workers, accumulate proposals in unit order,
+ * de-duplicate ids across workers, and build folder provenance aligned to the final ids. A unit with no
+ * docs is skipped silently; a unit whose worker throws is recorded in `skipped` (not fatal — user
+ * decision). Pure given `unitDocs`/`extractUnit` (no LLM or harness state) → directly unit-testable.
+ */
+export async function runFolderWorkers(
+  units: WorkUnit[],
+  unitDocs: (u: WorkUnit) => SourceDoc[],
+  concurrency: number,
+  extractUnit: (docs: SourceDoc[], u: WorkUnit) => Promise<KhNodeProposal[]>,
+  onUnitProposals?: (proposals: KhNodeProposal[], u: WorkUnit) => void,
+): Promise<FolderFanoutResult> {
+  type UnitResult = { unit: WorkUnit; proposals?: KhNodeProposal[]; error?: string; empty?: true }
+  const results = await runPool<WorkUnit, UnitResult>(units, concurrency, async (u) => {
+    const docs = unitDocs(u)
+    if (!docs.length) return { unit: u, empty: true }
+    try {
+      const proposals = await extractUnit(docs, u)
+      // Emit this folder's nodes the moment they land — drives the mid-run incremental graph. A throwing
+      // listener must not corrupt the fan-out, so failures here are swallowed.
+      try { onUnitProposals?.(proposals, u) } catch { /* live stream is best-effort */ }
+      return { unit: u, proposals }
+    }
+    catch (e) { return { unit: u, error: e instanceof Error ? e.message : String(e) } }
+  })
+  const tagged: Array<{ p: KhNodeProposal; folder: string }> = []
+  const skipped: Array<{ unit: string; reason: string }> = []
+  let ran = 0
+  for (const r of results) {
+    if (r.empty) continue
+    if (r.error !== undefined) { skipped.push({ unit: r.unit.label, reason: r.error }); continue }
+    for (const p of r.proposals ?? []) tagged.push({ p, folder: r.unit.label })
+    ran++
+  }
+  // Order-preserving dedupe keeps deduped ids index-aligned with `tagged`, so provenance uses final ids.
+  const proposals = dedupeProposalIds(tagged.map((t) => t.p))
+  const provenance = proposals.map((p, i) => ({ proposalId: p.proposal_id, folder: tagged[i].folder }))
+  return { proposals, provenance, ran, skipped }
+}
+
+/**
+ * Drop write ops that would author a NON-markdown file (e.g. the lead occasionally emits its own
+ * graph-update / shared-promotion plans as `.json` files under inbox/) — instead of failing the whole
+ * run on PolicyGuard's `non_markdown_write`. The wiki is markdown-only and those plans are already
+ * persisted as run artifacts, so the op is pure noise. Raw-path writes, deletes, and secret-bearing
+ * bodies are deliberately LEFT for PolicyGuard to hard-block — those are dangerous, not noise. Returns
+ * the cleaned plan + the dropped ops (surfaced as an artifact so the exclusion is visible).
+ */
+export function sanitizeWritePlan(
+  plan: KhWritePlan,
+): { plan: KhWritePlan; dropped: Array<{ op: string; path: string; reason: string }> } {
+  const dropped: Array<{ op: string; path: string; reason: string }> = []
+  const operations = plan.operations.filter((op) => {
+    const authoring = op.op === 'create_file' || op.op === 'append_section'
+    if (authoring && !isRaw(op.path) && !/\.md$/i.test(op.path)) {
+      dropped.push({ op: op.op, path: op.path, reason: 'non_markdown_write' })
+      return false
+    }
+    return true
+  })
+  return { plan: { ...plan, operations }, dropped }
+}
+
+/**
+ * Drop graph edges whose endpoints aren't real nodes (a self-loop, or a from/to the lead invented that
+ * isn't among the created node_ops or the proposals) — a dangling edge would render against a phantom
+ * node and corrupt the graph. Keeps the well-formed edges; returns the cleaned plan + dropped count.
+ */
+export function pruneGraphEdges(
+  plan: KhGraphUpdatePlan,
+  validNodeIds: Iterable<string>,
+): { plan: KhGraphUpdatePlan; dropped: number } {
+  const valid = new Set(validNodeIds)
+  let dropped = 0
+  const edge_ops = (plan.edge_ops ?? []).filter((e) => {
+    const ok = e.from_node_id !== e.to_node_id && valid.has(e.from_node_id) && valid.has(e.to_node_id)
+    if (!ok) dropped++
+    return ok
+  })
+  return { plan: { ...plan, edge_ops }, dropped }
+}
 
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
  *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
@@ -94,11 +255,22 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const policy = new PolicyGuard()
   const evidenceVerifier = new EvidenceVerifier()
   const sources = new SourceReader(deps.vaultRoot)
+  const ledger = deps.sourceLedger
+  // The sources this run should work on: all raw/ docs minus those the ledger already recorded as
+  // processed (unchanged) for this project. Without a ledger — or with ignoreLedger (전체 재생성) — this is
+  // every source. Recomputed per call so every consuming step (reader, extractor, coverage) sees the same
+  // set within a run (the ledger isn't written mid-run, so it doesn't shift).
+  const freshSources = (projectId: string): SourceDoc[] => {
+    const all = sources.read()
+    return ledger && !deps.ignoreLedger ? all.filter((s) => !ledger.isProcessed(projectId, s.source_id, s.hash)) : all
+  }
+
   const secrets = new SecretScanner()
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
   const links = new ObsidianLinkValidator()
-  const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS }
+  const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS, engineOptions: deps.engineOptions }
+  const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_SOURCE_CHARS
 
   return {
     PROJECT_SCANNED: async (ctx) => {
@@ -107,50 +279,123 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     SOURCES_EXTRACTED: async (ctx) => {
-      // A1: materialize the real raw/ source text so the reader reasons over actual content, not just the
-      // (LLM-generated) discovery report.
+      // The reader summarizes CONVERSATION sessions — scope it to conversation sources (spec §7.3). Project
+      // docs are handled per-folder by the extractor workers, so feeding all docs here is both the wrong
+      // scope and a window-overflow risk (the step that previously failed). Workers still get this summary.
+      const convSources = freshSources(ctx.projectId).filter((s) => isConversationSource(s.source_path))
       const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
-        sources: sources.read(),
+        sources: budgetSourcesForPrompt(convSources, maxPromptChars).sources,
       } })
       return { artifacts: [{ name: ARTIFACTS.conversationHistory, data }] }
     },
 
     DOCUMENTS_CLASSIFIED: async (ctx) => {
       const data = await classifier.run({ ...run, engine: engineOf(ctx), label: `DOCUMENTS_CLASSIFIED-${classifier.name}`, input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery) } })
-      return { artifacts: [{ name: ARTIFACTS.documentIntent, data }] }
+      // PM router (spec §4): partition project docs into folder-aligned, window-sized work units. Emitted
+      // for visibility now; the NODE_PROPOSALS_CREATED fan-out consumes it next phase.
+      const folderPlan = planFolders(freshSources(ctx.projectId), maxPromptChars)
+      return { artifacts: [
+        { name: ARTIFACTS.documentIntent, data },
+        { name: ARTIFACTS.folderPlan, data: folderPlan },
+      ] }
     },
 
     NODE_PROPOSALS_CREATED: async (ctx) => {
-      const data = await extractor.run({ ...run, engine: engineOf(ctx), label: `NODE_PROPOSALS_CREATED-${extractor.name}`, input: {
-        history: artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory),
-        intents: artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent),
-        sources: sources.read(),  // A1: extractor cites paths/quotes from real source text
-      } })
-      // PolicyGuard checkpoint (design §4): block evidence-less / shared-without-2-evidence proposals
-      // BEFORE the Lead merges them. A blocking violation throws → the run records FAILED.
+      const srcs = freshSources(ctx.projectId)  // A1: extractor cites paths/quotes from real source text
+      const history = artifactByName(ctx, 'SOURCES_EXTRACTED', ARTIFACTS.conversationHistory)
+      const intents = artifactByName(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.documentIntent)
+      const byId = new Map(srcs.map((s) => [s.source_id, s]))
+
+      // Run one extractor call over a source subset (a folder work unit, or all sources in the single-shot
+      // fallback). The budget is the worker's last-resort guard; with folder units it rarely truncates.
+      const extractOver = async (sources: SourceDoc[], label: string): Promise<KhNodeProposal[]> => {
+        const raw = await extractor.run({ ...run, engine: engineOf(ctx), label, input: {
+          history, intents, sources: budgetSourcesForPrompt(sources, maxPromptChars).sources,
+        } })
+        return raw.proposals as KhNodeProposal[]
+      }
+
+      // PM worker fan-out (spec §5): one worker per folder unit. No usable plan (e.g. sources not under
+      // raw/project-docs, or materialize off) → single-shot over all sources, identical to legacy.
+      const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
+      const units = (plan?.units ?? []).filter((u) => u.docSourceIds.length > 0)
+      let proposals: KhNodeProposal[]
+      const fanout = {
+        units: units.length, ran: 0,
+        skipped: [] as Array<{ unit: string; reason: string }>,
+        provenance: [] as Array<{ proposalId: string; folder: string }>,
+      }
+
+      if (units.length === 0) {
+        proposals = dedupeProposalIds(await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
+        try { deps.onNodesDiscovered?.({ folder: 'all', nodes: liveNodesOf(proposals) }) } catch { /* best-effort */ }
+      } else {
+        // Out-of-repo context (ancestor CLAUDE.md/AGENTS.md, project memory) is project-wide governance —
+        // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
+        // single-shot fallback that used to surface it no longer runs in fan-out mode).
+        const contextSources = srcs.filter((s) => isContextSource(s.source_path))
+        const res = await runFolderWorkers(
+          units,
+          (u) => u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s),
+          deps.workerConcurrency ?? 1,
+          (docs, u) => extractOver([...docs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`),
+          (unitProposals, u) => deps.onNodesDiscovered?.({ folder: u.label, nodes: liveNodesOf(unitProposals) }),
+        )
+        if (res.ran === 0) {
+          throw new Error(`all ${units.length} folder worker(s) failed: ` +
+            res.skipped.map((s) => `${s.unit}: ${s.reason}`).join(' | '))
+        }
+        proposals = res.proposals
+        fanout.ran = res.ran; fanout.skipped = res.skipped; fanout.provenance = res.provenance
+      }
+
+      // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
+      // absolutes); rewrite each evidence path to its materialized raw/ copy so it resolves locally.
+      // normalize sees the FULL source set so cited paths map regardless of which unit produced them.
+      const normalized = normalizeEvidencePaths(proposals, srcs)
+      // A2: deterministic evidence verification. A non-existent/escaping source = unverifiable (a real raw
+      // source is the hard guarantee); a non-verbatim quote is a warning. Instead of failing the run on a
+      // few unverifiable citations (a worker can cite a remote file we didn't materialize), PRUNE the
+      // unverifiable evidence and drop any now-unsupported proposal — the verified majority still flows.
+      const evidence = evidenceVerifier.verify(normalized, deps.vaultRoot)
+      const pruned = pruneUnverifiableEvidence(normalized, evidence.unverifiable)
+      // demote AFTER pruning: a 'shared' proposal that dropped below 2 evidence becomes 'project' (the lead
+      // re-promotes it from the merged cross-folder view) rather than tripping PolicyGuard's shared floor.
+      const data = { proposals: demoteUnderEvidencedShared(pruned.proposals) }
+      // PolicyGuard checkpoint (design §4): the cleaned set must still satisfy the deterministic rules
+      // (no_evidence, shared floor, secrets). A block here is a genuine violation, not citation noise.
       const report = policy.check(data.proposals)
       if (!report.ok) {
         throw new Error(`PolicyGuard blocked ${report.blocked_proposal_ids.length} proposal(s): ` +
           report.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id}:${v.rule}`).join(', '))
       }
-      // A2: deterministic evidence verification — every declared evidence must resolve to a real raw source
-      // (and its quote, if any, must be present). Fabricated evidence is a hard stop, like no-evidence.
-      const evidence = evidenceVerifier.verify(data.proposals, deps.vaultRoot)
-      if (!evidence.ok) {
-        throw new Error(`EvidenceVerifier blocked ${evidence.unverifiable.length} evidence item(s): ` +
-          evidence.unverifiable.map(u => `${u.proposal_id}/${u.evidence_id}:${u.reason}`).join(', '))
-      }
       return { artifacts: [
         { name: ARTIFACTS.nodeProposals, data }, { name: ARTIFACTS.policyReport, data: report },
-        { name: ARTIFACTS.evidenceVerification, data: evidence },
+        { name: ARTIFACTS.evidenceVerification, data: evidence }, { name: ARTIFACTS.fanoutReport, data: fanout },
       ] }
     },
 
     LEAD_MERGED: async (ctx) => {
-      const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: { proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals) } })
+      // PM reducer (spec §7.1): the lead sees ALL folder workers' proposals + their folder provenance,
+      // so it can merge duplicates AND create edges across folders the siloed workers couldn't see.
+      const fan = artifactByName<{ provenance?: Array<{ proposalId: string; folder: string }> }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.fanoutReport)
+      const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
+      const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
+      const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: {
+        proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals),
+        folders: plan?.units.map((u) => u.label),
+        provenance: fan?.provenance,
+      } })
+      // Keep only edges whose endpoints are real nodes (created here or proposed). A dangling edge from a
+      // hallucinated id would draw against a phantom node — drop it rather than corrupt the graph.
+      const validNodeIds = [
+        ...out.graph_update_plan.node_ops.map((o) => o.node_id),
+        ...proposals.map((p) => p.node?.id).filter((id): id is string => !!id),
+      ]
+      const { plan: graphPlan } = pruneGraphEdges(out.graph_update_plan, validNodeIds)
       return { artifacts: [
-        { name: ARTIFACTS.graphUpdatePlan, data: out.graph_update_plan },
+        { name: ARTIFACTS.graphUpdatePlan, data: graphPlan },
         { name: ARTIFACTS.sharedPromotionPlan, data: out.shared_promotion_plan },
         { name: ARTIFACTS.staleDocReport, data: out.stale_doc_report },
         { name: ARTIFACTS.leadWritePlan, data: out.write_plan },  // cached for WRITE_PLAN_CREATED (no 2nd LLM call)
@@ -163,12 +408,36 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     STAGING_WRITTEN: async (ctx) => {
-      const plan = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
-      // Pre-staging blocking gate (#21/#22/#26, #24): re-run PolicyGuard with the write plan and HALT before
-      // touching the staging vault if any op would write to raw/, delete, author a non-.md file, or carry a
-      // secret in its body. Scanning the op bodies HERE (not just the files at VALIDATED) means a secret or
-      // raw/non-md write is refused before it is ever authored — not flagged after the fact.
+      const parsed = KhWritePlanSchema.parse(artifactByName(ctx, 'WRITE_PLAN_CREATED', ARTIFACTS.writePlan))
       const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
+      const graphPlan = artifactByName<KhGraphUpdatePlan>(ctx, 'LEAD_MERGED', ARTIFACTS.graphUpdatePlan)
+
+      // Author each node document DETERMINISTICALLY from its proposal (+ the lead's edges/narrative). The
+      // LLM only emits one-line stub descriptions, so rendering here is what produces a real, frontmatter'd,
+      // [[link]]-connected wiki. Replace any node-targeting op the lead wrote with the rendered one, and
+      // keep the lead's canonical-doc ops.
+      const edgesByFrom = new Map<string, KhGraphEdgeOp[]>()
+      for (const e of graphPlan?.edge_ops ?? []) edgesByFrom.set(e.from_node_id, [...(edgesByFrom.get(e.from_node_id) ?? []), e])
+      const narrativeOf = new Map((graphPlan?.node_ops ?? []).map((o) => [o.node_id, o.narrative]))
+      const nodeDocOps = proposals
+        .filter((p) => p.node?.id)
+        .map((p) => ({
+          op: 'create_file' as const,
+          path: `nodes/${p.node.id}.md`,
+          content: renderNodeDoc(p, { narrative: narrativeOf.get(p.node.id) || undefined, outgoing: edgesByFrom.get(p.node.id) }),
+          source_proposal: p.proposal_id,
+        }))
+      const isNodeOp = (o: { op: string; path: string }) =>
+        (o.op === 'create_file' || o.op === 'append_section') && /(^|\/)nodes\/.+\.md$/i.test(o.path)
+      const authored = KhWritePlanSchema.parse({ ...parsed, operations: [...nodeDocOps, ...parsed.operations.filter((o) => !isNodeOp(o))] })
+
+      // Then sanitize: drop non-markdown authoring ops (e.g. the lead's own plan JSONs written into inbox/)
+      // — noise that would otherwise trip non_markdown_write and fail the whole run.
+      const { plan, dropped } = sanitizeWritePlan(authored)
+      // Pre-staging blocking gate (#21/#22/#26): re-run PolicyGuard with the CLEANED write plan and HALT
+      // before touching the staging vault if any op would write to raw/, delete, or carry a secret in its
+      // body. Scanning the op bodies HERE (not just the files at VALIDATED) means a dangerous write is
+      // refused before it is ever authored — not flagged after the fact.
       const gate = policy.check(proposals, plan)
       if (!gate.ok) {
         throw new Error(`PolicyGuard blocked the write plan before staging: ` +
@@ -179,10 +448,12 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const applied = writer.apply(plan, staging)
       const patch = staging.diff()
       ctx.store.writeFile('diff.patch', patch)  // top-level deliverable (design §6.2)
-      return { artifacts: [
+      const artifacts: Array<{ name: string; data: unknown }> = [
         { name: ARTIFACTS.appliedWriteReport, data: applied },
         { name: ARTIFACTS.gitDiffReport, data: { patch } },
-      ] }
+      ]
+      if (dropped.length) artifacts.push({ name: ARTIFACTS.writeSanitize, data: { dropped } })
+      return { artifacts }
     },
 
     VALIDATED: async (ctx) => {
@@ -231,7 +502,14 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         applied,
         secretScanFindings: secretReport?.findings.length ?? 0,
       })
-      const coverage = buildCoverageReport(sources.read().map((s) => s.source_path), proposals)
+      // Generation reached human review → this run's sources are "processed". Record them so a
+      // re-requested/resumed run skips them (and re-does only changed ones). Mark BEFORE building
+      // coverage (over the same set). The sources this run consumed are recorded as an artifact — NOT
+      // marked processed in the ledger yet. Marking happens at PROMOTE (HarnessService.promote): an
+      // unpromoted run must not consume sources, or the next run skips them and the wiki silently shrinks.
+      const consumed = freshSources(ctx.projectId)
+      const processedSources = { sources: consumed.map((s) => ({ sourceId: s.source_id, sourceHash: s.hash })) }
+      const coverage = buildCoverageReport(consumed.map((s) => s.source_path), proposals)
       const finalReport = [
         `# Harness Run ${ctx.runId}`,
         ``,
@@ -246,6 +524,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         { name: ARTIFACTS.evalReport, data: evalReport },
         { name: ARTIFACTS.coverageReport, data: coverage },
         { name: ARTIFACTS.finalReport, data: { markdown: finalReport } },
+        { name: ARTIFACTS.processedSources, data: processedSources },
       ] }
     },
   }

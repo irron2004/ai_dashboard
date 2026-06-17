@@ -232,6 +232,28 @@ describe('IPC handlers (no Electron)', () => {
     expect((bad as { ok: boolean }).ok).toBe(false)
   })
 
+  test('c:harnessListStagedDocs lists real staged nodes through the IPC handler', async () => {
+    const harnessRoot = mkdtempSync(join(tmpdir(), 'apc-harness-list-'))
+    try {
+      const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: join(harnessRoot, 'vault'), harnessRunsRoot: join(harnessRoot, 'runs') })
+      const h = handlers(c2)
+      const dir = join(harnessRoot, 'runs', 'RUN-1', 'vault-staging', 'nodes')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        join(dir, 'decision.real.md'),
+        '---\nnode_id: decision.real\nnode_type: DecisionNode\n---\n# Real Title\n\nbody',
+      )
+      writeFileSync(join(dir, 'old-stub.md'), 'DecisionNode markdown stub one-liner.')
+
+      const res = await h[CH.harnessListStagedDocs]({ runId: 'RUN-1' }) as { docs: Array<{ relPath: string; isNode: boolean; nodeId?: string }> }
+      expect(res.docs.find((d) => d.relPath === 'nodes/decision.real.md'))
+        .toMatchObject({ isNode: true, nodeId: 'decision.real' })
+      expect(res.docs.find((d) => d.relPath === 'nodes/old-stub.md')).toMatchObject({ isNode: false })
+    } finally {
+      rmSync(harnessRoot, { recursive: true, force: true })
+    }
+  })
+
   test('q:fsListDocs lists docs from existing repo roots', async () => {
     const repo = mkdtempSync(join(tmpdir(), 'apc-repo-'))
     writeFileSync(join(repo, 'notes.md'), 'n')
@@ -288,5 +310,42 @@ describe('IPC handlers (no Electron)', () => {
     const res = await h[CH.changesDiff]({ projectId: 'missing', relPath: 'x.md' }) as { ok: boolean; reason?: string }
     expect(res.ok).toBe(false)
     expect(res.reason).toBe('project not found')
+  })
+
+  test('c:harnessProposePolicy routes to container.harnessProposePolicy', async () => {
+    let called = false
+    let calledWith: unknown = undefined
+    const fakeContainer = {
+      ...container,
+      harnessProposePolicy: async (req: unknown) => {
+        called = true
+        calledWith = req
+        return { ok: true as const }
+      },
+    }
+    const h = handlers(fakeContainer as any)
+    const payload = { projectId: 'p1', engine: 'claude' as const }
+    const res = await h[CH.harnessProposePolicy](payload)
+    expect(called).toBe(true)
+    expect(calledWith).toEqual(payload)
+    expect((res as { ok: boolean }).ok).toBe(true)
+  })
+
+  test('c:harnessProposePolicy rejects an unknown engine (strict parse)', async () => {
+    const h = handlers(container as any)
+    await expect(h[CH.harnessProposePolicy]({ projectId: 'p1', engine: 'evil' })).rejects.toThrow()
+  })
+
+  test.each([
+    ['harnessApprovePolicy', CH.harnessApprovePolicy, 'harnessApprovePolicy'],
+    ['harnessGetPolicy', CH.harnessGetPolicy, 'harnessGetPolicy'],
+    ['harnessRevertPolicy', CH.harnessRevertPolicy, 'harnessRevertPolicy'],
+  ] as const)('%s routes {projectId} to its container method', async (_name, channel, method) => {
+    let calledWith: unknown = undefined
+    const fakeContainer = { ...container, [method]: (req: unknown) => { calledWith = req; return { ok: true as const } } }
+    const h = handlers(fakeContainer as any)
+    const res = await h[channel]({ projectId: 'p1' })
+    expect(calledWith).toEqual({ projectId: 'p1' })
+    expect((res as { ok: boolean }).ok).toBe(true)
   })
 })

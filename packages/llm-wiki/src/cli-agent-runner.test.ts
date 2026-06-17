@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
@@ -149,8 +149,13 @@ describe('CliAgentRunner (real process)', () => {
     vi.doUnmock('node:child_process')
     vi.resetModules()
     const { CliAgentRunner: RealRunner } = await import('./cli-agent-runner.js')
+    // Drive the script from a file, not `node -e "..."`: on Windows the runner spawns with shell:true
+    // (for .cmd shims), and cmd.exe mangles the inner double-quotes of an -e script. A file path in
+    // argv has no such quoting hazard, so this exercises the cwd-fallback logic cross-platform.
+    const scriptFile = join(realpathSync(mkdtempSync(join(tmpdir(), 'cwd-test-'))), 'echo-ok.cjs')
+    writeFileSync(scriptFile, 'process.stdout.write("ok")')
     const runner = new RealRunner({
-      codex: { command: process.execPath, args: ['-e', 'process.stdout.write("ok")'] },
+      codex: { command: process.execPath, args: [scriptFile] },
     })
     const res = await runner.run({ agent: 'codex', prompt: '', timeoutMs: 10_000, cwd: '/no/such/dir/xyz-does-not-exist' })
     expect(res.ok).toBe(true)

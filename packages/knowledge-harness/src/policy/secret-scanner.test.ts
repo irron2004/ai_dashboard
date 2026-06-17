@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { SecretScanner } from './secret-scanner.js'
+import { SecretScanner, redactSecrets } from './secret-scanner.js'
 
 const scanner = new SecretScanner()
 
@@ -77,6 +77,9 @@ describe('SecretScanner', () => {
       'access_token field stores the bearer value',
       'release_token: build_2024_candidate',
       'client_secret: lowercase_only_value',
+      // a word ending in "sk" before a dashed slug must NOT look like an OpenAI key (\b guard)
+      'raw/project-docs/0/.sisyphus/evidence/task-1-executable-inventory.md',
+      'the risk-1-2-3-mitigation-plan-2026 covers everything',
     ]) {
       expect(scanner.scan(benign, 'doc.md'), benign).toEqual([])
     }
@@ -85,5 +88,14 @@ describe('SecretScanner', () => {
   test('reports every occurrence per rule (global), not just the first', () => {
     const f = scanner.scan('AKIAIOSFODNN7EXAMPL1 and AKIAIOSFODNN7EXAMPL2', 'src')
     expect(f.filter(x => x.rule === 'aws_access_key_id')).toHaveLength(2)
+  })
+})
+
+describe('redactSecrets', () => {
+  test('masks real secrets but leaves benign text (incl. task-* paths) intact', () => {
+    expect(redactSecrets('key=sk-abcdefghij0123456789ABCDEFGHIJ here')).not.toContain('sk-abcdefghij0123456789ABCDEFGHIJ')
+    expect(redactSecrets('see raw/.sisyphus/evidence/task-1-executable-inventory.md'))
+      .toBe('see raw/.sisyphus/evidence/task-1-executable-inventory.md') // unchanged — not a secret
+    expect(scanner.scan(redactSecrets('token AKIAIOSFODNN7EXAMPLE end'))).toEqual([]) // redacted → no longer scans
   })
 })

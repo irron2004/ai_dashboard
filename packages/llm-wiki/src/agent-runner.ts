@@ -1,4 +1,5 @@
 import type { AgentType } from '@apc/shared'
+import type { EngineOptions } from './engine-options.js'
 
 export type ChunkStream = 'stdout' | 'stderr'
 
@@ -9,6 +10,8 @@ export type RunInput = {
   cwd?: string
   /** 로그 디렉터리·진행 이벤트용 호출 식별자, 예: 'PROJECT_SCANNED-project-discovery'. */
   label?: string
+  /** per-harness 엔진 튜닝(모델/reasoning/권한 등) → CLI 플래그. 미설정 시 엔진 기본값. */
+  engineOptions?: EngineOptions
   /** 하위 러너가 출력 도착 즉시 호출 (스트리밍 로그·live tail용). */
   onChunk?: (stream: ChunkStream, text: string) => void
 }

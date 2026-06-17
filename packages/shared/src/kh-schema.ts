@@ -177,6 +177,28 @@ export const KhProjectDiscoveryReportSchema = z.object({
 })
 export type KhProjectDiscoveryReport = z.infer<typeof KhProjectDiscoveryReportSchema>
 
+export const KhProjectPolicyProposalSchema = z.object({
+  project_id: z.string(),
+  generated_by: z.string(),
+  project_character: z.string().default(''),
+  node_type_priorities: z.array(z.object({
+    node_type: z.string(),
+    rationale: z.string().default(''),
+  })).default([]),
+  canonical_definition: z.string().default(''),
+  scan_scope_notes: z.string().default(''),
+  tailoring_markdown: z.string().default(''),
+  // Top-level rationale = the advisor's overall "why this policy" (provenance, surfaced in the review
+  // UI, NOT injected into the preamble). Distinct from the per-item rationale inside
+  // node_type_priorities (why THAT node type) and from tailoring_markdown (content that IS injected).
+  rationale: z.string().default(''),
+  evidence: z.array(z.object({
+    signal: z.string(),
+    detail: z.string().default(''),
+  })).default([]),
+})
+export type KhProjectPolicyProposal = z.infer<typeof KhProjectPolicyProposalSchema>
+
 export const KhSourceInventoryReportSchema = z.object({
   generated_by: z.string(),
   sources: z.array(z.object({
@@ -209,6 +231,22 @@ export const KhDocumentIntentReportSchema = z.object({
 })
 export type KhDocumentIntentReport = z.infer<typeof KhDocumentIntentReportSchema>
 
+/** A typed relationship between two knowledge nodes — the edges that make the graph a graph (not a bag of
+ *  isolated nodes). The lead emits these to connect nodes ACROSS folders the siloed workers couldn't link. */
+export const KhGraphEdgeKind = z.enum([
+  'relates_to', 'depends_on', 'supersedes', 'part_of', 'contradicts', 'derived_from', 'evidence_for',
+])
+export type KhGraphEdgeKind = z.infer<typeof KhGraphEdgeKind>
+
+export const KhGraphEdgeOpSchema = z.object({
+  op: z.enum(['create', 'remove']).default('create'),
+  from_node_id: z.string().min(1),
+  to_node_id: z.string().min(1),
+  type: KhGraphEdgeKind.default('relates_to'),
+  note: z.string().default(''),
+})
+export type KhGraphEdgeOp = z.infer<typeof KhGraphEdgeOpSchema>
+
 export const KhGraphUpdatePlanSchema = z.object({
   created_by: z.string(),
   node_ops: z.array(z.object({
@@ -216,7 +254,12 @@ export const KhGraphUpdatePlanSchema = z.object({
     node_id: z.string().min(1),
     based_on_proposals: z.array(z.string()).default([]),
     note: z.string().default(''),
+    // Optional human-facing prose the lead adds for this node — woven into the deterministically-rendered
+    // node document as a context paragraph (the body itself is rendered from the proposal, not the LLM).
+    narrative: z.string().default(''),
   })).default([]),
+  // Relationships between nodes. Defaults to [] so prior runs' plans still parse.
+  edge_ops: z.array(KhGraphEdgeOpSchema).default([]),
 })
 export type KhGraphUpdatePlan = z.infer<typeof KhGraphUpdatePlanSchema>
 
@@ -288,15 +331,20 @@ export const KhMarkdownYamlValidationReportSchema = z.object({
 export type KhMarkdownYamlValidationReport = z.infer<typeof KhMarkdownYamlValidationReportSchema>
 
 // A2 (Step 5): deterministic verification that declared evidence resolves to a real raw source.
+const KhEvidenceFindingSchema = z.object({
+  proposal_id: z.string(),
+  evidence_id: z.string(),
+  source_path: z.string(),
+  reason: z.enum(['source_not_found', 'quote_not_found', 'path_escape']),
+})
 export const KhEvidenceVerificationReportSchema = z.object({
   generated_by: z.string().default('evidence-verifier'),
   ok: z.boolean().default(true),
-  unverifiable: z.array(z.object({
-    proposal_id: z.string(),
-    evidence_id: z.string(),
-    source_path: z.string(),
-    reason: z.enum(['source_not_found', 'quote_not_found', 'path_escape']),
-  })).default([]),
+  // BLOCKING: the cited source itself is invalid (missing / non-raw / path escape) → fabricated evidence.
+  unverifiable: z.array(KhEvidenceFindingSchema).default([]),
+  // NON-BLOCKING: source is real but the quote_or_summary isn't a verbatim substring (LLMs paraphrase /
+  // the field explicitly allows a SUMMARY). Surfaced for human review, but does not fail the run.
+  warnings: z.array(KhEvidenceFindingSchema).default([]),
 })
 export type KhEvidenceVerificationReport = z.infer<typeof KhEvidenceVerificationReportSchema>
 

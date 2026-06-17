@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
-import { RunLock, RunArtifactStore } from '@apc/knowledge-harness'
+import { RunLock, RunArtifactStore, readPolicy, resolveProjectPreamble, writeProposedPolicy, approvePolicy } from '@apc/knowledge-harness'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession } from '@apc/shared'
+import { KhProjectPolicyProposalSchema, RunStateSchema } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
 
 // repo root from packages/app-services/src/
@@ -67,28 +68,78 @@ describe('HarnessService', () => {
     expect(service().show({ runId: 'NOPE' })).toEqual({ ok: false, reason: 'run not found: NOPE' })
   })
 
+  // I2: the headline safety wiring — an APPROVED policy reaches every agent prompt during a real run,
+  // with the governance base preamble preserved AND the tailoring appended (never the other way round).
+  test('an approved policy injects base preamble + tailoring into every run agent prompt', async () => {
+    const vaultRoot = join(ws, 'vault')
+    writeProposedPolicy(vaultRoot, 'p1', KhProjectPolicyProposalSchema.parse({
+      project_id: 'p1', generated_by: 'a', node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'r' }],
+    }), () => '2026-06-02T00:00:00Z')
+    approvePolicy(vaultRoot, 'p1', () => '2026-06-02T00:00:00Z')
+
+    const prompts: string[] = []
+    const inner = new FakeAgentRunner(cannedOutputs())
+    const runner: AgentRunner = { run: (req) => { prompts.push(req.prompt); return inner.run(req) } }
+    const svc = new HarnessService({ runner, vaultRoot, runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z' })
+
+    await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(prompts.length).toBeGreaterThan(0)
+    // base governance ('RULES') and the approved tailoring both ride in EVERY agent prompt
+    expect(prompts.every((p) => p.includes('RULES') && p.includes('ExperimentNode'))).toBe(true)
+  })
+
+  // M1: latestDiscovery reuses an existing PROJECT_SCANNED artifact instead of running discovery again.
+  // We queue ONLY the advisor output (1) — if discovery were re-run it would consume it and the advisor
+  // would get nothing (→ ok:false). ok:true proves the prior artifact was reused.
+  test('proposeWikiPolicy reuses a prior run\'s PROJECT_SCANNED artifact', async () => {
+    const runDir = join(ws, 'runs', 'RUN-2026-01-01T00-00-00-000Z')
+    const store = new RunArtifactStore(runDir)
+    store.init()
+    const rel = store.writeArtifact('PROJECT_SCANNED', 'discovery', { project_id: 'p1', generated_by: 'discovery', topics: ['reuse-me'] })
+    store.saveRunState(RunStateSchema.parse({ runId: 'RUN-2026-01-01T00-00-00-000Z', projectId: 'p1', engine: 'claude', state: 'PROJECT_SCANNED', artifacts: { PROJECT_SCANNED: [rel] } }))
+
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner([JSON.stringify({ project_id: 'p1', generated_by: 'wiki-policy-advisor', node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'r' }] })]),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const res = await svc.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    expect(res.ok).toBe(true)   // single queued output sufficed → discovery was reused, not re-run
+    expect(res.proposal?.node_type_priorities[0].node_type).toBe('ExperimentNode')
+  })
+
   // A2 (#1/#7/#34): a proposal citing a source_path that doesn't exist under raw/ fails the run.
-  test('fabricated evidence (source_path not in raw/) → run FAILED', async () => {
+  test('fabricated evidence (source_path not in raw/) is PRUNED, not run-fatal', async () => {
     const proposals = { proposals: [{
       proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
       node: { id: 'n1', type: 'ConceptNode', title: 'T' },
       evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/ghost.jsonl', evidence_type: 'd' }],
       claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
     }] }
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [] },
+    }
     const svc = new HarnessService({
       runner: new FakeAgentRunner([
         JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
         JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
         JSON.stringify({ generated_by: 'classifier', documents: [] }),
         JSON.stringify(proposals),
+        JSON.stringify(lead),
       ]),
       vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'), gatesPath, preamble: 'RULES',
       now: () => '2026-06-02T00:00:00Z',
     })
     const r = await svc.run({ projectId: 'p1', engine: 'claude' })
-    expect(r.ok).toBe(false)
-    expect(r.finalState).toBe('FAILED')
-    expect(r.reason).toContain('EvidenceVerifier')
+    // The run is NOT killed; the un-sourced proposal is excluded and recorded.
+    expect(r.ok, r.reason).toBe(true)
+    expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+    const shown = svc.show({ runId: r.runId })
+    if (!shown.ok) throw new Error('show failed')
+    const nodeProps = shown.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals: unknown[] }
+    expect(nodeProps.proposals).toEqual([]) // pruned (its only evidence was unverifiable)
+    const ev = shown.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as { unverifiable: { reason: string }[] }
+    expect(ev.unverifiable[0].reason).toBe('source_not_found') // still recorded for visibility
   })
 
   // D1: a bundled Electron app cannot reach harness/ via import.meta.url path-walking. Constructing the
@@ -204,17 +255,25 @@ describe('HarnessService', () => {
     expect(r.reason).toMatch(/already in progress/)
   })
 
-  test('a PolicyGuard block surfaces as FAILED with a reason (not dropped)', async () => {
-    // evidence-less proposal → PolicyGuard blocks → run FAILED
+  test('a PolicyGuard block (forbidden write op) surfaces as FAILED with a reason', async () => {
+    // a well-sourced proposal survives, but the lead's write plan has a forbidden delete op → PolicyGuard
+    // blocks before staging and the error propagates end-to-end as FAILED.
     const proposals = { proposals: [{
       proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z',
-      node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [], claims: [],
+      node: { id: 'n1', type: 'ConceptNode', title: 'T' },
+      evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }],
+      claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }],
     }] }
+    const lead = {
+      graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'delete_file', path: 'old.md' }] },
+    }
     const outs = [
       JSON.stringify({ project_id: 'p1', generated_by: 'discovery' }),
       JSON.stringify({ generated_by: 'reader', session_id: 's1' }),
       JSON.stringify({ generated_by: 'classifier', documents: [] }),
       JSON.stringify(proposals),
+      JSON.stringify(lead),
     ]
     const svc = new HarnessService({
       runner: new FakeAgentRunner(outs), vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
@@ -355,5 +414,95 @@ describe('HarnessService conversation materialization', () => {
     const res = await svc.run({ projectId: 'p1', engine: 'codex', materialize: true, repoPaths: [repo] })
     expect(res.runId).toBeTruthy()
     expect(existsSync(join(vaultRoot, 'raw', 'conversations'))).toBe(false)
+  })
+})
+
+describe('HarnessService wiki policy', () => {
+  // FakeAgentRunner returns queued outputs in order. proposeWikiPolicy with no prior
+  // PROJECT_SCANNED artifact runs discovery first, then the advisor — so queue 2 outputs.
+  function svc(outputs: string[]) {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-wp-'))
+    const service = new HarnessService({
+      runner: new FakeAgentRunner(outputs),
+      vaultRoot: join(ws, 'vault'),
+      runsRoot: join(ws, 'runs'),
+      preamble: 'BASE-RULES',
+      now: () => '2026-06-13T00:00:00Z',
+    })
+    return { service, ws, vaultRoot: join(ws, 'vault') }
+  }
+
+  test('proposeWikiPolicy runs discovery+advisor and writes a proposed policy', async () => {
+    const discovery = JSON.stringify({ project_id: 'p1', generated_by: 'discovery', topics: ['backtesting'] })
+    const proposal = JSON.stringify({
+      project_id: 'p1', generated_by: 'wiki-policy-advisor', project_character: 'quant research',
+      node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'backtests' }],
+    })
+    const { service, vaultRoot } = svc([discovery, proposal])
+    const res = await service.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    expect(res.ok).toBe(true)
+    expect(res.proposal?.project_character).toBe('quant research')
+    expect(res.effectivePreview).toContain('BASE-RULES')          // governance on top
+    expect(res.effectivePreview).toContain('ExperimentNode')      // tailoring appended
+    expect(readPolicy(vaultRoot, 'p1')?.status).toBe('proposed')
+  })
+
+  test('approveWikiPolicy makes resolveProjectPreamble inject the tailoring for that project', async () => {
+    const discovery = JSON.stringify({ project_id: 'p1', generated_by: 'discovery' })
+    const proposal = JSON.stringify({
+      project_id: 'p1', generated_by: 'wiki-policy-advisor',
+      node_type_priorities: [{ node_type: 'ExperimentNode', rationale: 'r' }],
+    })
+    const { service, vaultRoot } = svc([discovery, proposal])
+    await service.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    const ap = service.approveWikiPolicy({ projectId: 'p1' })
+    expect(ap.ok).toBe(true)
+    expect(readPolicy(vaultRoot, 'p1')?.status).toBe('approved')
+    // The actual contract: once approved, resolveProjectPreamble injects the tailoring on top of base.
+    const eff = resolveProjectPreamble(vaultRoot, 'p1', 'BASE-RULES')
+    expect(eff.startsWith('BASE-RULES')).toBe(true)
+    expect(eff).toContain('ExperimentNode')
+  })
+
+  test('proposeWikiPolicy surfaces an agent failure as { ok:false, reason } without writing', async () => {
+    const { service, vaultRoot } = svc([])   // empty queue → FakeAgentRunner not-ok
+    const res = await service.proposeWikiPolicy({ projectId: 'p1', engine: 'claude' })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toBeTruthy()
+    expect(readPolicy(vaultRoot, 'p1')).toBeNull()
+  })
+})
+
+describe('HarnessService readStagedDoc', () => {
+  function svc(runsRoot: string) {
+    return new HarnessService({ runner: new FakeAgentRunner([]), vaultRoot: join(runsRoot, '..', 'vault'), runsRoot, preamble: 'RULES' })
+  }
+
+  test('reads a markdown draft from a run vault-staging dir', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    const dir = join(ws, 'runs', 'RUN-1', 'vault-staging', 'concepts')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'x.md'), '# Concept X\nbody')
+    const res = svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/x.md' })
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.content).toContain('Concept X')
+  })
+
+  test('missing staged file → ok:false (never throws)', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    const res = svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/missing.md' })
+    expect(res.ok).toBe(false)
+  })
+
+  test('path escape via relPath or runId is rejected', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    const s = svc(join(ws, 'runs'))
+    expect(s.readStagedDoc({ runId: 'RUN-1', relPath: '../../../etc/passwd.md' }).ok).toBe(false)
+    expect(s.readStagedDoc({ runId: '../../..', relPath: 'x.md' }).ok).toBe(false)
+  })
+
+  test('non-text extension is refused', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-staged-'))
+    expect(svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/x.json' }).ok).toBe(false)
   })
 })

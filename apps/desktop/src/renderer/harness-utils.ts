@@ -1,4 +1,4 @@
-import type { AgentType, KhState, RunState, FeatureGateKey } from '@apc/shared'
+import type { AgentType, KhState, RunState, FeatureGateKey, EngineOptions, ReasoningEffort } from '@apc/shared'
 
 export const HARNESS_STATE_ORDER: KhState[] = [
   'CREATED', 'PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED',
@@ -118,7 +118,32 @@ export type HarnessModelSettings = {
   engine: AgentType
   temperature: number
   maxTokens: number
+  /** Engine CLI tuning (per harness) — empty/undefined means "use the engine default". */
+  model?: string
+  reasoningEffort?: ReasoningEffort
+  sandbox?: EngineOptions['sandbox']
+  approval?: EngineOptions['approval']
+  permissionMode?: EngineOptions['permissionMode']
+  /** Folder workers to run concurrently (NODE_PROPOSALS_CREATED). Undefined/1 = sequential (safe). */
+  workerConcurrency?: number
 }
+
+/** Project the per-harness model settings to the EngineOptions the backend run accepts. Blank strings
+ *  become undefined so they add no CLI flag. */
+export function modelSettingsToEngineOptions(m: HarnessModelSettings): EngineOptions {
+  return {
+    model: m.model?.trim() || undefined,
+    reasoningEffort: m.reasoningEffort,
+    sandbox: m.sandbox,
+    approval: m.approval,
+    permissionMode: m.permissionMode,
+  }
+}
+
+export const REASONING_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
+export const CODEX_SANDBOXES: NonNullable<EngineOptions['sandbox']>[] = ['read-only', 'workspace-write', 'danger-full-access']
+export const CODEX_APPROVALS: NonNullable<EngineOptions['approval']>[] = ['untrusted', 'on-failure', 'on-request', 'never']
+export const CLAUDE_PERMISSION_MODES: NonNullable<EngineOptions['permissionMode']>[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 
 export type HarnessSafetySettings = {
   secretScanSensitivity: 'low' | 'medium' | 'high'
@@ -197,6 +222,29 @@ const DEFAULT_PROMPTS: Record<HarnessAgentPromptKey, string> = {
   knowledgeNodeExtractor: 'Extract node proposals, claims, and evidence without inventing missing support.',
   wikiGraphLead: 'Merge the proposals into a coherent graph and produce a safe write plan.',
   policyGuard: 'Check for evidence, secret exposure, raw writes, and unsafe canonical overwrites.',
+}
+
+/** Folder orchestrator-worker view: the FolderPlan units + the fan-out run report, for the dashboard. */
+export type FanoutSummary = {
+  units: number
+  ran: number
+  skipped: { unit: string; reason: string }[]
+  folders: { label: string; members: string; role?: string }[]
+}
+
+/** Extract the folder-worker summary from a run's artifacts, or null if the run wasn't folder-fanned-out
+ *  (e.g. legacy single-shot, or a run before this feature). Pure — unit-tested. */
+export function readFanoutSummary(artifacts: HarnessRunArtifact[]): FanoutSummary | null {
+  const plan = artifacts.find((a) => a.name === 'folder-plan')?.data as { units?: Array<{ label: string; memberPaths: string[]; role?: string }> } | undefined
+  const fan = artifacts.find((a) => a.name === 'fanout-report')?.data as { units?: number; ran?: number; skipped?: { unit: string; reason: string }[] } | undefined
+  const planUnits = plan?.units ?? []
+  if (!planUnits.length && !fan) return null
+  return {
+    units: fan?.units ?? planUnits.length,
+    ran: fan?.ran ?? 0,
+    skipped: fan?.skipped ?? [],
+    folders: planUnits.map((u) => ({ label: u.label, members: (u.memberPaths ?? []).join(', '), role: u.role })),
+  }
 }
 
 export function createDefaultHarnessConfig(): HarnessConfig {
@@ -665,6 +713,10 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
   })
 
   const linkTargets = new Map<string, Set<string>>()
+  // node.id → graph node id, so graph-update-plan edge_ops (and [[node-id]] wikilinks) can connect the
+  // actual proposal nodes to each other instead of dangling.
+  const nodeIdIndex = new Map<string, string>()
+  const pendingEdges: { from: string; to: string; type: string }[] = []
 
   const registerFile = (path: string, typeHint?: 'concept' | 'decision' | 'experiment' | 'file', details?: string): string => {
     const id = fileNodeId(path)
@@ -680,7 +732,7 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
     return id
   }
 
-  const registerTask = (proposalId: string, label: string, details?: string): string => {
+  const registerTask = (proposalId: string, label: string, details?: string, draftPath?: string): string => {
     const id = taskNodeId(proposalId)
     addNode(nodeMap, {
       id,
@@ -689,6 +741,9 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
       shape: 'diamond',
       color: colorForNode('task'),
       details,
+      // The proposed node's staging draft (the lead authors nodes/<node.id>.md). Carrying it lets a
+      // click on the proposal diamond open the draft for review, not just the file squares.
+      data: draftPath ? { path: draftPath } : undefined,
     })
     return id
   }
@@ -722,7 +777,9 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
       const proposals = asObject(entry.data)?.proposals as Array<any> | undefined
       for (const proposal of proposals ?? []) {
         const proposalId = String(proposal.proposal_id ?? proposal.node?.id ?? cryptoRandomId())
-        const taskId = registerTask(proposalId, String(proposal.node?.title ?? proposalId), String(proposal.node?.type ?? 'proposal'))
+        const draftPath = proposal.node?.id ? `nodes/${String(proposal.node.id)}.md` : undefined
+        const taskId = registerTask(proposalId, String(proposal.node?.title ?? proposalId), String(proposal.node?.type ?? 'proposal'), draftPath)
+        if (proposal.node?.id) nodeIdIndex.set(String(proposal.node.id), taskId)
         addLink(links, { id: `${sourceArtifactId}->${taskId}`, source: sourceArtifactId, target: taskId, kind: 'proposal', label: 'proposal' })
         addLink(links, { id: `run:${run.runId}->${taskId}`, source: `run:${run.runId}`, target: taskId, kind: 'run-task', label: 'run' })
 
@@ -783,6 +840,17 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
       }
     }
 
+    if (entry.name === 'graph-update-plan') {
+      // The lead's typed relationships between nodes — the edges that make this an actual graph. Resolved
+      // to node↔node links after the loop, once every proposal node is indexed by its node.id.
+      const edgeOps = asObject(entry.data)?.edge_ops as Array<any> | undefined
+      for (const e of edgeOps ?? []) {
+        if (e?.op !== 'remove' && e?.from_node_id && e?.to_node_id) {
+          pendingEdges.push({ from: String(e.from_node_id), to: String(e.to_node_id), type: String(e.type ?? 'relates_to') })
+        }
+      }
+    }
+
     if (entry.name === 'final-report') {
       const text = textOf(entry.data) ?? ''
       for (const link of extractWikiLinks(text)) {
@@ -797,14 +865,68 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
     }
   }
 
+  // Resolve a node.id to its graph node; if an edge references an id not among the proposals (a
+  // pre-existing/cross-run node), materialize a lightweight node so the relationship still renders.
+  const resolveNode = (nodeIdOrTarget: string): string => {
+    const hit = nodeIdIndex.get(nodeIdOrTarget)
+    if (hit) return hit
+    const id = `node:${nodeIdOrTarget}`
+    addNode(nodeMap, { id, label: nodeIdOrTarget, type: 'task', shape: 'diamond', color: colorForNode('concept'), details: '그래프 노드', data: { path: `nodes/${nodeIdOrTarget}.md` } })
+    nodeIdIndex.set(nodeIdOrTarget, id)
+    return id
+  }
+
+  // node↔node relationship edges from the graph-update-plan (the real graph topology).
+  for (const e of pendingEdges) {
+    if (e.from === e.to) continue
+    const from = resolveNode(e.from), to = resolveNode(e.to)
+    addLink(links, { id: `rel:${from}->${to}:${e.type}`, source: from, target: to, kind: 'rel', label: e.type })
+  }
+
   for (const [sourceId, targets] of linkTargets.entries()) {
     for (const target of targets) {
+      // A [[wikilink]] whose target is a known node.id becomes a node↔node edge; otherwise a file target.
+      if (nodeIdIndex.has(target)) {
+        const targetId = nodeIdIndex.get(target)!
+        addLink(links, { id: `wiki:${sourceId}->${targetId}`, source: sourceId, target: targetId, kind: 'wiki', label: 'wiki-link' })
+        continue
+      }
       const targetId = registerFile(target, fileTypeFromPath(target), 'wiki link target')
       addLink(links, { id: `${sourceId}->${targetId}`, source: sourceId, target: targetId, kind: 'wiki', label: 'wiki-link' })
     }
   }
 
   return { nodes: [...nodeMap.values()], links }
+}
+
+function liveTypeHint(type: string): 'concept' | 'decision' | 'experiment' | 'task' {
+  const t = type.toLowerCase()
+  if (t.includes('decision')) return 'decision'
+  if (t.includes('experiment')) return 'experiment'
+  if (t.includes('concept')) return 'concept'
+  return 'task'
+}
+
+/** Build a lightweight graph from the LIVE node stream (mid-run, before the node-proposals artifact
+ *  exists): a run node + one task node per discovered proposal, so the Knowledge graph fills in as the
+ *  folder workers complete. Replaced by the full evidence/file graph once the run produces artifacts. */
+export function buildLiveGraphData(
+  runId: string,
+  nodes: Array<{ id: string; title: string; type: string; scope: string }>,
+): HarnessGraphData {
+  const out: HarnessGraphNode[] = []
+  const links: HarnessGraphLink[] = []
+  const runNodeId = `run:${runId}`
+  out.push({ id: runNodeId, label: runId, type: 'run', shape: 'square', color: colorForNode('run'), details: `생성 중 · ${nodes.length}개 노드` })
+  const seen = new Set<string>()
+  for (const n of nodes) {
+    const id = taskNodeId(n.id)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, label: n.title, type: 'task', shape: 'diamond', color: colorForNode(liveTypeHint(n.type)), details: `${n.type} · ${n.scope}` })
+    addLink(links, { id: `${runNodeId}->${id}`, source: runNodeId, target: id, kind: 'run-task', label: 'live' })
+  }
+  return { nodes: out, links }
 }
 
 export function parseUnifiedDiff(patch: string): HarnessDiffFile[] {
@@ -953,6 +1075,22 @@ export function pickNodeArtifact(arts: HarnessRunArtifact[], node: GraphNodeRef)
       ?? (label ? pool.find((a) => artifactLabel(a.name).toLowerCase() === label || base(a.path).replace(/\.md$/i, '').toLowerCase() === label) : undefined)
   }
   return pick(viewable) ?? pick(arts)
+}
+
+/** Resolve a clicked graph node to a real staged-doc relPath. Returns undefined for non-node targets so
+ * callers can fall back to project-file reads. */
+export function resolveStagedRel(
+  node: GraphNodeRef,
+  entries: ReadonlyArray<{ relPath: string; nodeId?: string }>,
+): string | undefined {
+  const stemOf = (s: string): string => s.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
+  const byNodeId = new Map(entries.filter((e) => e.nodeId).map((e) => [e.nodeId as string, e.relPath]))
+  const byStem = new Map(entries.map((e) => [stemOf(e.relPath), e.relPath]))
+  const id = node.id.replace(/^(artifact|file|task|evidence|run|document|node):/, '')
+  const path = (node.data as { path?: string } | undefined)?.path?.replace(/^vault-staging[\\/]/, '')
+  return byNodeId.get(id)
+    ?? (path ? (byStem.get(stemOf(path)) ?? byNodeId.get(stemOf(path))) : undefined)
+    ?? byStem.get(id)
 }
 
 /** 진행 상태(KhState) → 구조도 단계. 실행 중 현재 단계 하이라이트와 본문 스테퍼가 같은 매핑을 쓴다. */

@@ -18,6 +18,7 @@ import { folderPathFor } from './source-discovery.js'
 type SessionRow = {
   id: string
   worktree: string | null
+  directory: string | null
   agent: string | null
   model: string | null
   time_created: number | null
@@ -130,7 +131,7 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
       try {
         const rows = db
           .prepare(
-            `SELECT session.id, project.worktree, session.agent, session.model,
+            `SELECT session.id, project.worktree, session.directory, session.agent, session.model,
                     session.time_created, session.time_updated
                FROM session
                LEFT JOIN project ON project.id = session.project_id
@@ -155,7 +156,9 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
               locator: `${dbPath}#session:${row.id}`,
               sourceDirPath: folderPathFor(dbPath),
               discoveredAt,
-              repoPath: row.worktree ?? undefined,
+              // Prefer the session's actual cwd (directory) over the project worktree (repo root) so a
+              // session matches the narrow project folder the user configured, not just the repo root.
+              repoPath: row.directory ?? row.worktree ?? undefined,
               mtimeMs: timestampToMillis(row.time_updated ?? row.time_created),
             }),
           )
@@ -176,7 +179,7 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
     try {
       const sessionRow = db
         .prepare(
-          `SELECT session.id, project.worktree, session.agent, session.model,
+          `SELECT session.id, project.worktree, session.directory, session.agent, session.model,
                   session.time_created, session.time_updated
              FROM session
              LEFT JOIN project ON project.id = session.project_id
@@ -215,7 +218,7 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
       const session = NormalizedSessionSchema.parse({
         id: sessionRow.id,
         agentType: 'opencode',
-        repoPath: sessionRow.worktree ?? source.repoPath,
+        repoPath: sessionRow.directory ?? sessionRow.worktree ?? source.repoPath,
         startedAt: isoFromUnix(sessionRow.time_created),
         endedAt: isoFromUnix(sessionRow.time_updated),
         sourceDirPath: source.sourceDirPath ?? dirname(dbPath),

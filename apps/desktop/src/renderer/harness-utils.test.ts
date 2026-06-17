@@ -1,6 +1,59 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact } from './harness-utils.js'
-import type { HarnessRunArtifact } from './harness-utils.js'
+import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, resolveStagedRel } from './harness-utils.js'
+import type { HarnessRunArtifact, HarnessRunBundle } from './harness-utils.js'
+
+const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
+
+describe('buildHarnessGraphData', () => {
+  test('a proposal node carries its staging draft path so a click can open it', () => {
+    const bundle = {
+      runState: { runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'HUMAN_REVIEW_REQUIRED', artifacts: {} },
+      artifacts: [artifact('node-proposals', { proposals: [{
+        proposal_id: 'np-1', node: { id: 'attention-collapse', title: 'Attention collapse', type: 'DecisionNode' }, claims: [], evidence: [],
+      }] })],
+      mode: 'full-docs',
+    } as unknown as HarnessRunBundle
+    const task = buildHarnessGraphData(bundle).nodes.find((n) => n.id === 'task:np-1')
+    expect((task?.data as { path?: string } | undefined)?.path).toBe('nodes/attention-collapse.md')
+  })
+
+  test('graph-update-plan edge_ops connect the proposal nodes (node↔node relationships)', () => {
+    const bundle = {
+      runState: { runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'HUMAN_REVIEW_REQUIRED', artifacts: {} },
+      artifacts: [
+        artifact('node-proposals', { proposals: [
+          { proposal_id: 'np-1', node: { id: 'a', title: 'A', type: 'ConceptNode' }, claims: [], evidence: [] },
+          { proposal_id: 'np-2', node: { id: 'b', title: 'B', type: 'DecisionNode' }, claims: [], evidence: [] },
+        ] }),
+        { state: 'LEAD_MERGED', name: 'graph-update-plan', path: 'graph-update-plan', data: {
+          created_by: 'lead', node_ops: [], edge_ops: [{ op: 'create', from_node_id: 'a', to_node_id: 'b', type: 'depends_on' }],
+        } },
+      ],
+      mode: 'full-docs',
+    } as unknown as HarnessRunBundle
+    const g = buildHarnessGraphData(bundle)
+    const rel = g.links.find((l) => l.kind === 'rel')
+    expect(rel).toMatchObject({ source: 'task:np-1', target: 'task:np-2', label: 'depends_on' })
+  })
+})
+
+describe('readFanoutSummary', () => {
+  test('null when neither folder-plan nor fanout-report is present (legacy single-shot)', () => {
+    expect(readFanoutSummary([artifact('node-proposals', { proposals: [] })])).toBeNull()
+  })
+
+  test('summarizes folder units + fan-out run report', () => {
+    const s = readFanoutSummary([
+      artifact('folder-plan', { units: [{ label: 'paper-A', memberPaths: ['paper-A'], role: 'canonical' }, { label: 'misc (2 folders)', memberPaths: ['a', 'b'], role: 'reference' }] }),
+      artifact('fanout-report', { units: 2, ran: 1, skipped: [{ unit: 'paper-A', reason: 'boom' }] }),
+    ])
+    expect(s).toEqual({
+      units: 2, ran: 1,
+      skipped: [{ unit: 'paper-A', reason: 'boom' }],
+      folders: [{ label: 'paper-A', members: 'paper-A', role: 'canonical' }, { label: 'misc (2 folders)', members: 'a, b', role: 'reference' }],
+    })
+  })
+})
 
 describe('appendTailLines', () => {
   test('keeps only the last `max` lines', () => {
@@ -90,5 +143,30 @@ describe('pickNodeArtifact', () => {
     // id-target 'architecture' substring-matches BOTH paths; viewable pool (the .md) must win.
     const hit = pickNodeArtifact(artsWithRaw, { id: 'document:architecture' })
     expect(hit?.name).toBe('wiki-architecture')
+  })
+})
+
+describe('resolveStagedRel', () => {
+  const entries = [
+    { relPath: 'nodes/decision.real.md', nodeId: 'decision.real' },
+    { relPath: 'nodes/concept_x.md', nodeId: 'concept.x' },
+  ]
+
+  test('task-style id + data.path=nodes/<node_id>.md resolves by path stem', () => {
+    expect(resolveStagedRel({ id: 'task:prop-1', label: 'x', data: { path: 'nodes/decision.real.md' } }, entries))
+      .toBe('nodes/decision.real.md')
+  })
+
+  test('node with no data.path resolves by node_id', () => {
+    expect(resolveStagedRel({ id: 'decision.real', label: 'x' }, entries)).toBe('nodes/decision.real.md')
+  })
+
+  test('leading vault-staging/ prefix is stripped before matching', () => {
+    expect(resolveStagedRel({ id: 'n', data: { path: 'vault-staging/nodes/concept_x.md' } }, entries))
+      .toBe('nodes/concept_x.md')
+  })
+
+  test('a non-node project doc returns undefined so caller can use disk fallback', () => {
+    expect(resolveStagedRel({ id: 'document:plan', data: { path: 'docs/plan.md' } }, entries)).toBeUndefined()
   })
 })

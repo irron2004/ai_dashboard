@@ -22,7 +22,7 @@ export default _m;
   },
 }
 
-const pkgs = ['shared','core','vault','workflow','agents','search','llm-wiki','pm','dashboard-api','harness','app-services']
+const pkgs = ['shared','core','vault','workflow','agents','search','llm-wiki','pm','dashboard-api','harness','knowledge-harness','app-services']
 const alias = Object.fromEntries(pkgs.map((p) => [`@apc/${p}`, `${repoRoot}packages/${p}/src/index.ts`]))
 
 export default defineConfig({

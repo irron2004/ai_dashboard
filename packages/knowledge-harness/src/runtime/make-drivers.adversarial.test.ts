@@ -100,20 +100,33 @@ describe('makeDrivers — adversarial agent output', () => {
     expect(existsSync(join(ws, 'staging', 'concepts', 'n1.md'))).toBe(false)  // secret never written
   })
 
-  // #24: a write op authoring a non-.md file blocks the run before staging.
-  test('a non-.md write op blocks the run before staging (#24)', async () => {
-    const lead = leadJson([{ op: 'create_file', path: 'config/app.env', content: 'plain config\n' }])
+  // #24: a non-.md authoring op (e.g. the lead writing a plan JSON) is SANITIZED out rather than failing
+  // the whole run — the wiki is markdown-only and it's noise. The valid .md op survives; the run proceeds.
+  test('a non-.md write op is sanitized out, not run-fatal (#24)', async () => {
+    const lead = leadJson([
+      { op: 'create_file', path: 'config/app.env', content: 'plain config\n' },
+      { op: 'create_file', path: 'concepts/n1.md', content: '# T\n' },
+    ])
     const { store, runner } = drive([discovery, reader, classifier, proposalsJson(), lead])
     const rs = await runner.advance(store)
-    expect(rs.state).toBe('FAILED')
-    expect(rs.error).toContain('non_markdown_write')
+    expect(rs.state).toBe('HUMAN_REVIEW_REQUIRED')
+    const sani = store.readArtifact<{ dropped: { op: string; path: string; reason: string }[] }>(
+      rs.artifacts['STAGING_WRITTEN'].find(p => p.endsWith('write-plan-sanitize-report.json'))!)
+    expect(sani.dropped).toEqual([{ op: 'create_file', path: 'config/app.env', reason: 'non_markdown_write' }])
   })
 
-  test('evidence citing a nonexistent raw source fails the run (EvidenceVerifier)', async () => {
-    const { store, runner } = drive([discovery, reader, classifier, proposalsJson('raw/ghost.jsonl'), leadJson([])])
+  test('evidence citing a nonexistent raw source is PRUNED, not run-fatal (EvidenceVerifier)', async () => {
+    // its only evidence is un-sourced → the proposal is excluded; the run continues (here to an empty wiki).
+    const emptyLead = JSON.stringify({
+      graph_update_plan: { created_by: 'lead', node_ops: [] },
+      shared_promotion_plan: { created_by: 'lead', candidates: [] },
+      stale_doc_report: { generated_by: 'lead', stale: [] },
+      write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [] },
+    })
+    const { store, runner } = drive([discovery, reader, classifier, proposalsJson('raw/ghost.jsonl'), emptyLead])
     const rs = await runner.advance(store)
-    expect(rs.state).toBe('FAILED')
-    expect(rs.error).toContain('EvidenceVerifier')
+    expect(rs.error ?? '').not.toContain('EvidenceVerifier') // pruned, not blocked
+    expect(rs.state).toBe('HUMAN_REVIEW_REQUIRED')
   })
 
   test('malformed (truncated) JSON from an agent fails the run with a parse error', async () => {

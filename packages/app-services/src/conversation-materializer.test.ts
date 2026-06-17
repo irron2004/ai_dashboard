@@ -139,8 +139,12 @@ describe('sessionMatchesProject', () => {
     expect(sessionMatchesProject(sess({ repoPath: '/mnt/c/u/other' }), ['/mnt/c/u/proj'])).toBe(false)
     expect(sessionMatchesProject(sess({ repoPath: '/mnt/c/u/proj2' }), ['/mnt/c/u/proj'])).toBe(false)
   })
-  test('skips ssh:// repoPaths and sessions without any path', () => {
-    expect(sessionMatchesProject(sess({ repoPath: '/home/me/proj' }), ['ssh://me@host:22/home/me/proj'])).toBe(false)
+  test('matches ssh:// repoPaths by their remote path (remote-fetched sessions carry the remote cwd)', () => {
+    expect(sessionMatchesProject(sess({ repoPath: '/home/me/proj' }), ['ssh://me@host:22/home/me/proj'])).toBe(true)
+    expect(sessionMatchesProject(sess({ repoPath: '/home/me/proj/sub' }), ['ssh://me@host:22/home/me/proj'])).toBe(true)
+    expect(sessionMatchesProject(sess({ repoPath: '/home/me/other' }), ['ssh://me@host:22/home/me/proj'])).toBe(false)
+  })
+  test('returns false for a session without any path', () => {
     expect(sessionMatchesProject(sess({}), ['/mnt/c/u/proj'])).toBe(false)
   })
   test('falls back to worktreePath when repoPath is absent', () => {

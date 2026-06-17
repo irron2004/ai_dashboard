@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes } from '../shared/ipc-contract.js'
+import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
 import { api } from './api.js'
 import {
   appendTailLines,
@@ -11,6 +11,7 @@ import {
   saveHarnessConfig,
   saveHarnessRuns,
   saveHarnessSelectedRun,
+  modelSettingsToEngineOptions,
   type HarnessAgentPromptKey,
   type HarnessConfig,
   type HarnessFeatureGateKey,
@@ -27,7 +28,9 @@ type ApcStore = {
   ingesting: boolean
   lastIngest: { sources: number; sessions: number; documents: number } | null
   error: string | null
-  agentStatus: Record<AgentType, AgentRunStatus>
+  /** Agent run status keyed by `${projectId}:${agent}` so each project's agents are tracked independently
+   *  (their terminals stay mounted across project switches). Missing key → treat as 'idle'. */
+  agentStatus: Record<string, AgentRunStatus>
   preflighting: boolean
   generatePreflight: GeneratePreflightRes | null
   generating: boolean
@@ -44,6 +47,10 @@ type ApcStore = {
   harnessCanonicalProposals: HarnessCanonicalProposalsRes
   harnessLiveLabel: string | null
   harnessLiveTail: string[]
+  /** Nodes discovered DURING the active run (folder worker → IPC stream), shown incrementally in the
+   * Knowledge graph. Keyed to one runId; reset when a new run starts. De-duped by node id. */
+  harnessLiveNodes: HarnessLiveNode[]
+  harnessLiveNodesRunId: string | null
   /** Set when promote was blocked by a validation gate that `allowInvalid` can override; null otherwise.
    * Drives the "검증 무시하고 promote" force-override affordance in the UI. */
   harnessPromoteBlockedReason: string | null
@@ -51,7 +58,16 @@ type ApcStore = {
    * force button can retry exactly that one with allowInvalid. */
   harnessCanonicalBlock: { proposalRelPath: string; lastReadHash: string; reason: string } | null
 
-  setAgentStatus(agent: AgentType, status: AgentRunStatus): void
+  wikiPolicy: WikiPolicyRecordDto | null
+  wikiPolicyPreview: string | null
+  wikiPolicyBusy: boolean
+  wikiPolicyMessage: string | null
+  proposeWikiPolicy(projectId: string, engine: AgentType): Promise<void>
+  approveWikiPolicy(projectId: string): Promise<void>
+  loadWikiPolicy(projectId: string): Promise<void>
+  revertWikiPolicy(projectId: string): Promise<void>
+
+  setAgentStatus(key: string, status: AgentRunStatus): void
   prepareGenerate(): Promise<void>
   generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
   clearGeneratePreflight(): void
@@ -67,10 +83,11 @@ type ApcStore = {
 
   hydrateHarnessProject(projectId: string): void
   selectHarnessRun(runId: string): void
-  startHarnessRun(materialize?: boolean): Promise<void>
+  startHarnessRun(materialize?: boolean, fullRegen?: boolean): Promise<void>
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   promoteHarnessRun(runId?: string, allowInvalid?: boolean): Promise<void>
+  exportWiki(projectId?: string): Promise<void>
   loadCanonicalProposals(runId?: string): Promise<void>
   promoteCanonicalDoc(proposalRelPath: string, lastReadHash: string, allowInvalid?: boolean): Promise<void>
   updateHarnessModel(patch: Partial<HarnessConfig['model']>): void
@@ -80,6 +97,7 @@ type ApcStore = {
   clearHarnessMessage(): void
   setHarnessProgress(state: string | null): void
   appendHarnessEngineLog(e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }): void
+  addHarnessLiveNodes(e: HarnessNodesEvent): void
   attachProfileToActiveTask(profileId: string): Promise<void>
 }
 
@@ -116,7 +134,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   ingesting: false,
   lastIngest: null,
   error: null,
-  agentStatus: { claude: 'idle', codex: 'idle', opencode: 'idle' },
+  agentStatus: {},
   preflighting: false,
   generatePreflight: null,
   generating: false,
@@ -130,12 +148,19 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessProgress: null,
   harnessLiveLabel: null,
   harnessLiveTail: [],
+  harnessLiveNodes: [],
+  harnessLiveNodesRunId: null,
   harnessPromoteBlockedReason: null,
   harnessCanonicalBlock: null,
   harnessConfigs: {},
 
-  setAgentStatus(agent, status) {
-    set((s) => ({ agentStatus: { ...s.agentStatus, [agent]: status } }))
+  wikiPolicy: null,
+  wikiPolicyPreview: null,
+  wikiPolicyBusy: false,
+  wikiPolicyMessage: null,
+
+  setAgentStatus(key, status) {
+    set((s) => ({ agentStatus: { ...s.agentStatus, [key]: status } }))
   },
 
   async prepareGenerate() {
@@ -276,13 +301,13 @@ export const useStore = create<ApcStore>((set, get) => ({
     saveHarnessSelectedRun(projectId, runId)
   },
 
-  async startHarnessRun(materialize = false) {
+  async startHarnessRun(materialize = false, fullRegen = false) {
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
-      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize })
+      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model), workerConcurrency: config.model.workerConcurrency, fullRegen })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {
@@ -365,6 +390,18 @@ export const useStore = create<ApcStore>((set, get) => ({
       set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)${allowInvalid ? ' (검증 무시)' : ''}`, harnessPromoteBlockedReason: null })
     } catch (e) {
       set({ error: `Harness promote failed: ${e}` })
+    }
+  },
+
+  async exportWiki(projectId?: string) {
+    const targetProjectId = projectId ?? get().selectedProjectId
+    if (!targetProjectId) { set({ error: 'Select a project first.' }); return }
+    set({ harnessMessage: '워크스페이스로 export 중…' })
+    try {
+      const r = await api.harnessExportWiki({ projectId: targetProjectId })
+      set({ harnessMessage: r.ok ? `✅ ${r.files}개 문서를 워크스페이스로 export: ${r.target}` : `Export 실패: ${r.reason}` })
+    } catch (e) {
+      set({ error: `Wiki export failed: ${e}` })
     }
   },
 
@@ -452,6 +489,63 @@ export const useStore = create<ApcStore>((set, get) => ({
   setHarnessProgress(state) { set({ harnessProgress: state }) },
   appendHarnessEngineLog(e) {
     set((s) => ({ harnessLiveLabel: e.label, harnessLiveTail: appendTailLines(s.harnessLiveTail, e.chunk) }))
+  },
+  addHarnessLiveNodes(e) {
+    set((s) => {
+      // A new run's first batch resets the accumulator (the prior run's live nodes are stale).
+      const base = s.harnessLiveNodesRunId === e.runId ? s.harnessLiveNodes : []
+      const seen = new Set(base.map((n) => n.id))
+      const merged = [...base]
+      for (const n of e.nodes) if (!seen.has(n.id)) { seen.add(n.id); merged.push(n) }
+      return { harnessLiveNodes: merged, harnessLiveNodesRunId: e.runId }
+    })
+  },
+
+  async proposeWikiPolicy(projectId, engine) {
+    set({ wikiPolicyBusy: true, wikiPolicyMessage: null })
+    try {
+      const res = await api.harnessProposePolicy({ projectId, engine })
+      if (res.ok && res.proposal) {
+        set({
+          wikiPolicyPreview: res.effectivePreview ?? null,
+          wikiPolicyMessage: '제안 생성됨 — 검토 후 승인하세요',
+          wikiPolicy: { status: 'proposed', proposal: res.proposal, generatedAt: new Date().toISOString(), body: res.body ?? '' },
+        })
+      } else {
+        set({ wikiPolicyMessage: `실패: ${res.reason ?? 'unknown'}` })
+      }
+    } catch (e) {
+      set({ wikiPolicyMessage: `실패: ${e}` })
+    } finally {
+      set({ wikiPolicyBusy: false })   // always clear the spinner, even on IPC rejection
+    }
+  },
+
+  async approveWikiPolicy(projectId) {
+    try {
+      const res = await api.harnessApprovePolicy({ projectId })
+      if (res.ok) set({ wikiPolicy: res.record ?? null, wikiPolicyMessage: '승인됨 — 다음 런부터 적용' })
+      else set({ wikiPolicyMessage: `승인 실패: ${res.reason ?? 'unknown'}` })
+    } catch (e) {
+      set({ wikiPolicyMessage: `승인 실패: ${e}` })
+    }
+  },
+
+  async loadWikiPolicy(projectId) {
+    try {
+      const res = await api.harnessGetPolicy({ projectId })
+      set({ wikiPolicy: res.record, wikiPolicyPreview: null })
+    } catch { /* policy load is best-effort UI hydration — leave prior state on failure */ }
+  },
+
+  async revertWikiPolicy(projectId) {
+    try {
+      const res = await api.harnessRevertPolicy({ projectId })
+      if (!res.ok) { set({ wikiPolicyMessage: `되돌리기 실패: ${res.reason ?? 'unknown'}` }); return }
+      set({ wikiPolicy: null, wikiPolicyPreview: null, wikiPolicyMessage: '기본 정책으로 되돌림' })
+    } catch (e) {
+      set({ wikiPolicyMessage: `되돌리기 실패: ${e}` })
+    }
   },
 
   async attachProfileToActiveTask(profileId: string) {

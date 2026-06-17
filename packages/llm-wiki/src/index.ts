@@ -1,4 +1,5 @@
 export * from './agent-runner.js'
+export * from './engine-options.js'
 export * from './cli-agent-runner.js'
 export * from './logging-agent-runner.js'
 export * from './parse-structured.js'

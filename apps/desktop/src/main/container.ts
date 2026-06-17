@@ -2,24 +2,31 @@ import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
 import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
-import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval } from '@apc/knowledge'
+import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
+import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
+import { fetchRemoteProjectDocs } from './remote-docs.js'
+import { fetchRemoteConversations } from './remote-conversations.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
-  HarnessEngineLogEvent,
+  HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
+  HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
+  HarnessReadStagedDocReq, HarnessReadStagedDocRes, HarnessListStagedDocsReq, HarnessListStagedDocsRes,
+  HarnessExportWikiReq, HarnessExportWikiRes,
+  HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
@@ -67,9 +74,16 @@ export type Container = {
   harnessRun: (req: HarnessRunReq) => Promise<HarnessRunRes>
   harnessResume: (req: HarnessResumeReq) => Promise<HarnessRunRes>
   harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
-  harnessPromote: (req: HarnessPromoteReq) => HarnessPromoteRes
-  harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => HarnessPromoteCanonicalRes
+  harnessPromote: (req: HarnessPromoteReq) => Promise<HarnessPromoteRes>
+  harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => Promise<HarnessPromoteCanonicalRes>
   harnessCanonicalProposals: (req: HarnessCanonicalProposalsReq) => HarnessCanonicalProposalsRes
+  harnessProposePolicy: (req: HarnessProposePolicyReq) => Promise<HarnessProposePolicyRes>
+  harnessApprovePolicy: (req: HarnessApprovePolicyReq) => HarnessApprovePolicyRes
+  harnessGetPolicy: (req: HarnessGetPolicyReq) => HarnessGetPolicyRes
+  harnessRevertPolicy: (req: HarnessRevertPolicyReq) => HarnessRevertPolicyRes
+  harnessReadStagedDoc: (req: HarnessReadStagedDocReq) => HarnessReadStagedDocRes
+  harnessListStagedDocs: (req: HarnessListStagedDocsReq) => HarnessListStagedDocsRes
+  harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
   dashboard: typeof getProjectDashboard
 }
 
@@ -120,6 +134,7 @@ export function buildContainer(opts: {
   harnessRunsRoot?: string
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
   emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
+  emitHarnessNodes?: (e: HarnessNodesEvent) => void
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -137,6 +152,7 @@ export function buildContainer(opts: {
   const searchIndex = new SearchIndex(searchDb)
   const knowledgeStore = new KnowledgeStore(db)
   const knowledgeRetrieval = new KnowledgeRetrieval(db)
+  const processedSources = new ProcessedSourceStore(db)
   const unifiedSearch = new UnifiedSearch({
     sessions: searchIndex,
     knowledge: knowledgeRetrieval,
@@ -224,32 +240,72 @@ export function buildContainer(opts: {
   // SSH for ssh:// projects, local CliAgentRunner otherwise).
   // runsRoot MUST live OUTSIDE the vault: StagingVault copies the whole vault into <runsRoot>/<id>/vault-staging,
   // so a runs dir nested inside the vault would make cpSync copy a directory into a subdirectory of itself.
+  // The wiki's home lives IN each project's workspace: `<repo>/.apc-wiki` (internal state) +
+  // `<repo>/wiki` (published). ssh:// projects keep a local working copy under this cache (verification
+  // needs local files) that pull/push sync to the remote; local projects use `<repo>/.apc-wiki` directly.
+  const workspaceCacheRoot = join(opts.vaultRoot, '..', 'apc-workspace-cache')
+  const workspaceVaultFor = (projectId: string): WorkspaceVault | undefined => {
+    const repo = registry.get(projectId)?.repoPaths?.[0]
+    if (!repo) return undefined
+    return repo.startsWith('ssh://')
+      ? new SshWorkspaceVault(repo, projectId, workspaceCacheRoot)
+      : new LocalWorkspaceVault(repo, projectId)
+  }
+
   const harness = new HarnessService({
     runner: opts.agentRunner ?? new RoutingAgentRunner(),
     vaultRoot: opts.vaultRoot,
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+    workspaceVaultFor,
     // "전 문서로 위키 생성"의 materialize 단계가 이 프로젝트의 에이전트 대화도 Q&A 단위로 청킹하도록.
     conversationAdapters: ingestAdapters,
+    // 이미 처리한 소스 문서는 재실행/재요청 시 건너뛰도록(변경된 문서만 재처리). wiki_processed_sources 테이블 기반.
+    sourceLedger: processedSources,
+    // ssh:// 프로젝트의 문서를 원격에서 raw/로 가져온다(로컬 fs로는 읽을 수 없으므로). 이게 없으면 SSH
+    // 프로젝트는 raw/가 비어 EvidenceVerifier가 전부 막힌다.
+    fetchRemoteDocs: fetchRemoteProjectDocs,
+    // ssh:// 프로젝트면 대화 로그도 원격에서 가져온다(로컬 PC의 ~/.claude 등을 읽지 않도록).
+    remoteConversationFetcher: fetchRemoteConversations,
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)
     return harness.run(
-      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [] },
+      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [], engineOptions: req.engineOptions, workerConcurrency: req.workerConcurrency, fullRegen: req.fullRegen },
       (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
       batchEngineLog(opts.emitHarnessEngineLog),
+      (e) => opts.emitHarnessNodes?.(e),
     )
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
-  const harnessPromote = (req: HarnessPromoteReq): HarnessPromoteRes => harness.promote(req)
-  const harnessPromoteCanonical = (req: HarnessPromoteCanonicalReq): HarnessPromoteCanonicalRes => harness.promoteCanonical(req)
+  // Promote writes into the local working vault; persist it to the workspace so an ssh project's next
+  // run (which re-pulls and wipes the working copy) doesn't lose the approved draft. Best-effort — a
+  // failed sync leaves the local promote intact, and a later export retries the push.
+  const harnessPromote = async (req: HarnessPromoteReq): Promise<HarnessPromoteRes> => {
+    const r = harness.promote(req)
+    if (r.ok) { try { await harness.syncWorkspaceForRun(req.runId) } catch { /* export will retry */ } }
+    return r
+  }
+  const harnessPromoteCanonical = async (req: HarnessPromoteCanonicalReq): Promise<HarnessPromoteCanonicalRes> => {
+    const r = harness.promoteCanonical(req)
+    if (r.ok) { try { await harness.syncWorkspaceForRun(req.runId) } catch { /* export will retry */ } }
+    return r
+  }
   const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
+  const harnessProposePolicy = (req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> => harness.proposeWikiPolicy(req)
+  const harnessApprovePolicy = (req: HarnessApprovePolicyReq): HarnessApprovePolicyRes => harness.approveWikiPolicy(req)
+  const harnessGetPolicy = (req: HarnessGetPolicyReq): HarnessGetPolicyRes => harness.getWikiPolicy(req)
+  const harnessRevertPolicy = (req: HarnessRevertPolicyReq): HarnessRevertPolicyRes => harness.revertWikiPolicy(req)
+  const harnessReadStagedDoc = (req: HarnessReadStagedDocReq): HarnessReadStagedDocRes => harness.readStagedDoc(req)
+  const harnessListStagedDocs = (req: HarnessListStagedDocsReq): HarnessListStagedDocsRes => harness.listStagedDocs(req)
+  const harnessExportWiki = (req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> => harness.exportWiki(req)
 
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessExportWiki,
     dashboard: getProjectDashboard,
   }
 }

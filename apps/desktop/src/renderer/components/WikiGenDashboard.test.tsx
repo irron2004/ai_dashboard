@@ -25,8 +25,9 @@ describe('WikiGenDashboard', () => {
     useStore.setState({
       selectedProjectId: 'p1', harnessRuns: [reviewRun()], selectedHarnessRunId: 'RUN-r',
       harnessLoading: false, harnessProgress: null, harnessCanonicalProposals: [],
-      // Override hydrateHarnessProject to be a no-op so the useEffect doesn't reset test state.
+      // Override the project-change effects to no-ops so their async set(...) doesn't fire outside act().
       hydrateHarnessProject: () => {},
+      loadWikiPolicy: async () => {},
     })
   })
 

@@ -2,35 +2,79 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { useStore } from '../store.js'
 import {
-  artifactLabel, artifactToMarkdown, buildHarnessGraphData, isMarkdownArtifact, pickNodeArtifact,
+  artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, isMarkdownArtifact, pickNodeArtifact,
+  resolveStagedRel,
   type GraphNodeRef, type HarnessRunBundle,
 } from '../harness-utils.js'
 import { GraphVisualization } from './GraphVisualization.js'
 import { MarkdownContent } from './MarkdownContent.js'
+import type { StagedDocDto } from '../../shared/ipc-contract.js'
 
 type Mode = 'docs' | 'graph'
-/** 트리/뷰어가 가리키는 문서: run 아티팩트이거나 디스크의 md. */
-type DocRef = { kind: 'artifact'; path: string } | { kind: 'file'; relPath: string }
-/** 그래프 노드 미리보기. relPath가 있으면 디스크 폴백으로 연 파일(→ 문서 모드로 점프 가능). */
-type Peek = { title: string; relPath?: string; markdown?: string; error?: string }
+/** 트리/뷰어가 가리키는 문서: run 아티팩트 · 디스크의 md · staging의 생성된 노드(검수중). */
+type DocRef = { kind: 'artifact'; path: string } | { kind: 'file'; relPath: string } | { kind: 'staged'; relPath: string }
+const nodeIdOf = (rel: string): string => rel.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
+/** 그래프 노드 미리보기. relPath가 있으면 문서 모드로 점프 가능하다. */
+type Peek = { title: string; relPath?: string; docKind?: 'file' | 'staged'; markdown?: string; error?: string }
 
 function latestWikiRun(runs: HarnessRunBundle[]): HarnessRunBundle | null {
   return runs.find((r) => ['MERGED', 'HUMAN_REVIEW_REQUIRED', 'VALIDATED'].includes(r.runState.state)) ?? runs[0] ?? null
 }
 
+function runStateLabel(state: string | undefined): string {
+  if (!state) return '상태 없음'
+  if (state === 'HUMAN_REVIEW_REQUIRED') return '검수중'
+  if (state === 'MERGED') return '병합됨'
+  if (state === 'VALIDATED') return '검증됨'
+  return state.replace(/_/g, ' ')
+}
+
 export function KnowledgeView() {
-  const { selectedProjectId, harnessRuns } = useStore()
+  const { selectedProjectId, harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading } = useStore()
   const [mode, setMode] = useState<Mode>('docs')
   const [selectedDoc, setSelectedDoc] = useState<DocRef | null>(null)
   const [fileContent, setFileContent] = useState<{ relPath: string; content: string } | { relPath: string; error: string } | null>(null)
+  const [stagedContent, setStagedContent] = useState<{ relPath: string; content: string } | { relPath: string; error: string } | null>(null)
   const [projectDocs, setProjectDocs] = useState<{ relPath: string; mtimeMs: number }[]>([])
   const [peek, setPeek] = useState<Peek | null>(null)
   // 노드를 빠르게 연속 클릭할 때 늦게 도착한 디스크 응답이 최신 선택을 덮어쓰지 않도록.
   const peekReq = useRef(0)
 
   const run = useMemo(() => latestWikiRun(harnessRuns), [harnessRuns])
+  const runId = run?.runState.runId
   const wikiArtifacts = useMemo(() => (run?.artifacts ?? []).filter(isMarkdownArtifact), [run])
   const graphData = useMemo(() => buildHarnessGraphData(run), [run])
+  // Actual staged docs listed from disk, not inferred from reports. Only frontmatter'd docs are real nodes.
+  const [stagedEntries, setStagedEntries] = useState<StagedDocDto[]>([])
+  useEffect(() => {
+    if (!runId) { setStagedEntries([]); return }
+    let stale = false
+    void api.harnessListStagedDocs({ runId })
+      .then((res) => { if (!stale) setStagedEntries(res.docs ?? []) })
+      .catch(() => { if (!stale) setStagedEntries([]) })
+    return () => { stale = true }
+  }, [runId])
+  const nodeDocs = useMemo(() => stagedEntries.filter((e) => e.isNode), [stagedEntries])
+  const byNodeId = useMemo(() => new Map(nodeDocs.filter((e) => e.nodeId).map((e) => [e.nodeId as string, e.relPath])), [nodeDocs])
+  const byStem = useMemo(() => new Map(nodeDocs.map((e) => [nodeIdOf(e.relPath), e.relPath])), [nodeDocs])
+  const nodeTitleByRel = useMemo(() => new Map(nodeDocs.map((e) => [e.relPath, e.title ?? nodeIdOf(e.relPath)])), [nodeDocs])
+  // While a run is generating, prefer the LIVE stream graph (nodes appear folder-by-folder); the richer
+  // artifact graph takes over once the run finishes.
+  const liveActive = harnessLoading && harnessLiveNodes.length > 0
+  const liveGraph = useMemo(
+    () => buildLiveGraphData(harnessLiveNodesRunId ?? 'run', harnessLiveNodes),
+    [harnessLiveNodesRunId, harnessLiveNodes],
+  )
+  const effectiveGraph = liveActive ? liveGraph : graphData
+
+  // Auto-reveal the graph the first time live nodes arrive for a run, so generation is visible.
+  const revealedRunId = useRef<string | null>(null)
+  useEffect(() => {
+    if (liveActive && harnessLiveNodesRunId && revealedRunId.current !== harnessLiveNodesRunId) {
+      revealedRunId.current = harnessLiveNodesRunId
+      setMode('graph')
+    }
+  }, [liveActive, harnessLiveNodesRunId])
 
   useEffect(() => {
     if (!selectedProjectId) return
@@ -53,20 +97,39 @@ export function KnowledgeView() {
     return () => { stale = true }
   }, [selectedProjectId, selectedDoc])
 
+  // staging의 생성된 노드 로드 (선택이 staged일 때)
+  useEffect(() => {
+    if (!runId || selectedDoc?.kind !== 'staged') return
+    const relPath = selectedDoc.relPath
+    let stale = false
+    setStagedContent(null)
+    void api.harnessReadStagedDoc({ runId, relPath }).then((res) => {
+      if (stale) return
+      setStagedContent(res.ok ? { relPath, content: res.content } : { relPath, error: res.reason ?? '읽기 실패' })
+    }).catch(() => { if (!stale) setStagedContent({ relPath, error: '읽기 실패 (staging 채널 없음 — dev 재시작 필요)' }) })
+    return () => { stale = true }
+  }, [runId, selectedDoc])
+
   const selectedArtifact = selectedDoc?.kind === 'artifact'
     ? wikiArtifacts.find((a) => a.path === selectedDoc.path) ?? null
     : null
   // 선택한 파일과 로드된 내용의 relPath가 일치할 때만 사용 (전환 중 이전 파일 내용이 새는 것 방지).
   const loadedFile = selectedDoc?.kind === 'file' && fileContent?.relPath === selectedDoc.relPath ? fileContent : null
+  const loadedStaged = selectedDoc?.kind === 'staged' && stagedContent?.relPath === selectedDoc.relPath ? stagedContent : null
   const viewerMarkdown = selectedArtifact
     ? artifactToMarkdown(selectedArtifact)
+    : (loadedStaged && 'content' in loadedStaged) ? loadedStaged.content
     : (loadedFile && 'content' in loadedFile ? loadedFile.content : null)
   const viewerTitle = selectedArtifact
     ? artifactLabel(selectedArtifact.name)
+    : selectedDoc?.kind === 'staged' ? nodeTitleByRel.get(selectedDoc.relPath) ?? nodeIdOf(selectedDoc.relPath)
     : selectedDoc?.kind === 'file' ? selectedDoc.relPath : wikiArtifacts[0] ? artifactLabel(wikiArtifacts[0].name) : '문서를 선택하세요'
   const fallbackMarkdown = !selectedDoc && wikiArtifacts[0] ? artifactToMarkdown(wikiArtifacts[0]) : null
 
   const openWikiLink = (target: string) => {
+    // [[node-id]] → the matching generated wiki node (so the rendered graph is navigable like a wiki).
+    const stagedRel = byNodeId.get(target) ?? byStem.get(target) ?? byStem.get(nodeIdOf(target))
+    if (stagedRel) { setSelectedDoc({ kind: 'staged', relPath: stagedRel }); return }
     const hit = run ? pickNodeArtifact(run.artifacts, { id: `document:${target}`, label: target }) : undefined
     if (hit) setSelectedDoc({ kind: 'artifact', path: hit.path })
   }
@@ -79,21 +142,42 @@ export function KnowledgeView() {
       setPeek({ title, markdown: artifactToMarkdown(hit) })
       return
     }
-    const nodePath = (node.data as { path?: string } | undefined)?.path
-    if (nodePath && selectedProjectId && /\.(md|mdx|txt)$/i.test(nodePath)) {
-      void api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath }).then((res) => {
-        if (reqId !== peekReq.current) return
-        setPeek(res.ok && res.content !== undefined ? { title, relPath: nodePath, markdown: res.content } : { title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
-      })
+    // Write-plan ops carry the staging-relative path WITH a leading `vault-staging/` (e.g.
+    // `vault-staging/nodes/x.md`); readStagedDoc already resolves under <run>/vault-staging, so strip
+    // that prefix or it doubles to <run>/vault-staging/vault-staging/... and every draft reads as missing.
+    const stagedRel = resolveStagedRel(node, nodeDocs)
+    const nodePath = stagedRel ?? (node.data as { path?: string } | undefined)?.path?.replace(/^vault-staging[\\/]/, '')
+    if (!nodePath || !/\.(md|mdx|txt)$/i.test(nodePath)) {
+      setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
       return
     }
-    setPeek({ title, error: nodePath ? `원문 없음: ${nodePath}` : '연결된 문서가 없는 노드입니다' })
+    // Resolve the doc in order: the run's STAGED draft (unpromoted HUMAN_REVIEW output — concept/
+    // decision md that isn't a run.artifact and isn't in the vault yet) → then a promoted/project doc
+    // on disk. Without the staging read, draft nodes wrongly showed "원문 없음".
+    const runId = run?.runState.runId
+    void (async () => {
+      if (runId) {
+        try {
+          const staged = await api.harnessReadStagedDoc({ runId, relPath: nodePath })
+          if (reqId !== peekReq.current) return
+          if (staged.ok) { setPeek({ title, relPath: nodePath, docKind: stagedRel ? 'staged' : 'file', markdown: staged.content }); return }
+        } catch { /* staging channel unavailable (e.g. dev hot-reload) — fall through to disk */ }
+      }
+      if (selectedProjectId) {
+        const res = await api.fsReadDoc({ projectId: selectedProjectId, relPath: nodePath })
+        if (reqId !== peekReq.current) return
+        if (res.ok && res.content !== undefined) { setPeek({ title, relPath: nodePath, docKind: 'file', markdown: res.content }); return }
+        setPeek({ title, error: `원문 없음: ${nodePath} (${res.reason ?? ''})` })
+        return
+      }
+      setPeek({ title, error: `원문 없음: ${nodePath}` })
+    })()
   }
 
   const openPeekAsDoc = (p: Peek) => {
     setMode('docs')
     if (p.relPath) {
-      setSelectedDoc({ kind: 'file', relPath: p.relPath })
+      setSelectedDoc({ kind: p.docKind === 'staged' ? 'staged' : 'file', relPath: p.relPath })
     } else {
       const hit = run ? pickNodeArtifact(run.artifacts, { id: `document:${p.title}`, label: p.title }) : undefined
       if (hit) setSelectedDoc({ kind: 'artifact', path: hit.path })
@@ -108,13 +192,27 @@ export function KnowledgeView() {
           <button type="button" aria-pressed={mode === 'docs'} className={mode === 'docs' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('docs')}>문서</button>
           <button type="button" aria-pressed={mode === 'graph'} className={mode === 'graph' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'} onClick={() => setMode('graph')}>그래프</button>
         </div>
+        <span className="knowledge__trust">진짜 노드 {nodeDocs.length}개 · {runStateLabel(run?.runState.state)}</span>
+        {liveActive && (
+          <span className="knowledge__live" title="생성 중 — 노드가 폴더별로 추가됩니다">
+            <span className="knowledge__live-dot" /> 생성 중 · {harnessLiveNodes.length}개 노드
+          </span>
+        )}
       </div>
 
       {mode === 'docs' ? (
         <div className="knowledge__docs">
           <aside className="knowledge__tree panel">
-            <div className="knowledge__tree-group">위키 (생성됨)</div>
-            {wikiArtifacts.length === 0 && <div className="knowledge__tree-empty">아직 위키 없음 — ⚙ Wiki Gen에서 생성</div>}
+            <div className="knowledge__tree-group">노드</div>
+            {nodeDocs.length === 0 && <div className="knowledge__tree-empty">아직 노드 없음 — ⚙ Wiki Gen에서 생성</div>}
+            {nodeDocs.map((entry) => (
+              <button key={entry.relPath} type="button"
+                className={selectedDoc?.kind === 'staged' && selectedDoc.relPath === entry.relPath ? 'knowledge__tree-item knowledge__tree-item--on' : 'knowledge__tree-item'}
+                onClick={() => setSelectedDoc({ kind: 'staged', relPath: entry.relPath })}>
+                {entry.nodeType && <span className="knowledge__tree-type">{entry.nodeType}</span>} {entry.title ?? nodeIdOf(entry.relPath)}
+              </button>
+            ))}
+            {wikiArtifacts.length > 0 && <div className="knowledge__tree-group">리포트</div>}
             {wikiArtifacts.map((a) => (
               <button key={a.path} type="button"
                 className={selectedDoc?.kind === 'artifact' && selectedDoc.path === a.path ? 'knowledge__tree-item knowledge__tree-item--on' : 'knowledge__tree-item'}
@@ -136,18 +234,20 @@ export function KnowledgeView() {
             <div className="knowledge__viewer-body">
               {viewerMarkdown ?? fallbackMarkdown
                 ? <MarkdownContent markdown={(viewerMarkdown ?? fallbackMarkdown)!} onOpenWikiLink={openWikiLink} />
-                : loadedFile && 'error' in loadedFile
-                  ? <div className="knowledge__error">⚠ {loadedFile.error}</div>
-                  : selectedDoc?.kind === 'file'
-                    ? <div className="knowledge__empty">로드 중…</div>
-                    : <div className="knowledge__empty">왼쪽에서 문서를 선택하세요.</div>}
+                : (loadedStaged && 'error' in loadedStaged)
+                  ? <div className="knowledge__error">⚠ {loadedStaged.error}</div>
+                  : loadedFile && 'error' in loadedFile
+                    ? <div className="knowledge__error">⚠ {loadedFile.error}</div>
+                    : (selectedDoc?.kind === 'file' || selectedDoc?.kind === 'staged')
+                      ? <div className="knowledge__empty">로드 중…</div>
+                      : <div className="knowledge__empty">왼쪽에서 문서를 선택하세요.</div>}
             </div>
           </main>
         </div>
       ) : (
         <div className={peek ? 'knowledge__graph knowledge__graph--peek' : 'knowledge__graph'}>
           <div className="knowledge__graph-canvas panel">
-            <GraphVisualization data={graphData} onNodeClick={handleNodeClick} />
+            <GraphVisualization data={effectiveGraph} onNodeClick={handleNodeClick} />
           </div>
           {peek && (
             <aside className="knowledge__peek panel">

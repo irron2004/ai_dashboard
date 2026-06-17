@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -26,6 +26,13 @@ export const CH = {
   harnessPromote: 'c:harnessPromote',
   harnessPromoteCanonical: 'c:harnessPromoteCanonical',
   harnessCanonicalProposals: 'c:harnessCanonicalProposals',
+  harnessProposePolicy: 'c:harnessProposePolicy',
+  harnessApprovePolicy: 'c:harnessApprovePolicy',
+  harnessGetPolicy: 'c:harnessGetPolicy',
+  harnessRevertPolicy: 'c:harnessRevertPolicy',
+  harnessReadStagedDoc: 'c:harnessReadStagedDoc',
+  harnessListStagedDocs: 'c:harnessListStagedDocs',
+  harnessExportWiki: 'c:harnessExportWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -38,6 +45,7 @@ export const CH = {
   ptyExit: 'pty:exit',
   harnessProgress: 'harness:progress',
   harnessEngineLog: 'harness:engineLog',
+  harnessNodes: 'harness:nodes',
   configPreview: 'c:configPreview',
   configApply: 'c:configApply',
   configRollback: 'c:configRollback',
@@ -92,7 +100,10 @@ export type GenerateProjectRes = {
 // Knowledge Harness (evidence-based multi-agent pipeline) surface.
 export type HarnessProgressEvent = { runId: string; state: string }
 export type HarnessEngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
-export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean }
+/** Live node previews discovered mid-run (per folder worker) — for the Knowledge tab's incremental graph. */
+export type HarnessLiveNode = { id: string; title: string; type: string; scope: string }
+export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessLiveNode[] }
+export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
 export type HarnessGetRunReq = { runId: string }
@@ -104,6 +115,32 @@ export type HarnessPromoteCanonicalReq = { runId: string; proposalRelPath: strin
 export type HarnessPromoteCanonicalRes = { ok: boolean; status?: 'promoted' | 'conflict'; canonicalPath?: string; newHash?: string; conflictPath?: string; reason?: string }
 export type HarnessCanonicalProposalsReq = { runId: string }
 export type HarnessCanonicalProposalsRes = Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }>
+
+export type WikiPolicyRecordDto = {
+  status: 'proposed' | 'approved'
+  proposal: KhProjectPolicyProposal
+  generatedAt: string
+  approvedAt?: string
+  body: string
+}
+export type HarnessProposePolicyReq = { projectId: string; engine: AgentType; repoPaths?: string[] }
+export type HarnessProposePolicyRes = { ok: boolean; proposal?: KhProjectPolicyProposal; effectivePreview?: string; body?: string; reason?: string }
+export type HarnessApprovePolicyReq = { projectId: string }
+export type HarnessApprovePolicyRes = { ok: boolean; record?: WikiPolicyRecordDto; reason?: string }
+export type HarnessGetPolicyReq = { projectId: string }
+export type HarnessGetPolicyRes = { ok: true; record: WikiPolicyRecordDto | null }
+export type HarnessRevertPolicyReq = { projectId: string }
+export type HarnessRevertPolicyRes = { ok: boolean; reason?: string }
+// Read an unpromoted draft doc from a run's vault-staging dir (graph peek for HUMAN_REVIEW runs).
+export type HarnessReadStagedDocReq = { runId: string; relPath: string }
+export type HarnessReadStagedDocRes = { ok: true; content: string } | { ok: false; reason: string }
+// List a run's vault-staging .md docs, flagging which are real rendered nodes.
+export type StagedDocDto = { relPath: string; isNode: boolean; nodeId?: string; nodeType?: string; title?: string }
+export type HarnessListStagedDocsReq = { runId: string }
+export type HarnessListStagedDocsRes = { docs: StagedDocDto[] }
+// Publish the project's human-readable wiki into its workspace `wiki/` area (manual export).
+export type HarnessExportWikiReq = { projectId: string }
+export type HarnessExportWikiRes = { ok: true; target: string; files: number } | { ok: false; reason: string }
 
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {

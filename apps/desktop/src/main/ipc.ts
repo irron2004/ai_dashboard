@@ -8,6 +8,7 @@ import type {
   ConfigEditReq, ConfigRollbackReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
+import { AgentKind } from '@apc/shared'
 import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
 import { diffProjectFile, listProjectChanges } from './project-changes.js'
@@ -131,6 +132,42 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.harnessCanonicalProposals]: async (payload: unknown) => {
       const req = z.object({ runId: z.string() }).strict().parse(payload)
       return container.harnessCanonicalProposals(req)
+    },
+
+    [CH.harnessProposePolicy]: async (payload: unknown) => {
+      // strict parse: engine + repoPaths flow into the LLM runner, so validate at the boundary
+      const req = z.object({ projectId: z.string(), engine: AgentKind, repoPaths: z.array(z.string()).optional() }).strict().parse(payload)
+      return container.harnessProposePolicy(req)
+    },
+
+    [CH.harnessApprovePolicy]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessApprovePolicy(req)
+    },
+
+    [CH.harnessGetPolicy]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessGetPolicy(req)
+    },
+
+    [CH.harnessRevertPolicy]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessRevertPolicy(req)
+    },
+
+    [CH.harnessReadStagedDoc]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string(), relPath: z.string() }).strict().parse(payload)
+      return container.harnessReadStagedDoc(req)
+    },
+
+    [CH.harnessListStagedDocs]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.harnessListStagedDocs(req)
+    },
+
+    [CH.harnessExportWiki]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.harnessExportWiki(req)
     },
 
     [CH.generateRun]: async (payload: unknown) => {

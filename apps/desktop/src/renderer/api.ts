@@ -5,10 +5,18 @@ import type {
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  HarnessProposePolicyReq, HarnessProposePolicyRes,
+  HarnessApprovePolicyReq, HarnessApprovePolicyRes,
+  HarnessGetPolicyReq, HarnessGetPolicyRes,
+  HarnessRevertPolicyReq, HarnessRevertPolicyRes,
+  HarnessReadStagedDocReq, HarnessReadStagedDocRes,
+  HarnessListStagedDocsReq, HarnessListStagedDocsRes,
+  HarnessExportWikiReq, HarnessExportWikiRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
   ChangesListReq, ChangesListRes, ChangesDiffReq, ChangesDiffRes,
+  HarnessNodesEvent,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
 
@@ -24,6 +32,7 @@ declare global {
       onPtyExit(cb: (id: string, code: number) => void): () => void
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
+      onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void
     }
   }
 }
@@ -92,6 +101,27 @@ export const api = {
   harnessCanonicalProposals(req: HarnessCanonicalProposalsReq): Promise<HarnessCanonicalProposalsRes> {
     return window.apc.invoke(CH.harnessCanonicalProposals, req) as Promise<HarnessCanonicalProposalsRes>
   },
+  harnessProposePolicy(req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> {
+    return window.apc.invoke(CH.harnessProposePolicy, req) as Promise<HarnessProposePolicyRes>
+  },
+  harnessApprovePolicy(req: HarnessApprovePolicyReq): Promise<HarnessApprovePolicyRes> {
+    return window.apc.invoke(CH.harnessApprovePolicy, req) as Promise<HarnessApprovePolicyRes>
+  },
+  harnessGetPolicy(req: HarnessGetPolicyReq): Promise<HarnessGetPolicyRes> {
+    return window.apc.invoke(CH.harnessGetPolicy, req) as Promise<HarnessGetPolicyRes>
+  },
+  harnessRevertPolicy(req: HarnessRevertPolicyReq): Promise<HarnessRevertPolicyRes> {
+    return window.apc.invoke(CH.harnessRevertPolicy, req) as Promise<HarnessRevertPolicyRes>
+  },
+  harnessReadStagedDoc(req: HarnessReadStagedDocReq): Promise<HarnessReadStagedDocRes> {
+    return window.apc.invoke(CH.harnessReadStagedDoc, req) as Promise<HarnessReadStagedDocRes>
+  },
+  harnessListStagedDocs(req: HarnessListStagedDocsReq): Promise<HarnessListStagedDocsRes> {
+    return window.apc.invoke(CH.harnessListStagedDocs, req) as Promise<HarnessListStagedDocsRes>
+  },
+  harnessExportWiki(req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> {
+    return window.apc.invoke(CH.harnessExportWiki, req) as Promise<HarnessExportWikiRes>
+  },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)
   },
@@ -135,5 +165,8 @@ export const api = {
   },
   onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void {
     return window.apc.onHarnessEngineLog(cb)
+  },
+  onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void {
+    return window.apc.onHarnessNodes(cb)
   },
 }

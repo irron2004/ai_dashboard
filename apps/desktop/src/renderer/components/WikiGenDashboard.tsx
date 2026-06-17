@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 import { useStore } from '../store.js'
-import { createDefaultHarnessConfig, runModeLabel, type HarnessRunBundle } from '../harness-utils.js'
+import { createDefaultHarnessConfig, runModeLabel, readFanoutSummary, type HarnessRunBundle } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 import { WikiProgress } from './WikiProgress.js'
 import { CoverageMatrix } from './CoverageMatrix.js'
 import { QualityPanel } from './QualityPanel.js'
 import { ProposalsPanel } from './ProposalsPanel.js'
+import { ReviewPanel, type EvidenceFinding, type PolicyViolation } from './ReviewPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
 
-type ReviewTab = 'summary' | 'coverage' | 'quality' | 'proposals' | 'flow'
+type ReviewTab = 'summary' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
 
 const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
-  { id: 'summary', label: '요약' }, { id: 'coverage', label: 'Coverage' }, { id: 'quality', label: 'Quality' },
-  { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
+  { id: 'summary', label: '요약' }, { id: 'review', label: '🔎 검수' }, { id: 'coverage', label: 'Coverage' },
+  { id: 'quality', label: 'Quality' }, { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
 ]
 
 export function WikiGenDashboard() {
@@ -22,8 +23,10 @@ export function WikiGenDashboard() {
     selectedProjectId, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
     harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
     harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
+    wikiPolicy, wikiPolicyPreview, wikiPolicyBusy,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
-    promoteHarnessRun, promoteCanonicalDoc, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
+    promoteHarnessRun, promoteCanonicalDoc, exportWiki, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
+    proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
   } = useStore()
 
   const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
@@ -41,6 +44,10 @@ export function WikiGenDashboard() {
     if (selectedProjectId) hydrateHarnessProject(selectedProjectId)
   }, [hydrateHarnessProject, selectedProjectId])
 
+  useEffect(() => {
+    if (selectedProjectId) loadWikiPolicy(selectedProjectId)
+  }, [loadWikiPolicy, selectedProjectId])
+
   const currentRun: HarnessRunBundle | null = useMemo(
     () => harnessRuns.find((b) => b.runState.runId === selectedHarnessRunId) ?? harnessRuns[0] ?? null,
     [harnessRuns, selectedHarnessRunId],
@@ -49,7 +56,11 @@ export function WikiGenDashboard() {
   const coverageData = currentRun?.artifacts.find((a) => a.name === 'coverage-report')?.data as KhCoverageReport | undefined
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
   const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
+  // The verifier + policy agents' per-proposal findings — surfaced alongside each node in the 검수 tab.
+  const evidenceWarnings = (currentRun?.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as { warnings?: EvidenceFinding[] } | undefined)?.warnings ?? []
+  const policyViolations = (currentRun?.artifacts.find((a) => a.name === 'policy-report')?.data as { violations?: PolicyViolation[] } | undefined)?.violations ?? []
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
+  const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
 
   return (
     <section className="wikigen">
@@ -62,7 +73,7 @@ export function WikiGenDashboard() {
           onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
-          onStartRun={(materialize) => void startHarnessRun(materialize)}
+          onStartRun={(materialize, fullRegen) => void startHarnessRun(materialize, fullRegen)}
           onResumeRun={(runId) => void resumeHarnessRun(runId)}
         />
 
@@ -111,8 +122,27 @@ export function WikiGenDashboard() {
                       {proposalsData ? ` · 노드 제안 ${proposalsData.length}개` : ''}
                     </p>
                     <p className="wikigen__hint">생성된 위키 문서는 📖 Knowledge 탭에서 읽습니다.</p>
+                    {fanout && (
+                      <div className="wikigen__folders">
+                        <h4>📁 폴더 워커 (orchestrator-workers)</h4>
+                        <p>{fanout.units}개 폴더 단위 · {fanout.ran}개 실행{fanout.skipped.length ? ` · ${fanout.skipped.length}개 스킵` : ''}</p>
+                        <ul className="wikigen__folder-list">
+                          {fanout.folders.map((f) => (
+                            <li key={f.label}>📁 {f.label}{f.role ? <em className="wikigen__folder-role"> {f.role}</em> : null}{f.members && f.members !== f.label ? <small> — {f.members}</small> : null}</li>
+                          ))}
+                        </ul>
+                        {fanout.skipped.length > 0 && (
+                          <ul className="wikigen__folder-skipped">
+                            {fanout.skipped.map((s) => <li key={s.unit} title={s.reason}>⚠ {s.unit} 스킵</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
+                {reviewTab === 'review' && (proposalsData && proposalsData.length > 0
+                  ? <ReviewPanel runId={currentRun.runState.runId} projectId={selectedProjectId} proposals={proposalsData} warnings={evidenceWarnings} violations={policyViolations} />
+                  : <div className="wikigen__placeholder">검수할 노드 제안이 없습니다 — 전체 문서 모드로 실행하세요.</div>)}
                 {reviewTab === 'coverage' && (coverageData
                   ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
                   : <div className="wikigen__placeholder">커버리지 데이터 없음 — 전체 문서 모드로 실행하세요.</div>)}
@@ -140,6 +170,14 @@ export function WikiGenDashboard() {
                       ⚠ 검증 무시
                     </button>
                   )}
+                  <button
+                    type="button"
+                    disabled={harnessLoading || !selectedProjectId}
+                    title="promote된 위키를 워크스페이스의 wiki/ 폴더로 publish ({repo}/wiki)"
+                    onClick={() => void exportWiki()}
+                  >
+                    📤 워크스페이스로 export
+                  </button>
                 </div>
                 {harnessCanonicalProposals.length > 0 && (
                   <ul className="wikigen__canonical">
@@ -178,6 +216,12 @@ export function WikiGenDashboard() {
             onToggleGate={toggleHarnessGate}
             onPromptChange={updateHarnessPrompt}
             onClose={() => setSettingsOpen(false)}
+            policy={wikiPolicy}
+            policyPreview={wikiPolicyPreview}
+            policyBusy={wikiPolicyBusy}
+            onProposePolicy={() => selectedProjectId && proposeWikiPolicy(selectedProjectId, config.model.engine)}
+            onApprovePolicy={() => selectedProjectId && approveWikiPolicy(selectedProjectId)}
+            onRevertPolicy={() => selectedProjectId && revertWikiPolicy(selectedProjectId)}
           />
         )}
       </div>

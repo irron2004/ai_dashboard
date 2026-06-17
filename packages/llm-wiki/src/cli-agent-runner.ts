@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import type { AgentType } from '@apc/shared'
 import type { AgentRunner, RunInput, RunResult } from './agent-runner.js'
+import { buildEngineArgs } from './engine-options.js'
 
 export type CommandTemplate = { command: string; args: string[] }
 export type EngineTemplates = Partial<Record<AgentType, CommandTemplate>>
@@ -24,9 +25,10 @@ export class CliAgentRunner implements AgentRunner {
     return new Promise<RunResult>((resolve) => {
       // shell:true on Windows so .cmd/PATHEXT shims (claude.cmd, etc.) resolve.
       const safeCwd = input.cwd && existsSync(input.cwd) ? input.cwd : undefined
-      const command = `${tpl.command} ${tpl.args.join(' ')}`
+      const args = [...tpl.args, ...buildEngineArgs(input.agent, input.engineOptions)]
+      const command = `${tpl.command} ${args.join(' ')}`
       const startedAt = Date.now()
-      const child = spawn(tpl.command, tpl.args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32', cwd: safeCwd })
+      const child = spawn(tpl.command, args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32', cwd: safeCwd })
       let stdout = '', stderr = ''
       const base = () => ({ command, durationMs: Date.now() - startedAt })
       const timer = setTimeout(() => {

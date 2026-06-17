@@ -147,6 +147,11 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
   }
 
   const beginPan = (event: PointerEvent<SVGSVGElement>) => {
+    // Only pan when the gesture starts on the empty canvas — never on a node. Capturing the pointer on
+    // a node's pointerdown makes Chromium retarget the ensuing `click` to the <svg>, so the node's
+    // onClick never fires and the md peek never opens (the graph node-peek bug). target===currentTarget
+    // is true only for the bare svg background; node/link presses fall through and stay clickable.
+    if (event.target !== event.currentTarget) return
     pointer.current = { x: event.clientX, y: event.clientY, startX: zoom.x, startY: zoom.y, startZoom: zoom }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -223,15 +228,18 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
               const target = nodeById.get(link.target)
               if (!source || !target) return null
               const active = !hoveredId || connected?.has(source.id) || connected?.has(target.id)
+              // node↔node relationship edges (graph-update-plan / wikilinks) are the actual knowledge graph —
+              // draw them distinctly and label them with the relation type when active.
+              const isRel = link.kind === 'rel' || link.kind === 'wiki'
+              const cls = ['graph-visualization__link', isRel ? 'graph-visualization__link--rel' : '', !active ? 'graph-visualization__link--muted' : ''].filter(Boolean).join(' ')
               return (
-                <line
-                  key={link.id}
-                  className={active ? 'graph-visualization__link' : 'graph-visualization__link graph-visualization__link--muted'}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                />
+                <g key={link.id}>
+                  <line className={cls} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />
+                  {isRel && active && link.label && link.label !== 'wiki-link' && (
+                    <text className="graph-visualization__link-label" x={(source.x + target.x) / 2} y={(source.y + target.y) / 2 - 2}>{link.label}</text>
+                  )}
+                  <title>{link.label ?? link.kind}</title>
+                </g>
               )
             })}
 
