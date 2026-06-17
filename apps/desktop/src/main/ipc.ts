@@ -160,6 +160,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessReadStagedDoc(req)
     },
 
+    [CH.harnessListStagedDocs]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.harnessListStagedDocs(req)
+    },
+
     [CH.harnessExportWiki]: async (payload: unknown) => {
       const req = z.object({ projectId: z.string() }).strict().parse(payload)
       return container.harnessExportWiki(req)

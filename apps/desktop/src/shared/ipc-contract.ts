@@ -31,6 +31,7 @@ export const CH = {
   harnessGetPolicy: 'c:harnessGetPolicy',
   harnessRevertPolicy: 'c:harnessRevertPolicy',
   harnessReadStagedDoc: 'c:harnessReadStagedDoc',
+  harnessListStagedDocs: 'c:harnessListStagedDocs',
   harnessExportWiki: 'c:harnessExportWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
@@ -133,6 +134,10 @@ export type HarnessRevertPolicyRes = { ok: boolean; reason?: string }
 // Read an unpromoted draft doc from a run's vault-staging dir (graph peek for HUMAN_REVIEW runs).
 export type HarnessReadStagedDocReq = { runId: string; relPath: string }
 export type HarnessReadStagedDocRes = { ok: true; content: string } | { ok: false; reason: string }
+// List a run's vault-staging .md docs, flagging which are real rendered nodes.
+export type StagedDocDto = { relPath: string; isNode: boolean; nodeId?: string; nodeType?: string; title?: string }
+export type HarnessListStagedDocsReq = { runId: string }
+export type HarnessListStagedDocsRes = { docs: StagedDocDto[] }
 // Publish the project's human-readable wiki into its workspace `wiki/` area (manual export).
 export type HarnessExportWikiReq = { projectId: string }
 export type HarnessExportWikiRes = { ok: true; target: string; files: number } | { ok: false; reason: string }

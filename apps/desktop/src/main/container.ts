@@ -24,7 +24,7 @@ import type {
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
-  HarnessReadStagedDocReq, HarnessReadStagedDocRes,
+  HarnessReadStagedDocReq, HarnessReadStagedDocRes, HarnessListStagedDocsReq, HarnessListStagedDocsRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
@@ -82,6 +82,7 @@ export type Container = {
   harnessGetPolicy: (req: HarnessGetPolicyReq) => HarnessGetPolicyRes
   harnessRevertPolicy: (req: HarnessRevertPolicyReq) => HarnessRevertPolicyRes
   harnessReadStagedDoc: (req: HarnessReadStagedDocReq) => HarnessReadStagedDocRes
+  harnessListStagedDocs: (req: HarnessListStagedDocsReq) => HarnessListStagedDocsRes
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
   dashboard: typeof getProjectDashboard
 }
@@ -296,6 +297,7 @@ export function buildContainer(opts: {
   const harnessGetPolicy = (req: HarnessGetPolicyReq): HarnessGetPolicyRes => harness.getWikiPolicy(req)
   const harnessRevertPolicy = (req: HarnessRevertPolicyReq): HarnessRevertPolicyRes => harness.revertWikiPolicy(req)
   const harnessReadStagedDoc = (req: HarnessReadStagedDocReq): HarnessReadStagedDocRes => harness.readStagedDoc(req)
+  const harnessListStagedDocs = (req: HarnessListStagedDocsReq): HarnessListStagedDocsRes => harness.listStagedDocs(req)
   const harnessExportWiki = (req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> => harness.exportWiki(req)
 
   return {
@@ -303,7 +305,7 @@ export function buildContainer(opts: {
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
-    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessExportWiki,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessExportWiki,
     dashboard: getProjectDashboard,
   }
 }

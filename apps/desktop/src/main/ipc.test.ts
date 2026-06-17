@@ -232,6 +232,28 @@ describe('IPC handlers (no Electron)', () => {
     expect((bad as { ok: boolean }).ok).toBe(false)
   })
 
+  test('c:harnessListStagedDocs lists real staged nodes through the IPC handler', async () => {
+    const harnessRoot = mkdtempSync(join(tmpdir(), 'apc-harness-list-'))
+    try {
+      const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: join(harnessRoot, 'vault'), harnessRunsRoot: join(harnessRoot, 'runs') })
+      const h = handlers(c2)
+      const dir = join(harnessRoot, 'runs', 'RUN-1', 'vault-staging', 'nodes')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        join(dir, 'decision.real.md'),
+        '---\nnode_id: decision.real\nnode_type: DecisionNode\n---\n# Real Title\n\nbody',
+      )
+      writeFileSync(join(dir, 'old-stub.md'), 'DecisionNode markdown stub one-liner.')
+
+      const res = await h[CH.harnessListStagedDocs]({ runId: 'RUN-1' }) as { docs: Array<{ relPath: string; isNode: boolean; nodeId?: string }> }
+      expect(res.docs.find((d) => d.relPath === 'nodes/decision.real.md'))
+        .toMatchObject({ isNode: true, nodeId: 'decision.real' })
+      expect(res.docs.find((d) => d.relPath === 'nodes/old-stub.md')).toMatchObject({ isNode: false })
+    } finally {
+      rmSync(harnessRoot, { recursive: true, force: true })
+    }
+  })
+
   test('q:fsListDocs lists docs from existing repo roots', async () => {
     const repo = mkdtempSync(join(tmpdir(), 'apc-repo-'))
     writeFileSync(join(repo, 'notes.md'), 'n')

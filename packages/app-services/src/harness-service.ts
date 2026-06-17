@@ -14,6 +14,7 @@ import {
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
 import { HarnessPromoteService, type HarnessPromoteResult, type CanonicalPromoteResult } from './harness-promote-service.js'
+import { collectStagedDocs, type StagedDocEntry } from './staged-docs.js'
 import { materializeProjectDocs, type RemoteDocFetcher } from './source-materializer.js'
 import { materializeConversations } from './conversation-materializer.js'
 import type { WorkspaceVault, WorkspaceExportResult } from './workspace-vault.js'
@@ -374,6 +375,11 @@ export class HarnessService {
       if (st.size > 512 * 1024) return { ok: false, reason: `파일 크기 초과 (${Math.round(st.size / 1024)}KB > 512KB)` }
       return { ok: true, content: readFileSync(abs, 'utf8') }
     } catch { return { ok: false, reason: '원문 없음 (staging)' } }
+  }
+
+  /** List staged markdown docs from disk so the renderer can show only real rendered nodes. */
+  listStagedDocs(input: { runId: string }): { docs: StagedDocEntry[] } {
+    return { docs: collectStagedDocs(this.deps.runsRoot, input.runId) }
   }
 
   promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {
