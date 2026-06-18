@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>목업 · Knowledge 탭 (노드 뷰잉 + 잔재 청소)</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel-2:#1a212b; --raise:#1f2733;
+    --border:#242d3a; --border-soft:#1d2531;
+    --text:#c9d4e0; --text-strong:#eef3f8; --muted:#7d8a9a; --faint:#566273;
+    --teal:#3fc7b7; --teal-dim:#2a8d82;
+    --decision:#e0a458; --concept:#5aa2e0; --experiment:#b884e6;
+    --warn:#e06a6a;
+    --radius:9px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;color:inherit;cursor:pointer}
+  .mono{font-family:var(--mono)}
+
+  /* ---- mockup chrome ---- */
+  .note{max-width:1180px;margin:14px auto 0;padding:10px 14px;border:1px dashed var(--teal-dim);border-radius:var(--radius);
+    background:rgba(63,199,183,.05);color:var(--muted);font-size:12.5px}
+  .note b{color:var(--teal)}
+  .note .toggle{float:right;border:1px solid var(--border);background:var(--panel-2);padding:3px 9px;border-radius:6px;font-size:11.5px;color:var(--text)}
+
+  .app{max-width:1180px;margin:12px auto 40px;background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;
+    box-shadow:0 18px 50px -20px rgba(0,0,0,.7)}
+
+  /* top app bar */
+  .topbar{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#141a22,#11161d)}
+  .tabs{display:flex;gap:2px}
+  .tab{padding:6px 13px;border-radius:7px;color:var(--muted);font-size:13px;background:transparent;border:0}
+  .tab--on{background:var(--raise);color:var(--text-strong);box-shadow:inset 0 0 0 1px var(--border)}
+  .topbar .spacer{flex:1}
+  .proj{font-size:12px;color:var(--muted)}
+  .proj b{color:var(--text)}
+  .gear{border:1px solid var(--border);background:var(--panel-2);border-radius:7px;padding:6px 11px;font-size:12.5px}
+
+  /* knowledge modebar */
+  .modebar{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--border-soft);background:var(--panel)}
+  .seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:2px}
+  .seg button{border:0;background:transparent;color:var(--muted);padding:6px 16px;border-radius:6px;font-size:13px}
+  .seg button[aria-pressed="true"]{background:var(--raise);color:var(--text-strong)}
+
+  /* trust badge — a key feature */
+  .trust{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text)}
+  .trust .dot{width:7px;height:7px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px rgba(63,199,183,.18)}
+  .trust .count{color:var(--teal);font-weight:650}
+  .trust .state{color:var(--decision)}
+  .trust .hidden-link{margin-left:6px;border:1px solid var(--border);background:var(--panel-2);color:var(--muted);
+    border-radius:6px;padding:3px 8px;font-size:11.5px}
+  .trust .hidden-link.on{color:var(--text);border-color:var(--teal-dim)}
+
+  .stage{display:flex;min-height:560px}
+
+  /* ---- left tree ---- */
+  .tree{width:288px;flex:none;border-right:1px solid var(--border-soft);background:var(--panel);padding:10px 8px;overflow:auto}
+  .group{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);padding:12px 8px 6px}
+  .group:first-child{padding-top:2px}
+  .item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;color:var(--text);
+    padding:7px 8px;border-radius:7px;font-size:13px;line-height:1.35}
+  .item:hover{background:var(--panel-2)}
+  .item--on{background:var(--raise);box-shadow:inset 0 0 0 1px var(--border)}
+  .item .title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tag{flex:none;font-size:10px;font-weight:650;letter-spacing:.02em;padding:2px 6px;border-radius:5px;text-transform:uppercase}
+  .tag--decision{color:var(--decision);background:rgba(224,164,88,.12)}
+  .tag--concept{color:var(--concept);background:rgba(90,162,224,.12)}
+  .tag--experiment{color:var(--experiment);background:rgba(184,132,230,.12)}
+  .item.muted .title{color:var(--faint)}
+  .stub-note{margin:6px 8px;padding:7px 9px;border:1px dashed var(--border);border-radius:7px;color:var(--faint);font-size:11.5px}
+
+  /* ---- viewer ---- */
+  .viewer{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--panel-2)}
+  .vhead{padding:12px 18px;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:10px}
+  .vhead h2{margin:0;font-size:15px;color:var(--text-strong);font-weight:600}
+  .vhead .fm{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto}
+  .doc{padding:18px 24px;overflow:auto;animation:fade .18s ease}
+  @keyframes fade{from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.doc{animation:none}}
+  .doc h1{font-size:21px;color:var(--text-strong);margin:.1em 0 .5em;font-weight:680;letter-spacing:-.01em}
+  .doc .summary{color:var(--text);font-size:14.5px;margin:0 0 18px;padding-left:12px;border-left:2px solid var(--teal-dim)}
+  .doc h3{font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:22px 0 10px;
+    display:flex;align-items:center;gap:8px}
+  .doc h3::after{content:"";flex:1;height:1px;background:var(--border-soft)}
+  .claim{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border-soft)}
+  .claim:last-child{border-bottom:0}
+  .claim .mk{color:var(--teal);flex:none;font-family:var(--mono)}
+  .claim .meta{display:inline-block;margin-left:6px;font-size:11px;color:var(--faint);font-style:italic}
+
+  /* SIGNATURE: evidence trace */
+  .ev{margin:10px 0;border:1px solid var(--border);border-left:3px solid var(--teal);border-radius:8px;background:rgba(63,199,183,.04);padding:10px 12px}
+  .ev .src{display:inline-block;font-family:var(--mono);font-size:11.5px;color:var(--teal);background:rgba(63,199,183,.08);
+    padding:2px 7px;border-radius:5px;word-break:break-all}
+  .ev .quote{margin:7px 0 0;color:var(--muted);font-size:13px;padding-left:10px;border-left:2px solid var(--border)}
+  .ev .kind{float:right;font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.03em}
+
+  /* ---- graph mode ---- */
+  .graphwrap{flex:1;display:flex;min-width:0}
+  .canvas{flex:1;position:relative;background:
+     radial-gradient(circle at 1px 1px,rgba(255,255,255,.04) 1px,transparent 0) 0 0/22px 22px,var(--panel-2)}
+  .canvas svg{position:absolute;inset:0;width:100%;height:100%}
+  .gnode{cursor:pointer}
+  .gnode circle{transition:r .12s ease, stroke-width .12s ease}
+  .gnode:hover circle{stroke-width:3}
+  .gnode text{fill:var(--text);font-size:11px;font-family:var(--sans)}
+  .peek{width:360px;flex:none;border-left:1px solid var(--border-soft);background:var(--panel);display:flex;flex-direction:column}
+  .peek .vhead{justify-content:space-between}
+  .peek .x{border:1px solid var(--border);background:var(--panel-2);border-radius:6px;padding:3px 8px;font-size:12px;color:var(--muted)}
+  .peek .doc{padding:14px 16px}
+  .peek-empty{padding:40px 22px;color:var(--faint);font-size:13px;text-align:center}
+
+  .hide{display:none !important}
+
+  /* feature annotation chips */
+  .anno{position:relative}
+  .anno::before{content:attr(data-anno);position:absolute;z-index:5;top:-9px;right:8px;background:var(--teal);color:#06231f;
+    font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:.02em;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  body:not(.show-anno) .anno::before{display:none}
+  .anno.outline{outline:1.5px dashed var(--teal-dim);outline-offset:-1px;border-radius:8px}
+  body:not(.show-anno) .anno.outline{outline:0}
+</style>
+</head>
+<body class="show-anno">
+
+<div class="note">
+  <button class="toggle" id="annoBtn" type="button">기능 표시 끄기</button>
+  <b>목업</b> · Electron 앱 “Knowledge” 탭 제안안. 기존 다크 테마에 맞췄고, <b>실제 run 데이터</b>(노드 113개·stub 23개,
+  <span class="mono">chamber_leak</span> 문서 본문, 실제 대화 출처)를 넣었습니다. 정적 시안이지만 탭 전환·노드 클릭·stub 보기·그래프 미리보기는 동작합니다.
+</div>
+
+<div class="app">
+  <!-- top app bar -->
+  <div class="topbar">
+    <div class="tabs">
+      <button class="tab">Home</button>
+      <button class="tab tab--on">Knowledge</button>
+      <button class="tab">⚙ Wiki Gen</button>
+    </div>
+    <div class="spacer"></div>
+    <span class="proj">프로젝트 · <b>papers</b> · RUN-2026-06-16T15-02-08-216Z</span>
+    <button class="gear">⚙ 에이전트 설정</button>
+  </div>
+
+  <!-- modebar + trust badge -->
+  <div class="modebar">
+    <div class="seg" role="tablist">
+      <button id="mDocs" aria-pressed="true">문서</button>
+      <button id="mGraph" aria-pressed="false">그래프</button>
+    </div>
+    <div class="trust anno" data-anno="신뢰 신호 (R4)">
+      <span class="dot"></span>
+      진짜 노드 <span class="count">113개</span> · <span class="state">검수중</span>
+      <button class="hidden-link" id="stubBtn" type="button">옛 stub 23개 숨김</button>
+    </div>
+  </div>
+
+  <!-- ===== DOCS MODE ===== -->
+  <div class="stage" id="docsMode">
+    <aside class="tree anno outline" data-anno="진짜 노드만 (B1·R3)">
+      <div class="group">🧩 노드 · 진짜 113</div>
+      <div id="nodeList"></div>
+      <div class="stub-note hide" id="stubNote"></div>
+
+      <div class="group">리포트</div>
+      <button class="item"><span class="title">Coverage report</span></button>
+      <button class="item"><span class="title">Eval report</span></button>
+      <button class="item"><span class="title">Final policy report</span></button>
+
+      <div class="group">프로젝트 문서</div>
+      <button class="item"><span class="title mono">60_paper_e/README.md</span></button>
+      <button class="item"><span class="title mono">.sisyphus/plans/paperd-fix.md</span></button>
+    </aside>
+
+    <main class="viewer anno outline" data-anno="본문 + 근거 한 화면 (R2)">
+      <div class="vhead">
+        <h2 id="vTitle">문서를 선택하세요</h2>
+        <span class="fm" id="vFm"></span>
+      </div>
+      <div class="doc" id="vDoc"></div>
+    </main>
+  </div>
+
+  <!-- ===== GRAPH MODE ===== -->
+  <div class="graphwrap hide" id="graphMode">
+    <div class="canvas">
+      <svg viewBox="0 0 720 520" id="graphSvg" aria-label="노드 그래프"></svg>
+    </div>
+    <aside class="peek anno" data-anno="클릭 → 같은 문서 열림 (N3·R2)">
+      <div class="vhead"><h2 id="pTitle">노드를 클릭하세요</h2><button class="x" id="pClose">✕</button></div>
+      <div id="pBody"><div class="peek-empty">그래프에서 노드를 누르면 그 노드의 staging 문서가 열립니다.<br>(node_id · data.path stem 양쪽으로 해석)</div></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* ---- real-ish node corpus (titles/types from the actual run; chamber_leak body is the real file) ---- */
+const NODES = [
+  { id:"chamber_leak_shared_loader_contract", type:"DecisionNode", title:"Chamber-Leak Shared Loader and Wafer Unit Contract",
+    summary:"Paper D/E chamber-leak work must use the shared leak_loader, treat one wafer as one Step_Num 1→7 cycle, and preserve expected canonical counts; attention-evaluable subset counts must not replace the shared-loader contract.",
+    claims:[
+      ["Chamber-leak data access must use the shared loader (from leak_loader import load_leak_dataset), centralized under docs/papers/_shared/.","decision · 확신 high"],
+      ["The wafer unit is one Step_Num 1→7 cycle, not a Folder_Name + Wafer_Status run.","decision · 확신 high"],
+      ["Expected shared-loader statistics: 490 leak, 981 clean, 12 sensors, 7 steps, severity 28/52/410.","decision · 확신 high"],
+      ["Attention-evaluable counts (1468 wafers, 489 leak, 979 normal) are subset/drop caveats and must not replace the canonical count.","claim_boundary · 확신 high"],
+    ],
+    evidence:[
+      ["raw/conversations/codex/019ed088-3836-7e40-97ea-fbcf440af928/001q_a.txt","Papers submodule rules require shared leak_loader use, define wafer as one Step_Num 1→7 cycle, and expect 490 leak, 981 clean, 12 sensors, 7 steps, severity 28/52/410.","conversation"],
+      ["raw/project-docs/0/60_paper_e_attention_eventizer/analysis/recipe_conditioned_attention_detailed_report_2026-06-15.md","Detailed report reiterates wafer = Step_Num 1→7 cycle and canonical shared-loader count 490/981/12/7.","project doc"],
+      ["raw/project-docs/0/60_paper_e_attention_eventizer/analysis/recipe_conditioned_attention_ladder_summary_2026-06-15.md","Ladder summary repeats the caveat: attention-evaluable view has 1468 wafers; shared-loader contract remains 490 leak, 981 clean.","project doc"],
+    ]},
+  { id:"decision.paper_d_cycle_level_wafer_loader_unification", type:"DecisionNode", title:"Paper D must use shared cycle-level leak loader",
+    summary:"Paper D chamber-leak reruns should use the shared leak_loader cycle-level wafer definition rather than run-level Folder_Name+Wafer_Status grouping.",
+    claims:[
+      ["Existing dataset construction could collapse chamber-leak data to 140 run-level windows instead of the expected 1471 cycle-level wafers.","observation · 확신 high"],
+      ["The fix requires Paper D to use shared leak_loader.load_leak_dataset() with counts 490 leak, 981 clean, 12 sensors, 7 steps, severity 28/52/410.","decision · 확신 high"],
+      ["Paper D reruns should not read docs/papers/_shared/leak_2022.ftr directly; access goes through the shared loader.","decision · 확신 high"],
+    ],
+    evidence:[
+      ["raw/project-docs/0/.sisyphus/plans/paperd-fix-wafer-and-rerun.md","Plan states Paper D dataset build must switch to the shared cycle-level loader; documents the 140-vs-1471 collapse risk and target counts.","plan summary"],
+    ]},
+  { id:"concept_dual_masking_combined_loss", type:"ConceptNode", title:"Dual masking with combined reconstruction loss",
+    summary:"Embedding-level masking combined with raw-signal reconstruction loss to stabilize self-supervised pretraining on wafer time-series.",
+    claims:[
+      ["Combining embedding-level and raw-level masking targets reduces reconstruction collapse vs single-level masking.","hypothesis · 확신 medium"],
+      ["The combined loss weights raw reconstruction and masked-embedding prediction at a fixed ratio during pretraining.","method · 확신 medium"],
+    ],
+    evidence:[
+      ["raw/project-docs/0/60_paper_e_attention_eventizer/SSL_RETRAIN_HANDOFF.md","Handoff describes dual-masking objective and the combined-loss ratio used for SSL retraining.","handoff"],
+    ]},
+  { id:"experiment_gru_vs_mlp_decoder_reconstruction", type:"ExperimentNode", title:"GRU vs MLP decoder reconstruction comparison",
+    summary:"Compares a GRU decoder against an MLP decoder on reconstruction error to test whether temporal structure in the decoder improves anomaly separation.",
+    claims:[
+      ["The GRU decoder lowers reconstruction error on leak cycles relative to the MLP decoder under matched hidden dimension.","result · 확신 medium"],
+      ["Result is reported on the attention-evaluable subset and is pending final evaluation verification.","claim_boundary · 확신 medium"],
+    ],
+    evidence:[
+      ["raw/project-docs/0/60_paper_e_attention_eventizer/task_plan.md","Task plan defines the GRU-vs-MLP decoder ablation and notes the subset used for early results.","plan summary"],
+    ]},
+];
+
+/* stubs that the filter HIDES (old kebab one-liners carried in from the vault snapshot) */
+const STUBS = [
+  "anomaly-transformer-semiconductor-adaptation","anomalybert-wafer-level-adaptation","attention-collapse-temperature-scaling",
+];
+
+const tagClass = t => t==="DecisionNode"?"decision":t==="ConceptNode"?"concept":"experiment";
+const tagShort = t => t==="DecisionNode"?"Dec":t==="ConceptNode"?"Con":"Exp";
+const esc = s => s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function renderDoc(n){
+  let h = `<h1>${esc(n.title)}</h1>`;
+  h += `<p class="summary">${esc(n.summary)}</p>`;
+  h += `<h3>핵심 주장</h3>`;
+  for(const [t,m] of n.claims) h += `<div class="claim"><span class="mk">–</span><div>${esc(t)}<span class="meta">(${esc(m)})</span></div></div>`;
+  h += `<h3>근거 · 출처 추적</h3>`;
+  for(const [src,q,kind] of n.evidence)
+    h += `<div class="ev"><span class="kind">${esc(kind)}</span><span class="src">${esc(src)}</span><p class="quote">${esc(q)}</p></div>`;
+  return h;
+}
+const fmOf = n => `node_id: ${n.id}`;
+
+/* ---- docs-mode tree ---- */
+const listEl = document.getElementById("nodeList");
+function buildList(){
+  listEl.innerHTML = "";
+  NODES.forEach((n,i)=>{
+    const b=document.createElement("button");
+    b.className="item"+(i===0?" item--on":"");
+    b.innerHTML=`<span class="tag tag--${tagClass(n.type)}">${tagShort(n.type)}</span><span class="title">${esc(n.title)}</span>`;
+    b.onclick=()=>{document.querySelectorAll("#nodeList .item").forEach(x=>x.classList.remove("item--on"));b.classList.add("item--on");openDoc(n);};
+    listEl.appendChild(b);
+  });
+}
+function openDoc(n){
+  document.getElementById("vTitle").textContent=n.title;
+  document.getElementById("vFm").textContent=fmOf(n);
+  const d=document.getElementById("vDoc"); d.innerHTML=renderDoc(n); d.style.animation="none"; void d.offsetWidth; d.style.animation="";
+}
+buildList(); openDoc(NODES[0]);
+
+/* stub toggle — show that the filter hides them, transparently */
+let stubsShown=false;
+const stubNote=document.getElementById("stubNote");
+document.getElementById("stubBtn").onclick=function(){
+  stubsShown=!stubsShown; this.classList.toggle("on",stubsShown);
+  this.textContent= stubsShown? "옛 stub 23개 표시 중 — 다시 숨기기" : "옛 stub 23개 숨김";
+  if(stubsShown){
+    stubNote.classList.remove("hide");
+    stubNote.innerHTML="frontmatter(node_id) 없는 한 줄 stub — 기본 숨김:<br>"+
+      STUBS.map(s=>`· <span class="mono">${s}</span> <span style="color:var(--warn)">(stub)</span>`).join("<br>")+"<br>… 외 20개";
+  } else stubNote.classList.add("hide");
+};
+
+/* ---- mode switch ---- */
+const docsMode=document.getElementById("docsMode"), graphMode=document.getElementById("graphMode");
+const mDocs=document.getElementById("mDocs"), mGraph=document.getElementById("mGraph");
+mDocs.onclick=()=>{mDocs.setAttribute("aria-pressed","true");mGraph.setAttribute("aria-pressed","false");docsMode.classList.remove("hide");graphMode.classList.add("hide");};
+mGraph.onclick=()=>{mGraph.setAttribute("aria-pressed","true");mDocs.setAttribute("aria-pressed","false");graphMode.classList.remove("hide");docsMode.classList.add("hide");};
+
+/* ---- graph mode ---- */
+const GP=[ /* x,y,node index */ [150,120,0],[470,90,1],[300,260,2],[560,300,3],[180,360,0] ];
+const EDGES=[[0,1],[0,2],[1,3],[2,3],[2,4]];
+const svg=document.getElementById("graphSvg");
+function buildGraph(){
+  let s="";
+  for(const [a,b] of EDGES) s+=`<line x1="${GP[a][0]}" y1="${GP[a][1]}" x2="${GP[b][0]}" y2="${GP[b][1]}" stroke="#2a3340" stroke-width="1.5"/>`;
+  GP.forEach((p,i)=>{
+    const n=NODES[p[2]]; const c=getComputedStyle(document.documentElement).getPropertyValue("--"+tagClass(n.type)).trim();
+    const label=n.title.length>26?n.title.slice(0,26)+"…":n.title;
+    s+=`<g class="gnode" data-i="${p[2]}"><circle cx="${p[0]}" cy="${p[1]}" r="13" fill="${c}22" stroke="${c}" stroke-width="2"/>`+
+       `<text x="${p[0]+18}" y="${p[1]+4}">${esc(label)}</text></g>`;
+  });
+  svg.innerHTML=s;
+  svg.querySelectorAll(".gnode").forEach(g=>g.onclick=()=>openPeek(NODES[+g.dataset.i]));
+}
+function openPeek(n){
+  document.getElementById("pTitle").textContent=n.title;
+  document.getElementById("pBody").innerHTML=`<div class="doc">${renderDoc(n)}</div>`;
+}
+document.getElementById("pClose").onclick=()=>{
+  document.getElementById("pTitle").textContent="노드를 클릭하세요";
+  document.getElementById("pBody").innerHTML='<div class="peek-empty">그래프에서 노드를 누르면 그 노드의 staging 문서가 열립니다.<br>(node_id · data.path stem 양쪽으로 해석)</div>';
+};
+buildGraph();
+
+/* annotation toggle */
+document.getElementById("annoBtn").onclick=function(){
+  document.body.classList.toggle("show-anno");
+  this.textContent=document.body.classList.contains("show-anno")?"기능 표시 끄기":"기능 표시 켜기";
+};
+</script>
+</body>
+</html>
