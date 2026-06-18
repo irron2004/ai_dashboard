@@ -6,7 +6,7 @@
 - **첫 증명 도메인:** 연구 논문 위키 (papers→modules→pipelines)
 - **관련 문서:**
   - autosci-core `README.md`, `docs/adr/0001~0004`
-  - autosci-core `.scratch/attnembed-e2e/` (known-good 논문 vault, 본 설계의 골든 fixture)
+  - autosci-core `.scratch/attnembed-e2e/` (known-good 논문 vault — **gitignored, core-v0.2.0 태그에 미포함**. §8 참조; 콘텐츠를 ai_dashboard fixture로 freeze해서 쓴다)
   - ai_dashboard `harness/run-state-machine.yml`, `harness/feature-gates.yml`
   - ai_dashboard `packages/knowledge-harness/src/runtime/make-drivers.ts` (상태→드라이버)
 
@@ -53,9 +53,11 @@
 ### 범위 안 — Phase 1 (배관, LLM 생성 없음)
 - autosci-core를 `vendor/autosci-core` submodule + **`core-v0.2.0` 핀** + 관리 venv(`uv`)로 채택.
 - TS `WikiSubstrate` 포트 + `PythonKernelAdapter` (`python -m kernel`, `autosci-read` shell-out + 출력 파싱).
-- "논문 도메인" overlay = `attnembed-e2e/runtime`의 계약(`schema/*.yaml` + `policy/writers.yaml`)을 일반화한 paper 계약.
-- known-good attnembed vault → `kernel lint` 통과 + `rebuild-index`/graph 렌더, 출력을 기존 리포트 타입으로 파싱.
-- attnembed PDF → `autosci-read` → `raw/` SourceRecord 검증.
+- "논문 도메인" overlay = attnembed 계약(`schema/*.yaml` + `policy/writers.yaml`)을 일반화한 paper 계약 — autosci-core 워킹트리에서 캡처해 **ai_dashboard `wiki-domains/paper/`에 freeze**(원본 `.scratch`는 gitignore·미배포, §8).
+- 골든 vault·샘플 PDF를 **ai_dashboard 테스트 fixture로 freeze**(autosci-core 핀 태그에 의존 안 함).
+- **러너 계약 확장**: `DriverResult`에 실패 신호 추가 → VALIDATED가 검증 리포트를 보존한 뒤 run을 FAILED로(§4a-1).
+- **Phase-1 driver 경로**: 생성 상태(NODE_PROPOSALS_CREATED…STAGING_WRITTEN)를 **주입형 fixture driver**로 대체해 골든 노드를 staging vault에 깖; SOURCES_EXTRACTED는 **실제** `autosci-read`, VALIDATED는 **실제** kernel lint(§4a-2).
+- **UI 그래프 어댑터**: autosci-core vault(`wiki/*.md` frontmatter + `edges.jsonl`)를 기존 UI 데이터 모델(`node_id`/`node_type` staged docs + 그래프 artifact)로 변환(§4a-3).
 - 결과 vault·그래프를 기존 Electron UI(노드 뷰어/그래프)에 표시.
 
 ### 범위 밖 (명시적 연기 — §9)
@@ -95,6 +97,28 @@ wiki-domains/paper/    (overlay: 계약 schema+policy + skill 포인터)
 
 ---
 
+## 4a. 리뷰 반영: 러너 계약 · Phase-1 driver 경로 · UI 어댑터
+
+spec 검토에서 드러난, 기존 코드 계약과의 충돌 3건. 이게 구현 계획의 **첫 티켓들**이 된다.
+
+### 4a-1. VALIDATED 실패 시 리포트 보존 (러너 계약)
+현재 `HarnessRunner.advance`는 driver가 throw하면 FAILED로 저장하지만 **그 단계 artifacts는 저장하지 않는다**(`packages/knowledge-harness/src/runtime/harness-runner.ts:74-84`). 그래서 "리포트도 파싱하고 run도 fail"이 현 계약으론 불가능하다 — throw는 리포트 소실, 정상 return은 VALIDATED를 성공으로 전진.
+→ **변경:** `DriverResult`를 `{ artifacts; status?: 'ok' | 'failed'; error?: string }`로 확장. 러너는 `status==='failed'`면 **artifacts를 먼저 `writeArtifact`한 뒤** FAILED로 전이하고 `error`를 기록한다. 기존 throw 경로는 예기치 못한 예외용으로 그대로 둔다. VALIDATED driver는 lint issue가 있으면 리포트를 artifacts로 담아 `status:'failed'`로 반환.
+
+### 4a-2. LLM 없는 SEED를 어떤 driver 경로로
+현 상태머신엔 SEED 상태가 없다(`run-state-machine.ts`: …→STAGING_WRITTEN→VALIDATED). 새 상태를 넣지 않고 **주입형 fixture driver**로 푼다(`drivers: Partial<Record<state, Driver>>`가 이미 per-run 주입됨 — `make-drivers.ts`/`DriverDeps`). Phase-1 driver 세트:
+- `SOURCES_EXTRACTED` = **실제** substrate ingest(`autosci-read` on 샘플 PDF) → `raw/`
+- `NODE_PROPOSALS_CREATED`·`LEAD_MERGED`·`WRITE_PLAN_CREATED`·`STAGING_WRITTEN` = **fixture driver** — freeze된 골든 위키 노드를 staging vault에 배치
+- `VALIDATED` = **실제** substrate lint
+
+프로덕션 생성 driver에 "paper mode" 분기를 넣지 않는다(그건 #3 생성 정렬). 이렇게 해야 VALIDATED가 *실제 run을 fail시키는지*를 정직하게 증명한다.
+
+### 4a-3. UI 그래프 어댑터
+기존 Knowledge UI는 그래프를 run artifacts(`node-proposals` 등)와 `node_id`/`node_type` frontmatter staged docs에서 만든다(`apps/desktop/src/renderer/harness-utils.ts:776`, `packages/app-services/src/staged-docs.ts:20`, `KnowledgeView.tsx`). `edges.jsonl`을 읽지 않고, autosci-core 노드 frontmatter(`title`/`slug`/`kind`)와도 다르다.
+→ **변경:** fixture/substrate 어댑터가 (a) 골든 노드를 staging에 쓸 때 **UI 호환 frontmatter**(`node_id`/`node_type`)를 부여하고, (b) `edges.jsonl` + 노드 frontmatter에서 `buildHarnessGraphData`가 소비하는 **그래프 artifact**를 생성한다. 산출물 형태(artifact name·스키마)는 첫 티켓에서 확정한다.
+
+---
+
 ## 5. 컴포넌트
 
 | 컴포넌트 | 위치 | 역할 |
@@ -104,7 +128,10 @@ wiki-domains/paper/    (overlay: 계약 schema+policy + skill 포인터)
 | `core.lock` | repo 루트 | `core_repo`(github.com/irron2004/autosci-core) / `core_version`(core-v0.2.0) / `core_commit` 기록 |
 | `packages/wiki-substrate` | 신규 TS 패키지 | `WikiSubstrate` 포트 + `PythonKernelAdapter` + 텍스트출력→리포트 파서 |
 | `wiki-domains/paper/` | 신규 | attnembed에서 일반화한 paper 계약(`runtime/schema/*.yaml`, `runtime/policy/writers.yaml`) + skill 포인터 |
-| `make-drivers.ts` 수정 | knowledge-harness | `VALIDATED` 드라이버가 `WikiSubstrate.lint()` 호출 (Phase 1은 **추가** 게이트; TS 검증기 은퇴는 #3) |
+| `DriverResult`/`HarnessRunner` 변경 | knowledge-harness `harness-runner.ts` | 실패 신호(`status:'failed'`) 추가 + 실패 시 artifacts 먼저 저장 후 FAILED (§4a-1) |
+| `make-drivers.ts` 수정 | knowledge-harness | `VALIDATED` 드라이버가 `WikiSubstrate.lint()` 호출, issue 시 `status:'failed'` (Phase 1은 **추가** 게이트; TS 검증기 은퇴는 #3) |
+| Phase-1 fixture drivers + 골든 fixture | knowledge-harness(테스트 경로) + `packages/wiki-substrate` fixture | 생성 상태를 대체해 freeze된 골든 노드를 staging에 배치 (§4a-2) |
+| UI 그래프 어댑터 | `packages/wiki-substrate` 또는 app-services | autosci-core vault(`wiki/*` + `edges.jsonl`) → 기존 UI 모델(`node_id`/`node_type` staged docs + 그래프 artifact) (§4a-3) |
 | 워크스페이스 vault 배치 | app-services `workspace-vault.ts` | autosci-core 레이아웃(`wiki/`, `wiki/graph/edges.jsonl`, `index.md`, `runtime/`)과 ai_dashboard `raw/` 화해 — `wiki-substrate` 한 곳에 격리 |
 
 ---
@@ -121,19 +148,21 @@ wiki-domains/paper/    (overlay: 계약 schema+policy + skill 포인터)
     WikiSubstrate.ingest(pdf) → autosci-read
         → <vault>/raw/papers/attnembed-2402-05370.md (SourceRecord)
         ↓
-[2] SEED     known-good 노드 배치 (Phase 1은 생성 대신 상수)
-    attnembed-e2e/wiki/* → <vault>/wiki/{papers,modules,pipelines}/*.md + wiki/graph/edges.jsonl
+[2] SEED     freeze된 골든 노드 배치 (Phase 1은 생성 대신 상수, 주입형 fixture driver — §4a-2)
+    fixture(골든 wiki/*) → <vault>/wiki/{papers,modules,pipelines}/*.md + wiki/graph/edges.jsonl
+    + UI 호환 frontmatter(node_id/node_type)로 staging vault에도 배치 (§4a-3)
     wiki-domains/paper/runtime/{schema,policy} → <vault>/runtime/
         ↓
 [3] VALIDATED   make-drivers VALIDATED 드라이버 → WikiSubstrate.lint(vault)
     = python -m kernel lint --contract-dir <vault>/runtime --wiki-dir <vault>/wiki
     출력(issue 텍스트 목록 + exit code) → 파서
         → GraphValidationReport / LinkValidationReport / MarkdownYamlValidationReport
-    issue 0 + exit 0 → green
+    issue 0 + exit 0 → DriverResult{status:'ok'} → green
+    issue 있음 → DriverResult{status:'failed', artifacts:[리포트…]} → 러너가 리포트 보존 후 FAILED (§4a-1)
         ↓
 [4] INDEX/GRAPH   python -m kernel rebuild-index → index.md ; graph 렌더(dot/mmd/html)
         ↓
-[5] VIEW   기존 Electron 그래프 UI/노드 뷰어가 vault의 wiki/* + edges.jsonl 표시
+[5] VIEW   UI 그래프 어댑터(§4a-3) 거쳐 기존 Electron 그래프 UI/노드 뷰어가 표시
 ```
 
 **핵심 화해 지점:** ai_dashboard 워크스페이스 vault는 `raw/` + 위키 md를 나란히 두는 반면, autosci-core는 `wiki/` 하위에 노드, `runtime/`에 계약을 둔다. 이 경로 매핑이 `wiki-substrate`가 가두는 **유일한 포맷 어댑팅**이며, 한 곳에 모아두면 #2에서 다른 도메인 붙일 때 재사용된다.
@@ -152,7 +181,7 @@ de-risking이 목표이므로 검증이 곧 산출물이다.
 | 어댑터 단위 | `PythonKernelAdapter.lint()`를 **깨진 fixture vault**(누락 필수필드/끊긴 링크)에 | issue를 정확히 리포트로 파싱 — **거짓 green 없음** |
 | 어댑터 단위 | 정상 vault에 lint | issue 0, exit 0 |
 | e2e (골든) | attnembed known-good vault 전체 흐름 [1]~[4] | lint green + index/graph 생성, 스냅샷 안정 |
-| **음성(negative)** | 골든 vault의 한 노드 frontmatter를 의도적으로 깸 | run이 **실패** — 게이트가 실제로 문다 |
+| **음성(negative)** | 골든 vault의 한 노드 frontmatter를 의도적으로 깸 | run이 **FAILED** + **검증 리포트 artifacts 보존**(§4a-1) — 게이트가 실제로 문다 |
 | UI 스모크 | 생성된 vault를 기존 그래프 뷰어로 | 노드/엣지 렌더, 클릭→문서 |
 
 **음성 테스트가 이 하위 프로젝트의 진짜 가치다** — "kernel 게이트가 ai_dashboard run을 실제로 fail시킨다"를 증명해야 이음매가 살아있는 것. 기존 `harness-pipeline.e2e.test.ts` 패턴에 얹는다.
@@ -167,7 +196,8 @@ de-risking이 목표이므로 검증이 곧 산출물이다.
 | kernel lint 출력이 사람용 텍스트(기계가독 아님) | 파서를 그 형식에 맞춤. 깨지기 쉬우면 autosci-core에 `python -m kernel lint --json`을 **core-side 기능 요청**으로(도메인 무관이라 승격 적합 — README §"기능 승격 규칙") |
 | vault 레이아웃 화해가 침습적일 수 있음 | `wiki-substrate` 한 곳에 격리; 워크스페이스 vault는 #2까지 paper 전용 별도 루트로 |
 | 두 검증기(TS+kernel) 공존 혼란 | Phase 1은 kernel을 *추가* 게이트로만; TS 검증기 은퇴는 #3 |
-| `core-v0.2.0`이 paper 계약 전부를 커버 못 할 가능성 | 구현 1단계에서 `attnembed-e2e` 계약을 실제 핀 태그로 lint해 사전 검증; 누락 시 코어에 이슈 + 임시로 다음 stable 사용 |
+| **골든 fixture가 autosci-core `.scratch/`에 있고 gitignore·`core-v0.2.0` 태그에 미포함** (확인됨, 블로커) | 핀 태그에 의존 금지 — 워킹트리에서 paper 계약→`wiki-domains/paper/`, 골든 vault+샘플 PDF→`packages/wiki-substrate` 테스트 fixture로 **freeze**(ai_dashboard 소유). 구현 티켓 1에 포함 |
+| `core-v0.2.0` 핀 태그가 paper 계약(`object`/`list_object` lint)을 커버 못 할 가능성 | freeze한 paper 계약을 핀 태그의 kernel로 lint해 **사전 검증**; 누락 시 코어에 이슈 + 임시로 다음 stable 사용 |
 
 **해소됨 (브레인스토밍):** `wiki-substrate` = 별도 패키지; venv = `uv`.
 
@@ -189,8 +219,9 @@ de-risking이 목표이므로 검증이 곧 산출물이다.
 
 ## 10. 성공 기준 (하위 프로젝트 #1 완료 정의)
 
-1. `vendor/autosci-core`가 `core-v0.2.0`에 핀되고 `core.lock`에 기록됨; venv 부트스트랩이 재현 가능.
-2. `packages/wiki-substrate`의 `PythonKernelAdapter.lint()`가 정상 vault에 green, 깨진 vault에 정확한 issue 리포트(거짓 green 단위 테스트로 봉인).
-3. attnembed 골든 vault가 ai_dashboard run을 통해 [1]~[4]를 통과하고 index/graph 생성.
-4. 음성 테스트: 의도적으로 깬 노드가 run을 **실패**시킴 (kernel 게이트가 살아있음 증명).
-5. 생성된 vault가 기존 Electron 그래프 뷰어에 노드/엣지로 렌더되고 클릭→문서 동작.
+1. `vendor/autosci-core`가 `core-v0.2.0`에 핀되고 `core.lock`에 기록됨(`core_repo`/`core_version`/`core_commit` + venv python 경로). 검증: **submodule HEAD == `core.lock.core_commit`**, `python -c "import kernel; print(kernel.__file__)"`가 **`vendor/autosci-core` 아래로 해석**, venv 부트스트랩 재현 가능.
+2. paper 계약·골든 vault·샘플 PDF가 ai_dashboard에 **freeze**됨(`wiki-domains/paper/` + `packages/wiki-substrate` fixture); autosci-core `.scratch`/핀 태그에 런타임 의존 없음.
+3. `packages/wiki-substrate`의 `PythonKernelAdapter.lint()`가 정상 vault에 green, 깨진 vault에 정확한 issue 리포트(거짓 green 단위 테스트로 봉인).
+4. 골든 vault가 ai_dashboard run을 통해 [1]~[4]를 통과하고 index/graph 생성.
+5. 음성 테스트: 의도적으로 깬 노드가 run을 **FAILED**시키되 **검증 리포트 artifacts는 보존됨**(kernel 게이트 + §4a-1 계약 증명).
+6. 생성된 vault가 UI 어댑터(§4a-3)를 거쳐 기존 Electron 그래프 뷰어에 노드/엣지로 렌더되고 클릭→문서 동작.
