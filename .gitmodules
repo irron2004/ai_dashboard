@@ -1,0 +1,3 @@
+[submodule "vendor/autosci-core"]
+	path = vendor/autosci-core
+	url = https://github.com/irron2004/autosci-core.git

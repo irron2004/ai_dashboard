@@ -4,3 +4,4 @@ out/
 dist/
 .claude/
 .superpowers/
+.venv-substrate/
