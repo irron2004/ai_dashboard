@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeAll } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -8,18 +8,19 @@ import { PythonKernelAdapter } from './python-kernel-adapter.js'
 const here = fileURLToPath(new URL('.', import.meta.url))
 const repoRoot = resolve(here, '../../..')
 const lockPath = join(repoRoot, 'core.lock')
-const haveVenv = existsSync(lockPath)
+const venvPython = existsSync(lockPath)
+  ? join(repoRoot, JSON.parse(readFileSync(lockPath, 'utf8')).venv_python)
+  : ''
+const haveVenv = venvPython !== '' && existsSync(venvPython)
 const d = haveVenv ? describe : describe.skip
 
 d('PythonKernelAdapter (real kernel)', () => {
-  let python: string
+  const python = venvPython
   // The golden wiki fixtures live under test/fixtures/paper-golden/wiki.
   // The runtime contract lives at wiki-domains/paper/runtime in the repo.
   // Both are copied into a tmp sibling layout so contractDir.parent == tmp
   // and the kernel resolves pages from tmp/wiki — no symlinks needed.
   const goldenWiki = resolve(here, '../test/fixtures/paper-golden/wiki')
-
-  beforeAll(() => { python = join(repoRoot, JSON.parse(readFileSync(lockPath, 'utf8')).venv_python) })
 
   test('lint passes on the golden vault', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'paper-vault-'))

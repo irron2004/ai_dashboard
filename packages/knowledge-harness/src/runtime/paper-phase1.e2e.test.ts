@@ -12,7 +12,10 @@ import { makePaperPhase1Drivers } from './paper-phase1-drivers.js'
 const here = fileURLToPath(new URL('.', import.meta.url))
 const repoRoot = resolve(here, '../../../..')
 const lockPath = join(repoRoot, 'core.lock')
-const haveVenv = existsSync(lockPath)
+const venvPython = existsSync(lockPath)
+  ? join(repoRoot, JSON.parse(readFileSync(lockPath, 'utf8')).venv_python)
+  : ''
+const haveVenv = venvPython !== '' && existsSync(venvPython)
 const d = haveVenv ? describe : describe.skip
 
 const ALL_OPEN = {
@@ -30,7 +33,7 @@ d('paper-domain Phase 1 seam', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'paper-phase1-'))
     store = new RunArtifactStore(join(dir, 'run'))
-    python = join(repoRoot, JSON.parse(readFileSync(lockPath, 'utf8')).venv_python)
+    python = venvPython
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
