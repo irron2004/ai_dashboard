@@ -585,7 +585,9 @@ Expected: FAIL — 컴포넌트 없음.
 
 - [ ] **Step 3: Implement NodeConfirmPanel**
 
-`NodeConfirmPanel.tsx`: props `{ proposed: Array<{id?:string;title:string;type?:string;source_proposal_id?:string}>; onConfirm: (a: { nodes: typeof proposed }) => void }`. 로컬 상태로 각 행의 keep(checkbox)·title(인라인 편집) 보관 + "제목으로 추가" 입력. 「이대로 생성」 클릭 시 keep된 행 + 추가 행을 `{ nodes }`로 `onConfirm`. (제거 = keep 해제 후 제외.)
+> 범위: **keep/remove/rename만.** "제목으로 새 노드 추가"는 연기됨 — 근거 없는(evidence-less) 신규 노드는 PolicyGuard의 evidence-required 게이트에 막히므로, 확인 단계는 에이전트가 *근거를 갖고 제안한* 노드를 큐레이션(유지/제거/이름수정)하는 데 한정한다.
+
+`NodeConfirmPanel.tsx`: props `{ proposed: Array<{id?:string;title:string;type?:string;source_proposal_id?:string}>; onConfirm: (a: { nodes: typeof proposed }) => void }`. 로컬 상태로 각 행의 keep(checkbox)·title(인라인 편집) 보관. 「이대로 생성」 클릭 시 keep된 행만 `{ nodes }`로 `onConfirm`. (제거 = keep 해제 후 제외.) "추가" 입력은 두지 않는다.
 
 ```tsx
 import { useState } from 'react'
@@ -595,13 +597,8 @@ export function NodeConfirmPanel({ proposed, onConfirm }: {
   onConfirm: (a: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }) => void
 }) {
   const [rows, setRows] = useState<Row[]>(proposed.map((p) => ({ ...p, keep: true })))
-  const [newTitle, setNewTitle] = useState('')
   const set = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => j === i ? { ...r, ...patch } : r))
-  const confirm = () => {
-    const kept = rows.filter((r) => r.keep).map(({ keep, ...n }) => n)
-    const added = newTitle.trim() ? [{ title: newTitle.trim() }] : []
-    onConfirm({ nodes: [...kept, ...added] })
-  }
+  const confirm = () => onConfirm({ nodes: rows.filter((r) => r.keep).map(({ keep, ...n }) => n) })
   return (
     <div className="node-confirm">
       <h3>생성할 노드 확인</h3>
@@ -614,7 +611,6 @@ export function NodeConfirmPanel({ proposed, onConfirm }: {
           </li>
         ))}
       </ul>
-      <input aria-label="새 노드 제목" placeholder="제목으로 새 노드 추가" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
       <button type="button" onClick={confirm}>이대로 생성</button>
     </div>
   )
