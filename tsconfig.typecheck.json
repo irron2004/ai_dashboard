@@ -13,6 +13,7 @@
       "@apc/shared": ["./packages/shared/src/index.ts"],
       "@apc/core": ["./packages/core/src/index.ts"],
       "@apc/llm-wiki": ["./packages/llm-wiki/src/index.ts"],
+      "@apc/wiki-substrate": ["./packages/wiki-substrate/src/index.ts"],
       "@apc/knowledge-harness": ["./packages/knowledge-harness/src/index.ts"],
       "@apc/app-services": ["./packages/app-services/src/index.ts"],
       "@apc/agents": ["./packages/agents/src/index.ts"],
