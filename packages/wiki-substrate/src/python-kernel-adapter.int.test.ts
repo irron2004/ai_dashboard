@@ -30,7 +30,7 @@ d('PythonKernelAdapter (real kernel)', () => {
     const r = await a.lint({ contractDir: join(tmp, 'runtime'), wikiDir: join(tmp, 'wiki') })
     expect(r.ok).toBe(true)
     expect(r.issues).toEqual([])
-  })
+  }, 30_000)  // 실제 venv 서브프로세스 cold-start — 병렬 풀런에서 기본 5s 초과 방지
 
   test('lint reports issues on a broken copy', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'paper-vault-'))
@@ -44,5 +44,5 @@ d('PythonKernelAdapter (real kernel)', () => {
     const r = await a.lint({ contractDir: join(tmp, 'runtime'), wikiDir: join(tmp, 'wiki') })
     expect(r.ok).toBe(false)
     expect(r.issues.length).toBeGreaterThan(0)
-  })
+  }, 30_000)  // 실제 venv 서브프로세스 cold-start — 병렬 풀런에서 기본 5s 초과 방지
 })

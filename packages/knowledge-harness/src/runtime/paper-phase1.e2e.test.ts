@@ -58,7 +58,7 @@ d('paper-domain Phase 1 seam', () => {
     expect(types.has('papers')).toBe(true)
     expect(types.has('modules')).toBe(true)
     expect(props.proposals.length).toBeGreaterThan(3)
-  })
+  }, 30_000)  // 실제 venv 서브프로세스 3회(spawn cold-start) — 병렬 풀런에서 기본 5s 초과 방지
 
   test('a broken node fails the run but preserves the kernel-lint-report', async () => {
     const broken = join(dir, 'broken-wiki')
@@ -74,5 +74,5 @@ d('paper-domain Phase 1 seam', () => {
     const lint: any = store.readArtifact(rs.artifacts['VALIDATED'][0])
     expect(lint.ok).toBe(false)
     expect(lint.issues.length).toBeGreaterThan(0)
-  })
+  }, 30_000)  // 실제 venv 서브프로세스 — 병렬 풀런에서 기본 5s 초과 방지
 })
