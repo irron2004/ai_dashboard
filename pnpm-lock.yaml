@@ -203,6 +203,9 @@ importers:
       '@apc/shared':
         specifier: workspace:*
         version: link:../shared
+      '@apc/wiki-substrate':
+        specifier: workspace:*
+        version: link:../wiki-substrate
       zod:
         specifier: ^3.23.8
         version: 3.25.76

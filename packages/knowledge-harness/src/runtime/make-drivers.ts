@@ -114,6 +114,7 @@ export const ARTIFACTS = {
   markdownYamlValidation: 'markdown-yaml-validation-report',
   linkValidation: 'link-validation-report',
   secretScan: 'secret-scan-report',
+  kernelLint: 'kernel-lint-report',
   finalPolicy: 'final-policy-report',
   evalReport: 'eval-report',
   coverageReport: 'coverage-report',

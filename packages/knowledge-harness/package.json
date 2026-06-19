@@ -6,6 +6,7 @@
   "dependencies": {
     "@apc/shared": "workspace:*",
     "@apc/llm-wiki": "workspace:*",
+    "@apc/wiki-substrate": "workspace:*",
     "zod": "^3.23.8"
   }
 }
