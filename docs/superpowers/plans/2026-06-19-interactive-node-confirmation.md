@@ -414,7 +414,7 @@ git commit -m "feat(harness): pause before write in interactive mode; STAGING co
 
 **Interfaces:**
 - Consumes: `HarnessService.resume`(기존), `KhApprovedNodes`(Task 2), `ARTIFACTS.approvedNodes`(Task 2).
-- Produces: `HarnessService.confirmNodes({ runId, approvedNodes }): Promise<HarnessRunResult>` — approved-nodes 아티팩트를 `WRITE_PLAN_CREATED` 키로 저장 후 `resume`. IPC `c:harnessConfirmNodes` + `HarnessConfirmNodesReq = { runId: string; approvedNodes: KhApprovedNodes }`.
+- Produces: `HarnessService.confirmNodes({ runId, approvedNodes }): Promise<HarnessRunResult>` — approved-nodes 아티팩트를 `LEAD_MERGED` 키로 저장(+인덱스 append) 후 `resume`. IPC `c:harnessConfirmNodes` + `HarnessConfirmNodesReq = { runId: string; approvedNodes: KhApprovedNodes }`.
 
 - [ ] **Step 1: Write the failing service test**
 
