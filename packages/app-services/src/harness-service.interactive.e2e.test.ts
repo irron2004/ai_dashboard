@@ -94,16 +94,6 @@ describe('interactive node-confirmation e2e', () => {
 
   afterEach(() => { rmSync(ws, { recursive: true, force: true }) })
 
-  function makeE2EService(interactive?: boolean) {
-    return new HarnessService({
-      runner: new FakeAgentRunner(cannedOutputs()),
-      vaultRoot, runsRoot, gatesPath, preamble: 'RULES',
-      now: () => '2026-06-19T00:00:00Z',
-      // interactive wired when caller requests it; absent = non-interactive (default)
-      ...(interactive !== undefined ? {} : {}),
-    })
-  }
-
   test('non-interactive run is unchanged (no pause, reaches review)', async () => {
     const svc = new HarnessService({
       runner: new FakeAgentRunner(cannedOutputs()),
