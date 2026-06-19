@@ -133,4 +133,23 @@ describe('HarnessRunner', () => {
     // the last reported state equals the run's final state
     expect(seen[seen.length - 1]).toBe(final.state)
   })
+
+  test('a driver returning status:failed persists its artifacts then fails the run', async () => {
+    const drivers: Partial<Record<KhState, Driver>> = {
+      PROJECT_SCANNED: async () => ({ artifacts: [{ name: 'out', data: { state: 'PROJECT_SCANNED' } }] }),
+      SOURCES_EXTRACTED: async () => ({
+        artifacts: [{ name: 'kernel-lint-report', data: { ok: false, exit_code: 1, issues: ['boom'] } }],
+        status: 'failed',
+        error: 'lint failed',
+      }),
+    }
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('FAILED')
+    expect(rs.error).toBe('lint failed')
+    const paths = rs.artifacts['SOURCES_EXTRACTED']
+    expect(paths).toHaveLength(1)
+    expect(store.readArtifact(paths[0])).toEqual({ ok: false, exit_code: 1, issues: ['boom'] })
+  })
 })
