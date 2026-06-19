@@ -164,6 +164,7 @@ export const RunStateSchema = z.object({
   history: z.array(z.object({ state: KhStateSchema, at: z.string() })).default([]),
   artifacts: z.record(z.array(z.string())).default({}),  // state -> relative artifact paths under the run dir
   error: z.string().optional(),
+  awaiting: z.string().optional(),  // non-empty when the run is paused waiting for user input (e.g. 'node-confirmation')
 })
 export type RunState = z.infer<typeof RunStateSchema>
 

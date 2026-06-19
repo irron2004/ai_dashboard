@@ -5,7 +5,7 @@ import type { RunArtifactStore } from './run-artifact-store.js'
 import type { RunLock } from './run-lock.js'
 
 export type DriverArtifact = { name: string; data: unknown }
-export type DriverResult = { artifacts: DriverArtifact[]; status?: 'ok' | 'failed'; error?: string }
+export type DriverResult = { artifacts: DriverArtifact[]; status?: 'ok' | 'failed' | 'paused'; error?: string; awaiting?: string }
 export type RunnerContext = { runId: string; projectId: string; engine: string; store: RunArtifactStore; runState: RunState }
 export type Driver = (ctx: RunnerContext) => Promise<DriverResult>
 
@@ -62,6 +62,17 @@ export class HarnessRunner {
           const result = (await this.deps.drivers[step.to]?.(ctx)) ?? { artifacts: [] }
           // 4a-1: 이 단계 artifacts를 항상 먼저 보존 — 실패한 검증 단계의 리포트도 살아남아야 한다.
           const paths = result.artifacts.map(a => store.writeArtifact(step.to, a.name, a.data))
+          if (result.status === 'paused') {
+            // 정지: 전이하지 않고 현재 상태에 머문다(FAILED 아님). 재개 시 이 단계를 다시 실행.
+            runState = {
+              ...runState,
+              artifacts: { ...runState.artifacts, [step.to]: paths },
+              awaiting: result.awaiting ?? 'paused',
+            }
+            store.saveRunState(runState)
+            onProgress?.(runState)
+            return runState
+          }
           if (result.status === 'failed') {
             assertTransition(runState.state, 'FAILED')
             runState = {
@@ -81,6 +92,7 @@ export class HarnessRunner {
             state: step.to,
             history: [...runState.history, { state: step.to, at: this.deps.now() }],
             artifacts: { ...runState.artifacts, [step.to]: paths },
+            awaiting: undefined,
           }
           store.saveRunState(runState)
           ctx.runState = runState
