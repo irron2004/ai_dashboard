@@ -257,9 +257,15 @@ d('substrate bootstrap', () => {
 })
 ```
 
+그리고 이 테스트가 발견되도록 vitest include를 확장한다. `vitest.config.ts`의 `test.include`를 교체:
+
+```ts
+    include: ['packages/**/*.test.ts', 'scripts/**/*.test.ts'],
+```
+
 - [ ] **Step 7: Run the verification test**
 
-Run: `pnpm vitest run scripts/bootstrap-substrate.test.ts`
+Run (레포 루트에서): `pnpm exec vitest run scripts/bootstrap-substrate.test.ts`
 Expected: PASS (2 tests).
 
 - [ ] **Step 8: Ignore the venv, commit the rest**
@@ -267,7 +273,7 @@ Expected: PASS (2 tests).
 `.gitignore`에 `.venv-substrate/` 추가. 그 다음:
 
 ```bash
-git add .gitmodules vendor/autosci-core core.lock scripts/bootstrap-substrate.mjs scripts/bootstrap-substrate.test.ts .gitignore wiki-domains/ packages/wiki-substrate/test/fixtures/
+git add .gitmodules vendor/autosci-core core.lock scripts/bootstrap-substrate.mjs scripts/bootstrap-substrate.test.ts .gitignore vitest.config.ts wiki-domains/ packages/wiki-substrate/test/fixtures/
 git commit -m "chore(substrate): vendor autosci-core@core-v0.2.0, bootstrap + frozen paper fixture"
 ```
 
@@ -325,6 +331,12 @@ export type KhKernelLintReport = z.infer<typeof KhKernelLintReportSchema>
 
 ```json
 { "extends": "../../tsconfig.base.json", "include": ["src"] }
+```
+
+그리고 cross-package import가 vitest에서 resolve되도록 `vitest.config.ts`의 `resolve.alias`에 한 줄 추가(다른 `@apc/*` 항목 옆):
+
+```ts
+      '@apc/wiki-substrate': `${root}packages/wiki-substrate/src/index.ts`,
 ```
 
 Run: `pnpm install`  (workspace에 새 패키지 등록)
@@ -523,7 +535,7 @@ Expected: parser PASS, integration PASS(venv 있음). venv 없는 CI에선 integ
 - [ ] **Step 10: Commit**
 
 ```bash
-git add packages/shared/src/kh-schema.ts packages/wiki-substrate/
+git add packages/shared/src/kh-schema.ts packages/wiki-substrate/ vitest.config.ts
 git commit -m "feat(wiki-substrate): WikiSubstrate port + PythonKernelAdapter (kernel lint over subprocess)"
 ```
 
