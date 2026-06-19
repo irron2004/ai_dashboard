@@ -50,6 +50,11 @@ d('paper-domain Phase 1 seam', () => {
     const lint: any = store.readArtifact(rs.artifacts['VALIDATED'][0])
     expect(lint.ok).toBe(true)
     expect(existsSync(join(dir, 'vault', 'wiki', 'index.md'))).toBe(true)  // rebuild-index 산출 (스펙 §6 [4])
+    const props: any = store.readArtifact(rs.artifacts['NODE_PROPOSALS_CREATED'][0])
+    const types = new Set(props.proposals.map((p: any) => p.node.type))
+    expect(types.has('papers')).toBe(true)
+    expect(types.has('modules')).toBe(true)
+    expect(props.proposals.length).toBeGreaterThan(3)
   })
 
   test('a broken node fails the run but preserves the kernel-lint-report', async () => {

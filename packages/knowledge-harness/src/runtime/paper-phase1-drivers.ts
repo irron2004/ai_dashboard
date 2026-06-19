@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { KhState } from '@apc/shared'
 import type { Driver, DriverResult } from './harness-runner.js'
 import type { WikiSubstrate } from '@apc/wiki-substrate'
+import { vaultToNodeProposals, vaultToStagedDocs } from '@apc/wiki-substrate'
 import { ARTIFACTS } from './make-drivers.js'
 
 export type PaperPhase1Deps = {
@@ -41,10 +42,16 @@ export function makePaperPhase1Drivers(deps: PaperPhase1Deps): Partial<Record<Kh
     DOCUMENTS_CLASSIFIED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.documentIntent, data: { documents: [] } }] }),
 
     // fixture: 골든 노드 상수 배치 (LLM 생성 대체).
-    NODE_PROPOSALS_CREATED: async (): Promise<DriverResult> => { seedGolden(); return { artifacts: [{ name: ARTIFACTS.nodeProposals, data: { proposals: [] } }] } },
+    NODE_PROPOSALS_CREATED: async (): Promise<DriverResult> => {
+      seedGolden()
+      return { artifacts: [{ name: ARTIFACTS.nodeProposals, data: vaultToNodeProposals(wikiDir) }] }
+    },
     LEAD_MERGED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.graphUpdatePlan, data: { node_ops: [] } }] }),
     WRITE_PLAN_CREATED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.writePlan, data: { ops: [] } }] }),
-    STAGING_WRITTEN: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.appliedWriteReport, data: { applied: [], proposals: [], skipped: [] } }] }),
+    STAGING_WRITTEN: async (): Promise<DriverResult> => {
+      const proposals = vaultToStagedDocs(wikiDir, join(deps.vaultRoot, 'vault-staging'))
+      return { artifacts: [{ name: ARTIFACTS.appliedWriteReport, data: { applied: [], proposals, skipped: [] } }] }
+    },
 
     // 실제 권위 게이트: kernel lint. 통과 시 index 재생성, 실패 시 리포트 보존 + run FAILED (§4a-1).
     // contractDir은 vault 안에 복사된 vaultContractDir(= <vault>/runtime) — wiki와 형제여야 kernel이 page를 찾는다.
