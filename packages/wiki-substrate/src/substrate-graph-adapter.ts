@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, basename, relative } from 'node:path'
+import { join, basename } from 'node:path'
 
 type Node = { id: string; title: string; type: string; relPath: string; body: string }
 
