@@ -11,5 +11,9 @@
     "@types/node": "^24.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
+  },
+  "optionalDependencies": {
+    "@esbuild/linux-x64": "^0.28.1",
+    "@rollup/rollup-linux-x64-gnu": "^4.62.0"
   }
 }
