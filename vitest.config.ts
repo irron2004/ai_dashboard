@@ -53,6 +53,7 @@ export default defineConfig({
       '@apc/harness': `${root}packages/harness/src/index.ts`,
       '@apc/app-services': `${root}packages/app-services/src/index.ts`,
       '@apc/knowledge': `${root}packages/knowledge/src/index.ts`,
+      '@apc/wiki-substrate': `${root}packages/wiki-substrate/src/index.ts`,
     },
   },
   test: {

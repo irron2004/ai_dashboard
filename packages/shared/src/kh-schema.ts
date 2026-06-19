@@ -330,6 +330,14 @@ export const KhMarkdownYamlValidationReportSchema = z.object({
 })
 export type KhMarkdownYamlValidationReport = z.infer<typeof KhMarkdownYamlValidationReportSchema>
 
+export const KhKernelLintReportSchema = z.object({
+  generated_by: z.string().default('kernel-lint'),
+  ok: z.boolean().default(true),
+  exit_code: z.number().default(0),
+  issues: z.array(z.string()).default([]),
+})
+export type KhKernelLintReport = z.infer<typeof KhKernelLintReportSchema>
+
 // A2 (Step 5): deterministic verification that declared evidence resolves to a real raw source.
 const KhEvidenceFindingSchema = z.object({
   proposal_id: z.string(),
