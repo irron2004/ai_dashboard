@@ -407,6 +407,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     WRITE_PLAN_CREATED: async (ctx) => {
+      // 확인 모드: 사용자가 노드 목록을 승인하기 전엔 쓰기를 멈춘다(approved-nodes 아티팩트가 신호).
+      // approved-nodes는 LEAD_MERGED 키에 저장된다(재실행되지 않는 단계 → 인덱스가 안정적;
+      // WRITE_PLAN_CREATED 키에 두면 이 드라이버가 재개 시 자기 산출물로 인덱스를 덮어써 사라진다).
+      if (deps.interactive) {
+        const approved = artifactByName(ctx, 'LEAD_MERGED', ARTIFACTS.approvedNodes)
+        if (!approved) return { artifacts: [], status: 'paused', awaiting: 'node-confirmation' }
+      }
       const writePlan = artifactByName(ctx, 'LEAD_MERGED', ARTIFACTS.leadWritePlan)
       return { artifacts: [{ name: ARTIFACTS.writePlan, data: writePlan }] }
     },
@@ -416,6 +423,21 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
       const graphPlan = artifactByName<KhGraphUpdatePlan>(ctx, 'LEAD_MERGED', ARTIFACTS.graphUpdatePlan)
 
+      // 확인 모드에서 사용자가 승인한 목록이 있으면, 그 목록으로 proposals를 재구성한다:
+      // 유지(부분집합) + 제목 이름수정 + (id 없는) 제목-only 신규 노드 합성.
+      const approved = artifactByName<{ nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }>(ctx, 'LEAD_MERGED', ARTIFACTS.approvedNodes)
+      const effectiveProposals: KhNodeProposal[] = approved
+        ? approved.nodes.map((n) => {
+            const src = proposals.find((p) => p.proposal_id === n.source_proposal_id || p.node?.id === n.id)
+            if (src) return { ...src, node: { ...src.node, title: n.title } }   // 유지 + 이름수정
+            // 신규(제목-only): 최소 proposal 합성 (빈 claims/evidence는 valid)
+            const id = (n.id ?? n.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')) || `node-${Math.random().toString(36).slice(2, 8)}`
+            return { proposal_id: `approved-${id}`, proposed_by: 'user', created_at: deps.now?.() ?? new Date().toISOString(),
+              node: { id, type: n.type ?? 'ConceptNode', title: n.title, scope: 'project', summary: '', project_ids: [], tags: [] },
+              claims: [], evidence: [] } as unknown as KhNodeProposal
+          })
+        : proposals
+
       // Author each node document DETERMINISTICALLY from its proposal (+ the lead's edges/narrative). The
       // LLM only emits one-line stub descriptions, so rendering here is what produces a real, frontmatter'd,
       // [[link]]-connected wiki. Replace any node-targeting op the lead wrote with the rendered one, and
@@ -423,7 +445,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const edgesByFrom = new Map<string, KhGraphEdgeOp[]>()
       for (const e of graphPlan?.edge_ops ?? []) edgesByFrom.set(e.from_node_id, [...(edgesByFrom.get(e.from_node_id) ?? []), e])
       const narrativeOf = new Map((graphPlan?.node_ops ?? []).map((o) => [o.node_id, o.narrative]))
-      const nodeDocOps = proposals
+      const nodeDocOps = effectiveProposals
         .filter((p) => p.node?.id)
         .map((p) => ({
           op: 'create_file' as const,
@@ -442,7 +464,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // before touching the staging vault if any op would write to raw/, delete, or carry a secret in its
       // body. Scanning the op bodies HERE (not just the files at VALIDATED) means a dangerous write is
       // refused before it is ever authored — not flagged after the fact.
-      const gate = policy.check(proposals, plan)
+      const gate = policy.check(effectiveProposals, plan)
       if (!gate.ok) {
         throw new Error(`PolicyGuard blocked the write plan before staging: ` +
           gate.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id || '-'}:${v.rule}`).join(', '))
