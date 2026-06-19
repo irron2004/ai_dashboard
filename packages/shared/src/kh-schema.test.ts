@@ -6,6 +6,7 @@ import {
   KhPolicyReportSchema, KhSecretScanReportSchema, KhGraphValidationReportSchema,
   KhLinkValidationReportSchema, KhMarkdownYamlValidationReportSchema,
   KhProjectPolicyProposalSchema,
+  KhApprovedNodesSchema,
 } from './kh-schema.js'
 
 describe('kh-schema', () => {
@@ -188,5 +189,14 @@ describe('kh-schema', () => {
 
   test('a claim citing a declared evidence_id parses (#29)', () => {
     expect(KhNodeProposalSchema.parse(validProposal).claims[0].evidence_ids).toEqual(['EV-1'])
+  })
+
+  test('KhApprovedNodesSchema accepts kept, renamed, and title-only nodes', () => {
+    const v = KhApprovedNodesSchema.parse({ nodes: [
+      { id: 'a', title: 'A', type: 'ConceptNode', source_proposal_id: 'p1' },
+      { title: 'New One' },
+    ] })
+    expect(v.nodes).toHaveLength(2)
+    expect(v.nodes[1].title).toBe('New One')
   })
 })

@@ -103,7 +103,7 @@ export type HarnessEngineLogEvent = { label: string; stream: 'stdout' | 'stderr'
 /** Live node previews discovered mid-run (per folder worker) — for the Knowledge tab's incremental graph. */
 export type HarnessLiveNode = { id: string; title: string; type: string; scope: string }
 export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessLiveNode[] }
-export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean }
+export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
 export type HarnessGetRunReq = { runId: string }

@@ -142,7 +142,7 @@ export class HarnessService {
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
    * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
    * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
-  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean): HarnessRunner {
+  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean, interactive?: boolean): HarnessRunner {
     const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
     const runner: AgentRunner = !onEngineLog ? logging : {
       run: (i) => logging.run({
@@ -161,6 +161,7 @@ export class HarnessService {
       workerConcurrency: workerConcurrency ?? this.deps.workerConcurrency,
       sourceLedger: this.deps.sourceLedger,
       ignoreLedger,
+      interactive,
       now: this.now,
       // Forward each folder worker's nodes to the live stream, stamped with this run's id.
       onNodesDiscovered: onNodes ? (ev) => onNodes({ runId, folder: ev.folder, nodes: ev.nodes }) : undefined,
@@ -185,7 +186,7 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
     const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
     // The wiki lives in the project's workspace. Bring the canonical internal state (graph/proposals/
     // runs/projects) into the local working vault before the run; raw/ is re-materialized below.
@@ -233,7 +234,7 @@ export class HarnessService {
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen)
+    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen, input.interactive)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const result = await this.advanceSafely(runId, runner, store, onProgress)
     // Save the agent-pipeline transcript (run dir + workspace runs/) for later study — even on failure,

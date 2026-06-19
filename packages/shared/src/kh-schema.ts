@@ -88,6 +88,16 @@ export const KhNodeProposalSchema = z.object({
   })
 export type KhNodeProposal = z.infer<typeof KhNodeProposalSchema>
 
+export const KhApprovedNodesSchema = z.object({
+  nodes: z.array(z.object({
+    id: z.string().optional(),               // 기존 제안 노드의 id (있으면 그 proposal 사용)
+    title: z.string().min(1),
+    type: z.string().optional(),
+    source_proposal_id: z.string().optional(),
+  })).default([]),
+})
+export type KhApprovedNodes = z.infer<typeof KhApprovedNodesSchema>
+
 // Recognized write verbs. delete_file is recognized-but-forbidden: it parses so PolicyGuard can block it
 // with a clean message; an unknown/typo'd verb fails at parse instead of being silently dropped.
 export const KhWriteOpKind = z.enum(['create_file', 'update_frontmatter', 'add_backlink', 'append_section', 'delete_file'])

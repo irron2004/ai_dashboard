@@ -58,6 +58,8 @@ export type DriverDeps = {
    *  single-shot extractor) AS they complete during NODE_PROPOSALS_CREATED, so the UI can show the
    *  knowledge graph building up mid-run. Best-effort — never gates or fails the run. */
   onNodesDiscovered?: (ev: LiveNodesEvent) => void
+  /** 확인 모드: WRITE_PLAN_CREATED가 approved-nodes 아티팩트가 없으면 paused로 정지한다. */
+  interactive?: boolean
   // Phase 3 will add: policy, validators
 }
 
@@ -120,6 +122,7 @@ export const ARTIFACTS = {
   coverageReport: 'coverage-report',
   finalReport: 'final-report',
   processedSources: 'processed-sources',
+  approvedNodes: 'approved-nodes',
 } as const
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
