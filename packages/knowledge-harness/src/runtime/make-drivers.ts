@@ -424,18 +424,17 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const graphPlan = artifactByName<KhGraphUpdatePlan>(ctx, 'LEAD_MERGED', ARTIFACTS.graphUpdatePlan)
 
       // 확인 모드에서 사용자가 승인한 목록이 있으면, 그 목록으로 proposals를 재구성한다:
-      // 유지(부분집합) + 제목 이름수정 + (id 없는) 제목-only 신규 노드 합성.
+      // 유지(부분집합) + 제목 이름수정. 매칭되는 소스 proposal이 없는 항목(제목-only 추가)은 drop한다.
+      // 이유: 증거 없는 stub을 합성하면 PolicyGuard의 no_evidence 하드블록에 걸려 런이 크래시된다.
+      // "제목으로 추가" 기능은 evidence-required 정책 설계와 충돌하므로 defer.
       const approved = artifactByName<{ nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }>(ctx, 'LEAD_MERGED', ARTIFACTS.approvedNodes)
       const effectiveProposals: KhNodeProposal[] = approved
-        ? approved.nodes.map((n) => {
-            const src = proposals.find((p) => p.proposal_id === n.source_proposal_id || p.node?.id === n.id)
-            if (src) return { ...src, node: { ...src.node, title: n.title } }   // 유지 + 이름수정
-            // 신규(제목-only): 최소 proposal 합성 (빈 claims/evidence는 valid)
-            const id = (n.id ?? n.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')) || `node-${Math.random().toString(36).slice(2, 8)}`
-            return { proposal_id: `approved-${id}`, proposed_by: 'user', created_at: deps.now?.() ?? new Date().toISOString(),
-              node: { id, type: n.type ?? 'ConceptNode', title: n.title, scope: 'project', summary: '', project_ids: [], tags: [] },
-              claims: [], evidence: [] } as unknown as KhNodeProposal
-          })
+        ? approved.nodes
+            .map((n) => {
+              const src = proposals.find((p) => p.proposal_id === n.source_proposal_id || p.node?.id === n.id)
+              return src ? { ...src, node: { ...src.node, title: n.title } } : undefined  // 유지 + 이름수정; 미매칭은 drop
+            })
+            .filter((p): p is KhNodeProposal => !!p)
         : proposals
 
       // Author each node document DETERMINISTICALLY from its proposal (+ the lead's edges/narrative). The

@@ -55,6 +55,24 @@ describe('STAGING_WRITTEN consumes approved-nodes', () => {
     claims: [{ claim_id: `cl-${id}`, text: `claim for ${id}`, evidence_ids: [`ev-${id}`] }],
   })
 
+  test('an approved node with no matching proposal is dropped (add-by-title deferred)', async () => {
+    const drivers = makeDrivers({ runner: new FakeAgentRunner([]), vaultRoot: dir, stagingRoot: stagingDir, preamble: '', interactive: true })
+    const ctx = ctxWith(store, [
+      { state: 'NODE_PROPOSALS_CREATED', name: ARTIFACTS.nodeProposals, data: { proposals: [proposal('a', 'A')] } },
+      { state: 'LEAD_MERGED', name: ARTIFACTS.graphUpdatePlan, data: { node_ops: [], edge_ops: [] } },
+      { state: 'WRITE_PLAN_CREATED', name: ARTIFACTS.writePlan, data: { write_plan_id: 'WP-test', created_by: 'test', operations: [] } },
+      { state: 'LEAD_MERGED', name: ARTIFACTS.approvedNodes, data: { nodes: [
+        { id: 'a', title: 'A', source_proposal_id: 'pp-a' },
+        { title: 'Brand New' },   // no source → dropped, no crash
+      ] } },
+    ])
+    const res = await drivers.STAGING_WRITTEN!(ctx)   // must not throw (PolicyGuard not tripped by a synthesized evidence-less node)
+    const applied = res.artifacts.find((x) => x.name === ARTIFACTS.appliedWriteReport)!.data as { applied: string[] }
+    const nodePaths = applied.applied.filter((p) => /nodes\/.+\.md$/.test(p))
+    expect(nodePaths.some((p) => p.includes('a.md'))).toBe(true)
+    expect(nodePaths.length).toBe(1)   // only the matched node; the title-only add was dropped
+  })
+
   test('removing a node from the approved list drops its rendered doc', async () => {
     const drivers = makeDrivers({ runner: new FakeAgentRunner([]), vaultRoot: dir, stagingRoot: stagingDir, preamble: '', interactive: true })
     const ctx = ctxWith(store, [
