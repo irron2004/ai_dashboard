@@ -3,7 +3,7 @@ import type {
   RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
-  HarnessResumeReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
+  HarnessResumeReq, HarnessConfirmNodesReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes,
   HarnessApprovePolicyReq, HarnessApprovePolicyRes,
@@ -88,6 +88,9 @@ export const api = {
   },
   harnessResume(req: HarnessResumeReq): Promise<HarnessRunRes> {
     return window.apc.invoke(CH.harnessResume, req) as Promise<HarnessRunRes>
+  },
+  harnessConfirmNodes(req: HarnessConfirmNodesReq): Promise<HarnessRunRes> {
+    return window.apc.invoke(CH.harnessConfirmNodes, req) as Promise<HarnessRunRes>
   },
   harnessGetRun(req: HarnessGetRunReq): Promise<HarnessGetRunRes> {
     return window.apc.invoke(CH.harnessGetRun, req) as Promise<HarnessGetRunRes>

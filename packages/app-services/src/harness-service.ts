@@ -1,10 +1,10 @@
 import { join } from 'node:path'
 import { readdirSync, statSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal } from '@apc/shared'
-import { KhProjectDiscoveryReportSchema } from '@apc/shared'
+import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal, KhApprovedNodes } from '@apc/shared'
+import { KhProjectDiscoveryReportSchema, KhApprovedNodesSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner, type EngineOptions } from '@apc/llm-wiki'
 import {
-  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
+  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE, ARTIFACTS,
   makeProjectDiscovery, makeWikiPolicyAdvisor,
   writeProposedPolicy, approvePolicy, revertPolicy, resolveProjectPreamble, readPolicy,
   resolveInside,
@@ -276,6 +276,24 @@ export class HarnessService {
       else { await wv.pushRuns() }
     } catch { /* non-fatal */ }
     return result
+  }
+
+  /** 사용자가 확정한 노드 목록을 LEAD_MERGED 키 아티팩트로 저장하고(artifactByName이 찾도록 인덱스에도 추가),
+   *  run을 재개한다. LEAD_MERGED는 재개 시 재실행되지 않아 인덱스가 안정적이다. */
+  async confirmNodes(input: { runId: string; approvedNodes: KhApprovedNodes }): Promise<HarnessRunResult> {
+    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+    if (!store.exists()) return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `run not found: ${input.runId}` }
+    const approved = KhApprovedNodesSchema.parse(input.approvedNodes)
+    const rel = store.writeArtifact('LEAD_MERGED', ARTIFACTS.approvedNodes, approved)
+    // artifactByName은 runState.artifacts 인덱스에서 읽으므로(파일만 써선 못 찾음), LEAD_MERGED 목록에 append.
+    const rs = store.loadRunState()
+    const lead = rs.artifacts['LEAD_MERGED'] ?? []
+    store.saveRunState({
+      ...rs,
+      awaiting: undefined,
+      artifacts: { ...rs.artifacts, ['LEAD_MERGED']: lead.includes(rel) ? lead : [...lead, rel] },
+    })
+    return this.resume({ runId: input.runId })
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {

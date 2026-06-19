@@ -347,6 +347,26 @@ describe('HarnessService', () => {
     expect(svc.promote({ runId: r.runId }).ok).toBe(false)                 // ...but the merged secret blocks promotion
     expect(svc.promote({ runId: r.runId, allowSecrets: true }).ok).toBe(true)  // explicit human override
   })
+
+  test('confirmNodes writes approved-nodes and resumes a paused interactive run', async () => {
+    // interactive run pauses at WRITE_PLAN_CREATED (approved-nodes not present yet)
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const run = await svc.run({ projectId: 'p1', engine: 'claude', interactive: true })
+    expect(run.finalState).toBe('LEAD_MERGED')   // paused before write
+
+    // confirmNodes writes approved-nodes under LEAD_MERGED key and resumes — no further LLM calls needed
+    const resumeSvc = new HarnessService({
+      runner: new FakeAgentRunner([]),
+      vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
+      gatesPath, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
+    })
+    const res = await resumeSvc.confirmNodes({ runId: run.runId, approvedNodes: { nodes: [{ id: 'n1', title: 'N1', source_proposal_id: 'pp1' }] } })
+    expect(res.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+  })
 })
 
 describe('HarnessService engine logging', () => {

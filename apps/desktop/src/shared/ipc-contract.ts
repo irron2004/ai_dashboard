@@ -22,6 +22,7 @@ export const CH = {
   generateProject: 'c:generateProject',
   harnessRun: 'c:harnessRun',
   harnessResume: 'c:harnessResume',
+  harnessConfirmNodes: 'c:harnessConfirmNodes',
   harnessGetRun: 'c:harnessGetRun',
   harnessPromote: 'c:harnessPromote',
   harnessPromoteCanonical: 'c:harnessPromoteCanonical',
@@ -106,6 +107,7 @@ export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessL
 export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
+export type HarnessConfirmNodesReq = { runId: string; approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> } }
 export type HarnessGetRunReq = { runId: string }
 export type HarnessArtifactRes = { state: KhState; name: string; path: string; data: unknown }
 export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }

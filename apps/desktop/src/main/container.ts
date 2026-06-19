@@ -20,7 +20,7 @@ import { fetchRemoteConversations } from './remote-conversations.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
-  HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+  HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessConfirmNodesReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
@@ -73,6 +73,7 @@ export type Container = {
   harness: HarnessService
   harnessRun: (req: HarnessRunReq) => Promise<HarnessRunRes>
   harnessResume: (req: HarnessResumeReq) => Promise<HarnessRunRes>
+  harnessConfirmNodes: (req: HarnessConfirmNodesReq) => Promise<HarnessRunRes>
   harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
   harnessPromote: (req: HarnessPromoteReq) => Promise<HarnessPromoteRes>
   harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => Promise<HarnessPromoteCanonicalRes>
@@ -277,6 +278,7 @@ export function buildContainer(opts: {
     )
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
+  const harnessConfirmNodes = (req: HarnessConfirmNodesReq): Promise<HarnessRunRes> => harness.confirmNodes(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
   // Promote writes into the local working vault; persist it to the workspace so an ssh project's next
   // run (which re-pulls and wipes the working copy) doesn't lose the approved draft. Best-effort — a
@@ -304,7 +306,7 @@ export function buildContainer(opts: {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
-    harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
+    harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessExportWiki,
     dashboard: getProjectDashboard,
   }

@@ -4,7 +4,7 @@ import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
-  HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq,
+  HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
   ConfigEditReq, ConfigRollbackReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -112,6 +112,12 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.harnessResume]: async (payload: unknown) => {
       const req = z.object({ runId: z.string() }).strict().parse(payload)
       return container.harnessResume(req)
+    },
+
+    [CH.harnessConfirmNodes]: async (payload: unknown) => {
+      const nodeSchema = z.object({ id: z.string().optional(), title: z.string(), type: z.string().optional(), source_proposal_id: z.string().optional() })
+      const req = z.object({ runId: z.string(), approvedNodes: z.object({ nodes: z.array(nodeSchema) }) }).strict().parse(payload)
+      return container.harnessConfirmNodes(req as HarnessConfirmNodesReq)
     },
 
     [CH.harnessGetRun]: async (payload: unknown) => {
