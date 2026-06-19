@@ -668,9 +668,15 @@ export type PaperPhase1Deps = {
  *  생성 단계 = fixture(골든 상수), SOURCES_EXTRACTED·VALIDATED = 실제 substrate. */
 export function makePaperPhase1Drivers(deps: PaperPhase1Deps): Partial<Record<KhState, Driver>> {
   const wikiDir = join(deps.vaultRoot, 'wiki')
+  const vaultContractDir = join(deps.vaultRoot, 'runtime')
   const rawPapers = join(deps.vaultRoot, 'raw', 'papers')
 
-  const seedGolden = () => { mkdirSync(wikiDir, { recursive: true }); cpSync(deps.goldenWikiDir, wikiDir, { recursive: true }) }
+  // kernel WikiContract는 contractDir.parent를 vault root로 보고 entity/edge 경로(`dir: wiki/...`)를
+  // 거기서 해석한다(--wiki-dir은 page 위치에 안 씀). 그래서 계약과 wiki를 vault 아래 *형제*로 둔다.
+  const seedGolden = () => {
+    mkdirSync(wikiDir, { recursive: true }); cpSync(deps.goldenWikiDir, wikiDir, { recursive: true })
+    mkdirSync(vaultContractDir, { recursive: true }); cpSync(deps.contractDir, vaultContractDir, { recursive: true })
+  }
 
   const drivers: Partial<Record<KhState, Driver>> = {
     PROJECT_SCANNED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.projectDiscovery, data: { domain: 'paper' } }] }),
@@ -692,9 +698,10 @@ export function makePaperPhase1Drivers(deps: PaperPhase1Deps): Partial<Record<Kh
     STAGING_WRITTEN: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.appliedWriteReport, data: { applied: [], proposals: [], skipped: [] } }] }),
 
     // 실제 권위 게이트: kernel lint. 통과 시 index 재생성, 실패 시 리포트 보존 + run FAILED (§4a-1).
+    // contractDir은 vault 안에 복사된 vaultContractDir(= <vault>/runtime) — wiki와 형제여야 kernel이 page를 찾는다.
     VALIDATED: async (): Promise<DriverResult> => {
-      const report = await deps.substrate.lint({ contractDir: deps.contractDir, wikiDir })
-      if (report.ok) await deps.substrate.rebuildIndex({ contractDir: deps.contractDir, wikiDir })
+      const report = await deps.substrate.lint({ contractDir: vaultContractDir, wikiDir })
+      if (report.ok) await deps.substrate.rebuildIndex({ contractDir: vaultContractDir, wikiDir })
       return {
         artifacts: [{ name: ARTIFACTS.kernelLint, data: report }],
         status: report.ok ? 'ok' : 'failed',
