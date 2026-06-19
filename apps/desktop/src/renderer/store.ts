@@ -83,9 +83,10 @@ type ApcStore = {
 
   hydrateHarnessProject(projectId: string): void
   selectHarnessRun(runId: string): void
-  startHarnessRun(materialize?: boolean, fullRegen?: boolean): Promise<void>
+  startHarnessRun(materialize?: boolean, fullRegen?: boolean, interactive?: boolean): Promise<void>
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
+  confirmNodes(runId: string, approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }): Promise<void>
   promoteHarnessRun(runId?: string, allowInvalid?: boolean): Promise<void>
   exportWiki(projectId?: string): Promise<void>
   loadCanonicalProposals(runId?: string): Promise<void>
@@ -301,13 +302,13 @@ export const useStore = create<ApcStore>((set, get) => ({
     saveHarnessSelectedRun(projectId, runId)
   },
 
-  async startHarnessRun(materialize = false, fullRegen = false) {
+  async startHarnessRun(materialize = false, fullRegen = false, interactive = false) {
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
     set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
-      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model), workerConcurrency: config.model.workerConcurrency, fullRegen })
+      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model), workerConcurrency: config.model.workerConcurrency, fullRegen, ...(interactive ? { interactive: true } : {}) })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {
@@ -368,6 +369,23 @@ export const useStore = create<ApcStore>((set, get) => ({
       set({ harnessMessage: `Resumed ${targetRunId} → ${resumed.finalState ?? '?'}` })  // after refresh (which sets its own message)
     } catch (e) {
       set({ error: `Harness resume failed: ${e}` })
+    } finally {
+      set({ harnessLoading: false })
+    }
+  },
+
+  async confirmNodes(runId: string, approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }) {
+    set({ harnessLoading: true, harnessMessage: null })
+    try {
+      const res = await api.harnessConfirmNodes({ runId, approvedNodes })
+      if (!res.ok) {
+        set({ harnessMessage: `확인 실패: ${res.reason ?? 'unknown reason'}` })
+        return
+      }
+      await get().refreshHarnessRun(runId)
+      set({ harnessMessage: `노드 확인 완료 → ${res.finalState ?? '?'}` })
+    } catch (e) {
+      set({ error: `Node confirm failed: ${e}` })
     } finally {
       set({ harnessLoading: false })
     }

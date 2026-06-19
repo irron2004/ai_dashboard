@@ -10,6 +10,7 @@ import { QualityPanel } from './QualityPanel.js'
 import { ProposalsPanel } from './ProposalsPanel.js'
 import { ReviewPanel, type EvidenceFinding, type PolicyViolation } from './ReviewPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
+import { NodeConfirmPanel } from './NodeConfirmPanel.js'
 
 type ReviewTab = 'summary' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
 
@@ -27,10 +28,12 @@ export function WikiGenDashboard() {
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
     promoteHarnessRun, promoteCanonicalDoc, exportWiki, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
     proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
+    confirmNodes,
   } = useStore()
 
   const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [interactiveMode, setInteractiveMode] = useState(false)
   const [runsCollapsed, setRunsCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:runsCollapsed') === '1' } catch { return false }
   })
@@ -61,6 +64,16 @@ export function WikiGenDashboard() {
   const policyViolations = (currentRun?.artifacts.find((a) => a.name === 'policy-report')?.data as { violations?: PolicyViolation[] } | undefined)?.violations ?? []
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
   const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
+  const awaiting = currentRun?.runState.awaiting
+  const nodeConfirmProposed = useMemo(() => {
+    if (awaiting !== 'node-confirmation' || !proposalsData) return null
+    return proposalsData.map((p) => ({
+      id: p.node.id,
+      title: p.node.title,
+      type: p.node.type,
+      source_proposal_id: p.proposal_id,
+    }))
+  }, [awaiting, proposalsData])
 
   return (
     <section className="wikigen">
@@ -73,7 +86,7 @@ export function WikiGenDashboard() {
           onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
-          onStartRun={(materialize, fullRegen) => void startHarnessRun(materialize, fullRegen)}
+          onStartRun={(materialize, fullRegen) => void startHarnessRun(materialize, fullRegen, interactiveMode)}
           onResumeRun={(runId) => void resumeHarnessRun(runId)}
         />
 
@@ -86,11 +99,27 @@ export function WikiGenDashboard() {
                 {harnessMessage ? ` — ${harnessMessage}` : ''}
               </p>
             </div>
-            <button type="button" onClick={() => setSettingsOpen((v) => !v)}>⚙ 에이전트 설정</button>
+            <div className="wikigen__header-actions">
+              <label className="wikigen__interactive-toggle">
+                <input
+                  type="checkbox"
+                  checked={interactiveMode}
+                  onChange={(e) => setInteractiveMode(e.target.checked)}
+                  disabled={harnessLoading}
+                />
+                확인 모드
+              </label>
+              <button type="button" onClick={() => setSettingsOpen((v) => !v)}>⚙ 에이전트 설정</button>
+            </div>
           </header>
 
           {harnessLoading ? (
             <WikiProgress state={harnessProgress} liveLabel={harnessLiveLabel} liveTail={harnessLiveTail} />
+          ) : nodeConfirmProposed && currentRun ? (
+            <NodeConfirmPanel
+              proposed={nodeConfirmProposed}
+              onConfirm={(approvedNodes) => void confirmNodes(currentRun.runState.runId, approvedNodes)}
+            />
           ) : !currentRun ? (
             <div className="wikigen__placeholder">아직 run이 없습니다 — ▶ 위키 생성으로 시작하세요.</div>
           ) : (
