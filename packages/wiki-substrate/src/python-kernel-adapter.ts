@@ -28,8 +28,9 @@ export class PythonKernelAdapter implements WikiSubstrate {
     const { stdout, stderr, code } = await this.run([
       '-m', 'kernel', 'lint', '--contract-dir', vault.contractDir, '--wiki-dir', vault.wikiDir,
     ])
-    // kernel은 issue를 stdout으로 print하지만 logging은 stderr로 갈 수 있어 둘 다 파싱한다.
-    return parseLintOutput(`${stdout}\n${stderr}`, code ?? 1)
+    // The kernel prints issue lines to stdout; stderr is only logging/tracebacks.
+    // Parsing stderr risks treating log lines starting with "  - " as false issues.
+    return parseLintOutput(stdout, code ?? 1)
   }
 
   async rebuildIndex(vault: WikiVault): Promise<void> {

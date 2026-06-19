@@ -1,6 +1,13 @@
 import type { KhKernelLintReport } from '@apc/shared'
 
-/** autosci-core vault 좌표: 계약 디렉터리 + 위키 디렉터리. */
+/**
+ * autosci-core vault 좌표: 계약 디렉터리 + 위키 디렉터리.
+ *
+ * **Kernel constraint**: `contractDir` and `wikiDir` must be siblings under one
+ * vault root (e.g. `<root>/runtime` and `<root>/wiki`). The kernel resolves page
+ * locations from `contractDir.parent`, not from `wikiDir` directly, so placing
+ * them in separate directory trees will cause the kernel to mis-resolve paths.
+ */
 export type WikiVault = { contractDir: string; wikiDir: string }
 
 export interface WikiSubstrate {
