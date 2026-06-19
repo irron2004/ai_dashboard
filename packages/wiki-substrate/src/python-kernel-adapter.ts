@@ -25,7 +25,7 @@ export class PythonKernelAdapter implements WikiSubstrate {
   }
 
   async lint(vault: WikiVault): Promise<KhKernelLintReport> {
-    const { stdout, stderr, code } = await this.run([
+    const { stdout, code } = await this.run([
       '-m', 'kernel', 'lint', '--contract-dir', vault.contractDir, '--wiki-dir', vault.wikiDir,
     ])
     // The kernel prints issue lines to stdout; stderr is only logging/tracebacks.
