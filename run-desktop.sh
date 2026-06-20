@@ -5,7 +5,7 @@
 set -uo pipefail
 
 export PATH="$HOME/.nvm/versions/node/v22.22.3/bin:$PATH"
-cd /mnt/c/Users/irron/Downloads/ai_dashboard-main/ai_dashboard-main
+cd /mnt/c/Users/irron/Desktop/my/ruahverce/ai_dashboard-main
 
 # Stop any prior dev/preview/electron so each launch yields one fresh window.
 # (pkill excludes its own PID, so this pattern is self-safe.)
