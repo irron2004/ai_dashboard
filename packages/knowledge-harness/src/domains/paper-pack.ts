@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { cpSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import type { WikiSubstrate } from '@apc/wiki-substrate'
@@ -21,13 +21,17 @@ export const paperPack: DomainPack = {
   id: 'paper',
   contractDir: resolvePaperContractDir(),
   async validate(wikiDir: string, deps: { substrate: WikiSubstrate }): Promise<KhKernelLintReport> {
-    const contractDir = resolvePaperContractDir()
-    if (!existsSync(contractDir)) {
+    const src = resolvePaperContractDir()
+    if (!existsSync(src)) {
       throw new Error(
-        `paper contract not found at ${contractDir} — bundle wiki-domains/paper/runtime with the app ` +
+        `paper contract not found at ${src} — bundle wiki-domains/paper/runtime with the app ` +
         `or set APC_PAPER_CONTRACT_DIR`,
       )
     }
+    // The kernel resolves pages from contractDir.parent (WikiVault sibling constraint), so the contract
+    // must sit next to the wiki dir. Seed it at `<parent-of-wikiDir>/runtime`, then lint that pair.
+    const contractDir = join(dirname(wikiDir), 'runtime')
+    cpSync(src, contractDir, { recursive: true })
     return deps.substrate.lint({ contractDir, wikiDir })
   },
 }
