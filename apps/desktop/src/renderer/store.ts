@@ -73,8 +73,8 @@ type ApcStore = {
   clearGeneratePreflight(): void
   clearGeneration(): void
   loadProjects(): Promise<void>
-  addProject(name: string, projectType: string, repoPath: string): Promise<void>
-  updateProject(id: string, name: string, projectType: string, repoPath: string): Promise<void>
+  addProject(name: string, projectType: string, repoPath: string, domain?: string): Promise<void>
+  updateProject(id: string, name: string, projectType: string, repoPath: string, domain?: string): Promise<void>
   deleteProject(id: string): Promise<void>
   selectProject(projectId: string): Promise<void>
   loadProfiles(projectPath: string): Promise<void>
@@ -206,18 +206,18 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
-  async addProject(name: string, projectType: string, repoPath: string) {
+  async addProject(name: string, projectType: string, repoPath: string, domain?: string) {
     try {
-      await api.registerProject({ name, projectType, repoPath })
+      await api.registerProject({ name, projectType, repoPath, ...(domain ? { domain } : {}) })
       await get().loadProjects()
     } catch (e) {
       set({ error: `Failed to add project: ${e}` })
     }
   },
 
-  async updateProject(id: string, name: string, projectType: string, repoPath: string) {
+  async updateProject(id: string, name: string, projectType: string, repoPath: string, domain?: string) {
     try {
-      await api.updateProject({ id, name, projectType, repoPath })
+      await api.updateProject({ id, name, projectType, repoPath, ...(domain ? { domain } : {}) })
       await get().loadProjects()
       if (get().selectedProjectId === id) await get().selectProject(id)
     } catch (e) {

@@ -6,7 +6,7 @@ import { PmHome } from './PmHome.js'
 const dashboard: ProjectDashboardRes = {
   project: {
     id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', currentFocus: 'PM Home',
-    startDate: '2026-06-01', targetDate: '2026-06-30', projectType: 'git', repoPaths: [], vaultPaths: [], sourcePaths: [],
+    startDate: '2026-06-01', targetDate: '2026-06-30', projectType: 'git', domain: 'project-docs', repoPaths: [], vaultPaths: [], sourcePaths: [],
   },
   activeTasks: [],
   reviewQueue: [

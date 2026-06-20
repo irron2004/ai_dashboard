@@ -44,7 +44,7 @@ describe('generateRemote', () => {
       return { ok: true, stdout: ENGINE_JSON, stderr: '' }
     }
     const d = deps(exec)
-    d.registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['ssh://me@a6000:22/home/me/work/apc'], vaultPaths: [], sourcePaths: [] })
+    d.registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['ssh://me@a6000:22/home/me/work/apc'], vaultPaths: [], sourcePaths: [] })
 
     const res = await generateRemote(d, { projectId: 'p1', engine: 'claude' })
     expect(res.ok).toBe(true)
@@ -61,7 +61,7 @@ describe('generateRemote', () => {
   test('ok:false when the remote has no Claude session', async () => {
     const exec: SshExec = async () => ({ ok: true, stdout: '', stderr: '' })
     const d = deps(exec)
-    d.registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', repoPaths: ['ssh://me@a6000/home/me/work/apc'], vaultPaths: [], sourcePaths: [] })
+    d.registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['ssh://me@a6000/home/me/work/apc'], vaultPaths: [], sourcePaths: [] })
     const res = await generateRemote(d, { projectId: 'p2', engine: 'claude' })
     expect(res.ok).toBe(false)
     expect(res.reason).toMatch(/no remote.*session/i)
@@ -70,7 +70,7 @@ describe('generateRemote', () => {
   test('ok:false when the project is not an ssh project', async () => {
     const exec: SshExec = async () => ({ ok: true, stdout: '', stderr: '' })
     const d = deps(exec)
-    d.registry.register({ id: 'p3', name: 'P3', status: 'active', projectType: 'git', repoPaths: ['/local/path'], vaultPaths: [], sourcePaths: [] })
+    d.registry.register({ id: 'p3', name: 'P3', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/local/path'], vaultPaths: [], sourcePaths: [] })
     const res = await generateRemote(d, { projectId: 'p3', engine: 'claude' })
     expect(res.ok).toBe(false)
     expect(res.reason).toMatch(/not an ssh project/i)

@@ -26,7 +26,7 @@ vi.mock('../api.js', () => ({
 }))
 
 const dashboard: ProjectDashboardRes = {
-  project: { id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', projectType: 'git', repoPaths: ['/r'], vaultPaths: [], sourcePaths: [] },
+  project: { id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', projectType: 'git', domain: 'project-docs', repoPaths: ['/r'], vaultPaths: [], sourcePaths: [] },
   activeTasks: [], reviewQueue: [], recentRuns: [],
   allTasks: [{ id: 'T1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [] }],
 }
