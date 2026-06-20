@@ -7,6 +7,7 @@ export type AgentType = AgentKind
 
 export const ProjectType = z.enum(['git', 'obsidian', 'hybrid'])
 export const ProjectStatus = z.enum(['active', 'maintenance', 'paused', 'archived'])
+export const ProjectDomain = z.enum(['project-docs', 'paper'])
 
 export const ProjectSchema = z.object({
   id: z.string().min(1),
@@ -17,6 +18,7 @@ export const ProjectSchema = z.object({
   startDate: z.string().optional(),
   targetDate: z.string().optional(),
   projectType: ProjectType,
+  domain: ProjectDomain.default('project-docs'),
   repoPaths: z.array(z.string()).default([]),
   vaultPaths: z.array(z.string()).default([]),
   sourcePaths: z.array(z.string()).default([]),
