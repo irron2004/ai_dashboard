@@ -19,7 +19,10 @@ export function resolvePaperContractDir(): string {
 
 export const paperPack: DomainPack = {
   id: 'paper',
-  contractDir: resolvePaperContractDir(),
+  // A getter (not a snapshot) so the advertised path always agrees with what `validate` resolves —
+  // an `APC_PAPER_CONTRACT_DIR` set after module load (e.g. a packaged build configuring env on ready)
+  // must not leave this field showing a stale source-relative path.
+  get contractDir() { return resolvePaperContractDir() },
   async validate(wikiDir: string, deps: { substrate: WikiSubstrate }): Promise<KhKernelLintReport> {
     const src = resolvePaperContractDir()
     if (!existsSync(src)) {
