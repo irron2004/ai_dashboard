@@ -6,7 +6,7 @@ import type { Driver, DriverResult, RunnerContext } from './harness-runner.js'
 import type { DriverDeps } from './make-drivers.js'
 import { ARTIFACTS, artifactByName } from './make-drivers.js'
 import { makePaperNodeExtractor } from '../agents/paper-node-extractor.js'
-import type { PaperNode } from '../agents/paper-node-extractor.js'
+import type { PaperNode, PaperEdge } from '../agents/paper-node-extractor.js'
 import { SourceReader } from './source-reader.js'
 
 export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> {
@@ -39,14 +39,22 @@ export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driv
     },
 
     STAGING_WRITTEN: async (ctx: RunnerContext): Promise<DriverResult> => {
-      const nodes =
-        artifactByName<{ nodes: PaperNode[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.nodes ?? []
+      const result = artifactByName<{ nodes: PaperNode[]; edges?: PaperEdge[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)
+      const nodes = result?.nodes ?? []
+      const edges = result?.edges ?? []
       const wikiDir = join(deps.stagingRoot, 'wiki')
       for (const n of nodes) {
         const rendered = pack.renderNode!(n)
         const abs = join(deps.stagingRoot, rendered.relPath)
         mkdirSync(dirname(abs), { recursive: true })
         writeFileSync(abs, rendered.content)
+      }
+      // Typed edges → wiki/graph/edges.jsonl (the kernel's edge_storage; one JSON object per line)
+      // so the kernel lints the graph and the UI can render edges.
+      if (edges.length) {
+        const edgesFile = join(wikiDir, 'graph', 'edges.jsonl')
+        mkdirSync(dirname(edgesFile), { recursive: true })
+        writeFileSync(edgesFile, edges.map((e) => JSON.stringify(e)).join('\n') + '\n')
       }
       // UI staging docs (node_id/node_type) so KnowledgeView/graph render the nodes.
       const staged = vaultToStagedDocs(wikiDir, deps.stagingRoot)

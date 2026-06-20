@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunArtifactStore } from './run-artifact-store.js'
@@ -97,8 +97,9 @@ describe('makePaperDrivers', () => {
       store.init()
       const drivers = makePaperDrivers(makeDeps(dir, fakeRunner({}), okSubstrate))
       const node = { type: 'papers', slug: 'p1', fields: { title: 'T', slug: 'p1' } }
+      const edge = { from: 'pipelines:pl', to: 'papers:p1', type: 'pipeline_from_paper', confidence: 'high' }
       const ctx = ctxWith(store, [
-        { state: 'NODE_PROPOSALS_CREATED', name: ARTIFACTS.nodeProposals, data: { nodes: [node] } },
+        { state: 'NODE_PROPOSALS_CREATED', name: ARTIFACTS.nodeProposals, data: { nodes: [node], edges: [edge] } },
       ])
       const res = await drivers.STAGING_WRITTEN!(ctx)
       const stagingRoot = join(dir, 'staging')
@@ -106,6 +107,10 @@ describe('makePaperDrivers', () => {
       expect(existsSync(join(stagingRoot, 'wiki', 'papers', 'p1.md'))).toBe(true)
       // UI staging doc written by vaultToStagedDocs → nodes/<slug>.md
       expect(existsSync(join(stagingRoot, 'nodes', 'p1.md'))).toBe(true)
+      // typed edges written to wiki/graph/edges.jsonl (one JSON per line)
+      const edgesFile = join(stagingRoot, 'wiki', 'graph', 'edges.jsonl')
+      expect(existsSync(edgesFile)).toBe(true)
+      expect(JSON.parse(readFileSync(edgesFile, 'utf8').trim())).toMatchObject({ type: 'pipeline_from_paper', confidence: 'high' })
       // artifact recorded
       const report = res.artifacts.find((a) => a.name === ARTIFACTS.appliedWriteReport)
       expect(report).toBeDefined()

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { PaperNodeSchema, PaperExtractorOutputSchema, loadPaperContractText } from './paper-node-extractor.js'
+import { PaperNodeSchema, PaperEdgeSchema, PaperExtractorOutputSchema, loadPaperContractText } from './paper-node-extractor.js'
 
 describe('PaperNodeSchema', () => {
   test('parses a typed node with free-form fields', () => {
@@ -15,6 +15,20 @@ describe('PaperNodeSchema', () => {
   })
   test('output schema defaults nodes to []', () => {
     expect(PaperExtractorOutputSchema.parse({}).nodes).toEqual([])
+  })
+})
+
+describe('PaperEdgeSchema', () => {
+  test('parses an edge and keeps inline attributes (passthrough)', () => {
+    const e = PaperEdgeSchema.parse({ from: 'pipelines:p', to: 'papers:x', type: 'pipeline_from_paper', confidence: 'high' })
+    expect(e.type).toBe('pipeline_from_paper')
+    expect((e as { confidence?: string }).confidence).toBe('high')
+  })
+  test('rejects an unknown edge type', () => {
+    expect(() => PaperEdgeSchema.parse({ from: 'a', to: 'b', type: 'nope' })).toThrow()
+  })
+  test('output schema defaults edges to []', () => {
+    expect(PaperExtractorOutputSchema.parse({ nodes: [] }).edges).toEqual([])
   })
 })
 
@@ -61,5 +75,17 @@ describe('makePaperNodeExtractor', () => {
     expect(result.nodes[0].type).toBe('papers')
     expect(result.nodes[0].slug).toBe('attnembed-2402-05370')
     expect(result.nodes[0].fields.year).toBe(2024)
+  })
+
+  test('parses typed edges from the model output', async () => {
+    const out = JSON.stringify({ nodes: [], edges: [
+      { from: 'pipelines:attnembed-forecasting', to: 'modules:attention-embedding', type: 'uses_module' },
+      { from: 'pipelines:attnembed-forecasting', to: 'papers:attnembed-2402-05370', type: 'pipeline_from_paper', confidence: 'high' },
+    ] })
+    const agent = makePaperNodeExtractor('PREAMBLE')
+    const result = await agent.run({ runner: fakeRunner(out), engine: 'claude', input: { sources: [] } })
+    expect(result.edges).toHaveLength(2)
+    expect(result.edges[0].type).toBe('uses_module')
+    expect((result.edges[1] as { confidence?: string }).confidence).toBe('high')
   })
 })
