@@ -133,4 +133,52 @@ describe('HarnessRunner', () => {
     // the last reported state equals the run's final state
     expect(seen[seen.length - 1]).toBe(final.state)
   })
+
+  test('a driver returning status:paused stops at the prior state with an awaiting marker (not FAILED)', async () => {
+    const drivers: Partial<Record<KhState, Driver>> = {
+      PROJECT_SCANNED: async () => ({ artifacts: [{ name: 'out', data: { s: 'PROJECT_SCANNED' } }] }),
+      SOURCES_EXTRACTED: async () => ({ artifacts: [], status: 'paused', awaiting: 'node-confirmation' }),
+    }
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('PROJECT_SCANNED')        // stayed at the last completed state
+    expect(rs.awaiting).toBe('node-confirmation')
+    expect(rs.error).toBeUndefined()                 // paused is not a failure
+  })
+
+  test('resuming a paused run advances once the driver no longer pauses', async () => {
+    let pause = true
+    const drivers: Partial<Record<KhState, Driver>> = {
+      PROJECT_SCANNED: async () => ({ artifacts: [{ name: 'out', data: {} }] }),
+      SOURCES_EXTRACTED: async () => pause ? { artifacts: [], status: 'paused', awaiting: 'x' } : { artifacts: [{ name: 'out', data: {} }] },
+    }
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    await runner.advance(store)
+    expect(store.loadRunState().awaiting).toBe('x')
+    pause = false
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(rs.awaiting).toBeUndefined()              // cleared on advance
+  })
+
+  test('a driver returning status:failed persists its artifacts then fails the run', async () => {
+    const drivers: Partial<Record<KhState, Driver>> = {
+      PROJECT_SCANNED: async () => ({ artifacts: [{ name: 'out', data: { state: 'PROJECT_SCANNED' } }] }),
+      SOURCES_EXTRACTED: async () => ({
+        artifacts: [{ name: 'kernel-lint-report', data: { ok: false, exit_code: 1, issues: ['boom'] } }],
+        status: 'failed',
+        error: 'lint failed',
+      }),
+    }
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    const rs = await runner.advance(store)
+    expect(rs.state).toBe('FAILED')
+    expect(rs.error).toBe('lint failed')
+    const paths = rs.artifacts['SOURCES_EXTRACTED']
+    expect(paths).toHaveLength(1)
+    expect(store.readArtifact(paths[0])).toEqual({ ok: false, exit_code: 1, issues: ['boom'] })
+  })
 })

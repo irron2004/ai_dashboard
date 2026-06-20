@@ -20,7 +20,7 @@ import { fetchRemoteConversations } from './remote-conversations.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
-  HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
+  HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessConfirmNodesReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
@@ -73,6 +73,7 @@ export type Container = {
   harness: HarnessService
   harnessRun: (req: HarnessRunReq) => Promise<HarnessRunRes>
   harnessResume: (req: HarnessResumeReq) => Promise<HarnessRunRes>
+  harnessConfirmNodes: (req: HarnessConfirmNodesReq) => Promise<HarnessRunRes>
   harnessGetRun: (req: HarnessGetRunReq) => HarnessGetRunRes
   harnessPromote: (req: HarnessPromoteReq) => Promise<HarnessPromoteRes>
   harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => Promise<HarnessPromoteCanonicalRes>
@@ -270,13 +271,14 @@ export function buildContainer(opts: {
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)
     return harness.run(
-      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [], engineOptions: req.engineOptions, workerConcurrency: req.workerConcurrency, fullRegen: req.fullRegen },
+      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [], engineOptions: req.engineOptions, workerConcurrency: req.workerConcurrency, fullRegen: req.fullRegen, domain: project?.domain },
       (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
       batchEngineLog(opts.emitHarnessEngineLog),
       (e) => opts.emitHarnessNodes?.(e),
     )
   }
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
+  const harnessConfirmNodes = (req: HarnessConfirmNodesReq): Promise<HarnessRunRes> => harness.confirmNodes(req)
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
   // Promote writes into the local working vault; persist it to the workspace so an ssh project's next
   // run (which re-pulls and wipes the working copy) doesn't lose the approved draft. Best-effort — a
@@ -304,7 +306,7 @@ export function buildContainer(opts: {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
-    harness, harnessRun, harnessResume, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
+    harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessExportWiki,
     dashboard: getProjectDashboard,
   }

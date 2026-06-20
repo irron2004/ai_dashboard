@@ -1,15 +1,18 @@
 import { join } from 'node:path'
 import { readdirSync, statSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal } from '@apc/shared'
-import { KhProjectDiscoveryReportSchema } from '@apc/shared'
+import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal, KhApprovedNodes } from '@apc/shared'
+import { KhProjectDiscoveryReportSchema, KhApprovedNodesSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner, type EngineOptions } from '@apc/llm-wiki'
 import {
-  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE,
+  RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE, ARTIFACTS,
   makeProjectDiscovery, makeWikiPolicyAdvisor,
   writeProposedPolicy, approvePolicy, revertPolicy, resolveProjectPreamble, readPolicy,
   resolveInside,
+  domainPackFor,
   type WikiPolicyRecord,
   type SourceLedger,
+  type DomainId,
+  type DomainPack,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
@@ -20,10 +23,29 @@ import { materializeConversations } from './conversation-materializer.js'
 import type { WorkspaceVault, WorkspaceExportResult } from './workspace-vault.js'
 import { buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
 import { dirname } from 'node:path'
+import { PythonKernelAdapter, type WikiSubstrate } from '@apc/wiki-substrate'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
 export type HarnessRunResult = { ok: boolean; runId: string; finalState: RunState['state']; reason?: string }
+
+/** Resolve the domain pack for a run; missing domain = the legacy project-docs pack. */
+export function resolveDomainPack(domain: DomainId | undefined): DomainPack {
+  return domainPackFor(domain ?? 'project-docs')
+}
+
+/** Build the kernel-lint substrate from core.lock's venv python, or undefined if unavailable
+ *  (no lock, missing python, or a non-Windows venv on win32). Paper VALIDATED needs this. */
+export function buildVenvSubstrate(repoRoot: string): WikiSubstrate | undefined {
+  const lock = join(repoRoot, 'core.lock')
+  if (!existsSync(lock)) return undefined
+  const venvPython: string | undefined = JSON.parse(readFileSync(lock, 'utf8')).venv_python
+  if (!venvPython) return undefined  // malformed lock (no venv_python) — don't resolve to repoRoot itself
+  const python = join(repoRoot, venvPython)
+  const winRunnable = process.platform !== 'win32' || /[\\/]scripts[\\/]/i.test(python)
+  if (!existsSync(python) || !winRunnable) return undefined
+  return new PythonKernelAdapter({ python, cwd: repoRoot })
+}
 
 /** 엔진 출력 스트리밍 이벤트 — UI live tail용. label = '<STATE>-<agent>'. */
 export type EngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
@@ -142,7 +164,7 @@ export class HarnessService {
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
    * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
    * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
-  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean): HarnessRunner {
+  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean, interactive?: boolean, domainPack?: DomainPack, substrate?: WikiSubstrate): HarnessRunner {
     const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
     const runner: AgentRunner = !onEngineLog ? logging : {
       run: (i) => logging.run({
@@ -161,9 +183,12 @@ export class HarnessService {
       workerConcurrency: workerConcurrency ?? this.deps.workerConcurrency,
       sourceLedger: this.deps.sourceLedger,
       ignoreLedger,
+      interactive,
       now: this.now,
       // Forward each folder worker's nodes to the live stream, stamped with this run's id.
       onNodesDiscovered: onNodes ? (ev) => onNodes({ runId, folder: ev.folder, nodes: ev.nodes }) : undefined,
+      domainPack,
+      substrate,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
     return new HarnessRunner({ gates: this.featureGate(), drivers, now: this.now, lock })
@@ -185,8 +210,10 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean; domain?: DomainId }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
     const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
+    const pack = resolveDomainPack(input.domain)
+    log(`domain: ${pack.id}\n`)
     // The wiki lives in the project's workspace. Bring the canonical internal state (graph/proposals/
     // runs/projects) into the local working vault before the run; raw/ is re-materialized below.
     const wv = this.vaultFor(input.projectId)
@@ -233,7 +260,8 @@ export class HarnessService {
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen)
+    const substrate = buildVenvSubstrate(process.cwd())
+    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen, input.interactive, pack, substrate)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const result = await this.advanceSafely(runId, runner, store, onProgress)
     // Save the agent-pipeline transcript (run dir + workspace runs/) for later study — even on failure,
@@ -275,6 +303,24 @@ export class HarnessService {
       else { await wv.pushRuns() }
     } catch { /* non-fatal */ }
     return result
+  }
+
+  /** 사용자가 확정한 노드 목록을 LEAD_MERGED 키 아티팩트로 저장하고(artifactByName이 찾도록 인덱스에도 추가),
+   *  run을 재개한다. LEAD_MERGED는 재개 시 재실행되지 않아 인덱스가 안정적이다. */
+  async confirmNodes(input: { runId: string; approvedNodes: KhApprovedNodes }): Promise<HarnessRunResult> {
+    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+    if (!store.exists()) return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `run not found: ${input.runId}` }
+    const approved = KhApprovedNodesSchema.parse(input.approvedNodes)
+    const rel = store.writeArtifact('LEAD_MERGED', ARTIFACTS.approvedNodes, approved)
+    // artifactByName은 runState.artifacts 인덱스에서 읽으므로(파일만 써선 못 찾음), LEAD_MERGED 목록에 append.
+    const rs = store.loadRunState()
+    const lead = rs.artifacts['LEAD_MERGED'] ?? []
+    store.saveRunState({
+      ...rs,
+      awaiting: undefined,
+      artifacts: { ...rs.artifacts, ['LEAD_MERGED']: lead.includes(rel) ? lead : [...lead, rel] },
+    })
+    return this.resume({ runId: input.runId })
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {

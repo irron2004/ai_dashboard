@@ -1,0 +1,4 @@
+
+uses_module:        { endpoints: { from: pipelines, to: modules }, direction: directed, workflow: module, attributes: { evidence: { type: str } } }
+pipeline_from_paper: { endpoints: { from: pipelines, to: papers }, direction: directed, workflow: module, attributes: { confidence: { type: enum, values: [high, medium, low], required: true } } }
+alternative_to:     { endpoints: { from: modules, to: modules },   direction: symmetric, workflow: module, attributes: { evidence: { type: str } } }

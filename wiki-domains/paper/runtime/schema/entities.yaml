@@ -1,0 +1,75 @@
+
+papers:
+  dir: wiki/papers/
+  fields:
+    title: { type: str, required: true }
+    slug:  { type: str, required: true }
+    year:  { type: int }
+modules:
+  dir: wiki/modules/
+  fields:
+    title: { type: str, required: true }
+    slug:  { type: str, required: true }
+    kind:  { type: enum, values: [preprocessing, feature_extraction, encoder, classifier, regressor, retrieval, reranker, alignment, loss, activation, optimizer, scheduler, postprocessing, evaluation, other], required: true }
+    stage: { type: enum, values: [input, preprocess, feature, encode, predict, align, retrieve, rank, optimize, postprocess, evaluate], required: true }
+    modality: { type: list_str, default: [] }
+    task: { type: list_str, default: [] }
+    tags: { type: list_str, required: true, default: [] }
+    source_papers: { type: list_link, to: papers, default: [] }
+    alternatives:  { type: list_link, to: modules, default: [] }
+    input_contract:  { type: object, fields: { modality: { type: str }, shape: { type: str } } }
+    output_contract: { type: object, fields: { modality: { type: str }, shape: { type: str } } }
+    parameters:
+      type: list_object
+      item:
+        name: { type: str, required: true }
+        value: { type: str }
+    evidence:
+      type: list_object
+      item:
+        source: { type: link, to: papers }
+        metric: { type: str }
+        result: { type: str }
+        confidence: { type: enum, values: [high, medium, low] }
+    date_added: { type: date }
+pipelines:
+  dir: wiki/pipelines/
+  fields:
+    title: { type: str, required: true }
+    slug:  { type: str, required: true }
+    origin: { type: enum, values: [paper, experiment, composed, manual], required: true }
+    source_paper: { type: link, to: papers }
+    task: { type: str, required: true }
+    modality: { type: list_str, default: [] }
+    tags: { type: list_str, required: true, default: [] }
+    stages:
+      type: list_object
+      item:
+        role: { type: str, required: true }
+        module: { type: link, to: modules }
+        required: { type: bool }
+    metrics:
+      type: list_object
+      item:
+        name: { type: str, required: true }
+        value: { type: str }
+    reproducibility: { type: enum, values: [unknown, none, partial, full] }
+    code_available: { type: bool }
+    date_added: { type: date }
+pipeline_trials:
+  dir: wiki/pipeline_trials/
+  fields:
+    title: { type: str, required: true }
+    slug:  { type: str, required: true }
+    source_pipeline: { type: link, to: pipelines, required: true }
+    task: { type: str, required: true }
+    status: { type: enum, values: [planned, running, succeeded, failed, inconclusive], required: true }
+    changed_modules:
+      type: list_object
+      item:
+        role: { type: str, required: true }
+        from_module: { type: link, to: modules }
+        to_module: { type: link, to: modules }
+        reason: { type: str }
+    success_reason: { type: str }
+    date_completed: { type: date }

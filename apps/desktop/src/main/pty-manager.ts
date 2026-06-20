@@ -2,6 +2,7 @@
 // machine). It is loaded lazily so the rest of the app works even when it is unavailable.
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { parseSsh } from './ssh-exec.js'
 
 type IPty = {
   onData(cb: (data: string) => void): void
@@ -15,25 +16,6 @@ type PtyModule = {
 }
 
 export type SendFn = (channel: string, ...args: unknown[]) => void
-
-type SshTarget = { user: string; host: string; port: number; path: string }
-
-/** Parse an ssh://user@host:port/remote/path project path, or null if not ssh. */
-function parseSsh(raw: string): SshTarget | null {
-  if (!raw || !raw.startsWith('ssh://')) return null
-  try {
-    const u = new URL(raw)
-    if (u.protocol !== 'ssh:') return null
-    return {
-      user: decodeURIComponent(u.username) || 'root',
-      host: u.hostname,
-      port: u.port ? Number(u.port) : 22,
-      path: decodeURIComponent(u.pathname) || '.',
-    }
-  } catch {
-    return null
-  }
-}
 
 /**
  * Manages node-pty sessions keyed by id, streaming output to the renderer.

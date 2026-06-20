@@ -1,0 +1,7 @@
+{
+  "name": "@apc/wiki-substrate",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": { "@apc/shared": "workspace:*" }
+}

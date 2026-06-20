@@ -10,6 +10,7 @@ type Row = {
   start_date: string | null
   target_date: string | null
   project_type: string
+  domain: string
   repo_paths: string
   vault_paths: string
   source_paths: string
@@ -25,6 +26,7 @@ function rowToProject(row: Row): Project {
     startDate: row.start_date ?? undefined,
     targetDate: row.target_date ?? undefined,
     projectType: row.project_type,
+    domain: row.domain,
     repoPaths: JSON.parse(row.repo_paths),
     vaultPaths: JSON.parse(row.vault_paths),
     sourcePaths: JSON.parse(row.source_paths),
@@ -40,9 +42,9 @@ export class ProjectRegistry {
       .prepare(
         `INSERT OR REPLACE INTO projects
          (id, name, status, goal, current_focus, start_date, target_date,
-          project_type, repo_paths, vault_paths, source_paths)
+          project_type, domain, repo_paths, vault_paths, source_paths)
          VALUES (:id, :name, :status, :goal, :currentFocus, :startDate, :targetDate,
-                 :projectType, :repoPaths, :vaultPaths, :sourcePaths)`,
+                 :projectType, :domain, :repoPaths, :vaultPaths, :sourcePaths)`,
       )
       .run({
         id: p.id,
@@ -53,6 +55,7 @@ export class ProjectRegistry {
         startDate: p.startDate ?? null,
         targetDate: p.targetDate ?? null,
         projectType: p.projectType,
+        domain: p.domain,
         repoPaths: JSON.stringify(p.repoPaths),
         vaultPaths: JSON.stringify(p.vaultPaths),
         sourcePaths: JSON.stringify(p.sourcePaths),

@@ -1,0 +1,3 @@
+{"from": "pipelines:attnembed-forecasting", "to": "modules:attention-embedding", "type": "uses_module"}
+{"from": "modules:attention-embedding", "to": "modules:kernel-attention-polynomial", "type": "alternative_to"}
+{"from": "pipelines:attnembed-forecasting", "to": "papers:attnembed-2402-05370", "type": "pipeline_from_paper", "confidence": "high"}

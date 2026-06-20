@@ -1,0 +1,6 @@
+{
+  "core_repo": "https://github.com/irron2004/autosci-core.git",
+  "core_version": "core-v0.2.0",
+  "core_commit": "50a4274d06da4fbf9a9cc6bfc0dcf9fa0a1c6f92",
+  "venv_python": ".venv-substrate/bin/python"
+}

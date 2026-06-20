@@ -22,6 +22,7 @@ export const CH = {
   generateProject: 'c:generateProject',
   harnessRun: 'c:harnessRun',
   harnessResume: 'c:harnessResume',
+  harnessConfirmNodes: 'c:harnessConfirmNodes',
   harnessGetRun: 'c:harnessGetRun',
   harnessPromote: 'c:harnessPromote',
   harnessPromoteCanonical: 'c:harnessPromoteCanonical',
@@ -58,8 +59,8 @@ export const CH = {
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
-export type RegisterProjectReq = { name: string; projectType: string; repoPath: string }
-export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string }
+export type RegisterProjectReq = { name: string; projectType: string; repoPath: string; domain?: string }
+export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string; domain?: string }
 export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }
@@ -103,9 +104,10 @@ export type HarnessEngineLogEvent = { label: string; stream: 'stdout' | 'stderr'
 /** Live node previews discovered mid-run (per folder worker) — for the Knowledge tab's incremental graph. */
 export type HarnessLiveNode = { id: string; title: string; type: string; scope: string }
 export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessLiveNode[] }
-export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean }
+export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 export type HarnessResumeReq = { runId: string }
+export type HarnessConfirmNodesReq = { runId: string; approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> } }
 export type HarnessGetRunReq = { runId: string }
 export type HarnessArtifactRes = { state: KhState; name: string; path: string; data: unknown }
 export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }

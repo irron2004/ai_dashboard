@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
+import { makePaperDrivers } from './paper-drivers.js'
 import { resolveInside, isRaw } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
 import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
@@ -58,6 +59,12 @@ export type DriverDeps = {
    *  single-shot extractor) AS they complete during NODE_PROPOSALS_CREATED, so the UI can show the
    *  knowledge graph building up mid-run. Best-effort — never gates or fails the run. */
   onNodesDiscovered?: (ev: LiveNodesEvent) => void
+  /** 확인 모드: WRITE_PLAN_CREATED가 approved-nodes 아티팩트가 없으면 paused로 정지한다. */
+  interactive?: boolean
+  /** Domain overlay pack (Plan 1+). When id==='paper', makeDrivers overlays the paper drivers. */
+  domainPack?: import('../domains/types.js').DomainPack
+  /** Substrate for paper kernel lint (built from the venv python). Required for paper VALIDATED. */
+  substrate?: import('@apc/wiki-substrate').WikiSubstrate
   // Phase 3 will add: policy, validators
 }
 
@@ -114,11 +121,13 @@ export const ARTIFACTS = {
   markdownYamlValidation: 'markdown-yaml-validation-report',
   linkValidation: 'link-validation-report',
   secretScan: 'secret-scan-report',
+  kernelLint: 'kernel-lint-report',
   finalPolicy: 'final-policy-report',
   evalReport: 'eval-report',
   coverageReport: 'coverage-report',
   finalReport: 'final-report',
   processedSources: 'processed-sources',
+  approvedNodes: 'approved-nodes',
 } as const
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
@@ -232,8 +241,9 @@ export function pruneGraphEdges(
 }
 
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
- *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
-function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
+ *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling.
+ *  Exported so domain overlay drivers (paper-drivers.ts) can use the same lookup contract. */
+export function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
   const paths = ctx.runState.artifacts[state] ?? []
   const rel = paths.find(p => basename(p) === `${name}.json`)
   return rel ? ctx.store.readArtifact<T>(rel) : undefined
@@ -272,7 +282,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS, engineOptions: deps.engineOptions }
   const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_SOURCE_CHARS
 
-  return {
+  const base: Partial<Record<KhState, Driver>> = {
     PROJECT_SCANNED: async (ctx) => {
       const data = await discovery.run({ ...run, engine: engineOf(ctx), label: `PROJECT_SCANNED-${discovery.name}`, input: { projectId: ctx.projectId } })
       return { artifacts: [{ name: ARTIFACTS.projectDiscovery, data }] }
@@ -403,6 +413,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     WRITE_PLAN_CREATED: async (ctx) => {
+      // 확인 모드: 사용자가 노드 목록을 승인하기 전엔 쓰기를 멈춘다(approved-nodes 아티팩트가 신호).
+      // approved-nodes는 LEAD_MERGED 키에 저장된다(재실행되지 않는 단계 → 인덱스가 안정적;
+      // WRITE_PLAN_CREATED 키에 두면 이 드라이버가 재개 시 자기 산출물로 인덱스를 덮어써 사라진다).
+      if (deps.interactive) {
+        const approved = artifactByName(ctx, 'LEAD_MERGED', ARTIFACTS.approvedNodes)
+        if (!approved) return { artifacts: [], status: 'paused', awaiting: 'node-confirmation' }
+      }
       const writePlan = artifactByName(ctx, 'LEAD_MERGED', ARTIFACTS.leadWritePlan)
       return { artifacts: [{ name: ARTIFACTS.writePlan, data: writePlan }] }
     },
@@ -412,6 +429,20 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
       const graphPlan = artifactByName<KhGraphUpdatePlan>(ctx, 'LEAD_MERGED', ARTIFACTS.graphUpdatePlan)
 
+      // 확인 모드에서 사용자가 승인한 목록이 있으면, 그 목록으로 proposals를 재구성한다:
+      // 유지(부분집합) + 제목 이름수정. 매칭되는 소스 proposal이 없는 항목(제목-only 추가)은 drop한다.
+      // 이유: 증거 없는 stub을 합성하면 PolicyGuard의 no_evidence 하드블록에 걸려 런이 크래시된다.
+      // "제목으로 추가" 기능은 evidence-required 정책 설계와 충돌하므로 defer.
+      const approved = artifactByName<{ nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }>(ctx, 'LEAD_MERGED', ARTIFACTS.approvedNodes)
+      const effectiveProposals: KhNodeProposal[] = approved
+        ? approved.nodes
+            .map((n) => {
+              const src = proposals.find((p) => p.proposal_id === n.source_proposal_id || p.node?.id === n.id)
+              return src ? { ...src, node: { ...src.node, title: n.title } } : undefined  // 유지 + 이름수정; 미매칭은 drop
+            })
+            .filter((p): p is KhNodeProposal => !!p)
+        : proposals
+
       // Author each node document DETERMINISTICALLY from its proposal (+ the lead's edges/narrative). The
       // LLM only emits one-line stub descriptions, so rendering here is what produces a real, frontmatter'd,
       // [[link]]-connected wiki. Replace any node-targeting op the lead wrote with the rendered one, and
@@ -419,7 +450,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const edgesByFrom = new Map<string, KhGraphEdgeOp[]>()
       for (const e of graphPlan?.edge_ops ?? []) edgesByFrom.set(e.from_node_id, [...(edgesByFrom.get(e.from_node_id) ?? []), e])
       const narrativeOf = new Map((graphPlan?.node_ops ?? []).map((o) => [o.node_id, o.narrative]))
-      const nodeDocOps = proposals
+      const nodeDocOps = effectiveProposals
         .filter((p) => p.node?.id)
         .map((p) => ({
           op: 'create_file' as const,
@@ -438,7 +469,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // before touching the staging vault if any op would write to raw/, delete, or carry a secret in its
       // body. Scanning the op bodies HERE (not just the files at VALIDATED) means a dangerous write is
       // refused before it is ever authored — not flagged after the fact.
-      const gate = policy.check(proposals, plan)
+      const gate = policy.check(effectiveProposals, plan)
       if (!gate.ok) {
         throw new Error(`PolicyGuard blocked the write plan before staging: ` +
           gate.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id || '-'}:${v.rule}`).join(', '))
@@ -528,4 +559,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       ] }
     },
   }
+  if (deps.domainPack?.id === 'paper') {
+    // Paper gets ONLY its own drivers — NOT overlaid on `base`. A paper run must never invoke a
+    // project-docs LLM agent, and states the paper pack doesn't define (e.g. HUMAN_REVIEW_REQUIRED)
+    // advance with empty artifacts (the runner's no-driver behaviour, as proven by paper-phase1).
+    // Overlaying on `base` would leave the project-docs HUMAN_REVIEW driver reading paper artifacts
+    // it can't parse (e.g. a graph-validation report paper's VALIDATED never produces).
+    return makePaperDrivers(deps)
+  }
+  return base
 }

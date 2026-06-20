@@ -11,6 +11,7 @@ const sample: Project = {
   repoPaths: ['/mnt/c/work/apc'],
   vaultPaths: ['vault/projects/apc'],
   sourcePaths: ['~/.claude'],
+  domain: 'project-docs',
 }
 
 describe('ProjectRegistry', () => {

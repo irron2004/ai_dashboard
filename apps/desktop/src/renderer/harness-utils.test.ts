@@ -169,4 +169,13 @@ describe('resolveStagedRel', () => {
   test('a non-node project doc returns undefined so caller can use disk fallback', () => {
     expect(resolveStagedRel({ id: 'document:plan', data: { path: 'docs/plan.md' } }, entries)).toBeUndefined()
   })
+
+  test('a proposal-json file node resolves to its rendered nodes/<id>.md (stem ignores extension)', () => {
+    // A graph file-square for inbox/proposals/<id>.json must map to the staged nodes/<id>.md the lead
+    // authored — same stem, different extension. Otherwise the node viewer shows "원문 없음".
+    expect(resolveStagedRel(
+      { id: 'file:inbox/proposals/decision.real.json', data: { path: 'inbox/proposals/decision.real.json' } },
+      entries,
+    )).toBe('nodes/decision.real.md')
+  })
 })

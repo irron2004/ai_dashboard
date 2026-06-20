@@ -11,7 +11,7 @@ vi.mock('./WikiGenDashboard.js', () => ({
 }))
 
 const dashboard: ProjectDashboardRes = {
-  project: { id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', projectType: 'git', repoPaths: [], vaultPaths: [], sourcePaths: [] },
+  project: { id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', projectType: 'git', domain: 'project-docs', repoPaths: [], vaultPaths: [], sourcePaths: [] },
   activeTasks: [], reviewQueue: [], recentRuns: [], allTasks: [],
 }
 

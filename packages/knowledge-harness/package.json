@@ -6,6 +6,8 @@
   "dependencies": {
     "@apc/shared": "workspace:*",
     "@apc/llm-wiki": "workspace:*",
+    "@apc/wiki-substrate": "workspace:*",
+    "gray-matter": "^4.0.3",
     "zod": "^3.23.8"
   }
 }

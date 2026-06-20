@@ -39,4 +39,10 @@ export function migrate(db: Db): void {
       updated_at TEXT NOT NULL
     );
   `)
+
+  // Idempotent column add: node:sqlite has no "ADD COLUMN IF NOT EXISTS", so probe first.
+  const cols = db.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'domain')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN domain TEXT NOT NULL DEFAULT 'project-docs'`)
+  }
 }

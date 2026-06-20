@@ -8,8 +8,8 @@ type Props = {
   collapsed: boolean
   onToggleCollapse: () => void
   onSelect: (projectId: string) => void
-  onAdd: (name: string, projectType: string, repoPath: string) => void
-  onUpdate: (id: string, name: string, projectType: string, repoPath: string) => void
+  onAdd: (name: string, projectType: string, repoPath: string, domain: string) => void
+  onUpdate: (id: string, name: string, projectType: string, repoPath: string, domain: string) => void
   onDelete: (id: string) => void
 }
 
@@ -33,6 +33,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
   const [name, setName] = useState('')
   const [projectType, setProjectType] = useState('git')
   const [pathMode, setPathMode] = useState<PathMode>('local')
+  const [domain, setDomain] = useState<'project-docs' | 'paper'>('project-docs')
 
   // local
   const [repoPath, setRepoPath] = useState('')
@@ -48,7 +49,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
   const resetForm = () => {
     setName(''); setRepoPath(''); setProjectType('git'); setPathMode('local')
     setSshHost(''); setSshPort('22'); setSshUser(''); setSshPath('')
-    setSshStatus('idle'); setSshError(''); setEditingId(null)
+    setSshStatus('idle'); setSshError(''); setEditingId(null); setDomain('project-docs')
   }
 
   const openAdd = () => { resetForm(); setShowDialog(true) }
@@ -58,6 +59,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
     setEditingId(p.id)
     setName(p.name)
     setProjectType(p.projectType)
+    setDomain((p.domain ?? 'project-docs') as 'project-docs' | 'paper')
     const path = p.repoPaths[0] ?? ''
     if (path.startsWith('ssh://')) {
       setPathMode('ssh')
@@ -106,8 +108,8 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
       if (!sshHost || !sshUser || !sshPath) return
       finalPath = `ssh://${sshUser}@${sshHost}:${sshPort}${sshPath}`
     }
-    if (editingId) onUpdate(editingId, name.trim(), projectType, finalPath)
-    else onAdd(name.trim(), projectType, finalPath)
+    if (editingId) onUpdate(editingId, name.trim(), projectType, finalPath, domain)
+    else onAdd(name.trim(), projectType, finalPath, domain)
     resetForm()
     setShowDialog(false)
   }
@@ -248,6 +250,12 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
                 <option value="hybrid">Hybrid</option>
               </select>
             </label>
+
+            <label htmlFor="domain-select">Domain</label>
+            <select id="domain-select" aria-label="Domain" value={domain} onChange={(e) => setDomain(e.target.value as 'project-docs' | 'paper')}>
+              <option value="project-docs">Project docs</option>
+              <option value="paper">Paper (autosci)</option>
+            </select>
 
             {/* Path mode toggle */}
             <div className="add-project-dialog__tabs">

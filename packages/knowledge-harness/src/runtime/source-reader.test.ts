@@ -27,6 +27,15 @@ describe('SourceReader', () => {
     expect(new SourceReader(vault).read()).toEqual([])
   })
 
+  test('skips binary sources (e.g. .pdf) so they are not read as garbage UTF-8', () => {
+    write('raw/papers/paper.pdf', '%PDF-1.7 binary…')      // skipped — an ingester emits parsed text instead
+    write('raw/_parsed/paper.md', '# Parsed paper\nbody')  // the parsed record IS read
+    write('raw/notes.md', 'note')
+    const paths = new SourceReader(vault).read().map(d => d.source_path).sort()
+    expect(paths).toEqual(['raw/_parsed/paper.md', 'raw/notes.md'])
+    expect(paths).not.toContain('raw/papers/paper.pdf')
+  })
+
   test('caps per-file text and marks the truncation', () => {
     write('raw/big.txt', 'x'.repeat(100))
     const [doc] = new SourceReader(vault, 10).read()

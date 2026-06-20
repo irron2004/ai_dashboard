@@ -60,7 +60,7 @@ describe('IngestService', () => {
   beforeEach(() => {
     db = openDb(':memory:'); migrate(db)
     registry = new ProjectRegistry(db); cursors = new IngestCursorStore(db); index = new SearchIndex(new DatabaseSync(':memory:'))
-    registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
   })
 
   test('ingests new sources: resolves projectId, indexes turns, saves cursor', async () => {

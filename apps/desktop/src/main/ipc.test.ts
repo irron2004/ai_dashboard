@@ -19,7 +19,7 @@ describe('IPC handlers (no Electron)', () => {
     container = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir })
     // seed a project and a task
     container.registry.register({
-      id: 'p1', name: 'APC', status: 'active', projectType: 'git',
+      id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs',
       repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [],
     })
     container.tasks.create({
@@ -106,7 +106,7 @@ describe('IPC handlers (no Electron)', () => {
       },
     }
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
-    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
     const h = handlers(c2)
     const res = (await h[CH.ingestAll](undefined)) as { sources: number; sessions: number; documents: number }
     expect(res).toEqual({ sources: 1, sessions: 1, documents: 0 })
@@ -138,7 +138,7 @@ describe('IPC handlers (no Electron)', () => {
       },
     }
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake], agentRunner: runner })
-    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
     const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude', selectedPreflightCategoryIds: ['agent-conversations'] })) as { ok: boolean; proposalPath?: string }
     expect(res.ok).toBe(true)
     expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
@@ -165,7 +165,7 @@ describe('IPC handlers (no Electron)', () => {
       },
     }
     const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
-    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
     const res = (await handlers(c2)[CH.generatePreflight]({ projectId: 'p1' })) as { ok: boolean; categories?: Array<{ id: string; count: number }> }
     expect(res.ok).toBe(true)
     expect(res.categories?.find((category) => category.id === 'agent-conversations')?.count).toBe(1)
