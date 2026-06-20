@@ -152,6 +152,9 @@ importers:
       '@apc/vault':
         specifier: workspace:*
         version: link:../vault
+      '@apc/wiki-substrate':
+        specifier: workspace:*
+        version: link:../wiki-substrate
 
   packages/core:
     dependencies:
