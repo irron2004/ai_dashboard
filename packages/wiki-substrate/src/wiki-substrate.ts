@@ -15,4 +15,8 @@ export interface WikiSubstrate {
   rebuildIndex(vault: WikiVault): Promise<void>
   /** `raw/` 문서가 어댑터로 파싱되는지 점검 (autosci-read). */
   checkSources(vaultRoot: string): Promise<{ ok: boolean; output: string }>
+  /** Parse binary/opaque `raw/` sources (e.g. PDFs) via autosci-read and emit each parsed record's text
+   *  as `<vault>/raw/_parsed/<name>.md`, so the TS SourceReader (which skips binaries) feeds the parsed
+   *  content to the extractor. Optional — only the PythonKernelAdapter implements it. */
+  ingest?(vaultRoot: string): Promise<{ ok: boolean; output: string; count: number }>
 }

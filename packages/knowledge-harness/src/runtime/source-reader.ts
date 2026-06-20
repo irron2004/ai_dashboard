@@ -16,12 +16,17 @@ export type SourceDoc = { source_id: string; source_path: string; text: string; 
  * Per-file text is capped (`maxBytes`) so a large transcript can't blow up the prompt; the cap is recorded
  * by a trailing truncation marker rather than silently dropping content.
  */
+/** Binary/opaque source formats that must NOT be read as UTF-8 (they'd become garbage text in the
+ *  prompt). For these, an ingester (autosci-read) writes a parsed `.md` SourceRecord elsewhere under
+ *  `raw/`, which IS read. Extension match is case-insensitive. */
+const BINARY_SOURCE_EXT = /\.(pdf|png|jpe?g|gif|webp|zip|gz|tar|docx?|xlsx?|pptx?|bin)$/i
+
 export class SourceReader {
   constructor(private readonly vaultRoot: string, private readonly maxBytes = 64 * 1024) {}
 
   read(): SourceDoc[] {
     const rawRoot = join(this.vaultRoot, 'raw')
-    return listFiles(rawRoot).map((abs) => {
+    return listFiles(rawRoot).filter((abs) => !BINARY_SOURCE_EXT.test(abs)).map((abs) => {
       // source_path is vault-relative and always starts with `raw/` (forward slashes) — the same shape
       // the extractor must cite in evidence and the EvidenceVerifier resolves back against the vault.
       const source_path = relative(this.vaultRoot, abs).replace(/\\/g, '/')

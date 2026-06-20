@@ -20,7 +20,16 @@ export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driv
     // HUMAN_REVIEW_REQUIRED) emit the artifact names the runner/UI expect; the paper extractor reads
     // raw/ sources directly and STAGING_WRITTEN reads NODE_PROPOSALS_CREATED, so none of these are read.
     PROJECT_SCANNED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.projectDiscovery, data: { domain: 'paper' } }] }),
-    SOURCES_EXTRACTED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.conversationHistory, data: { sessions: [], summary: '' } }] }),
+    SOURCES_EXTRACTED: async (): Promise<DriverResult> => {
+      // Parse binary sources (e.g. PDFs) into raw/_parsed/*.md via autosci-read so the extractor's
+      // SourceReader (which skips binaries) picks up their text. Best-effort — markdown/text sources
+      // flow regardless; ingest only adds PDF content. Needs the substrate venv (no-op without it).
+      let summary = ''
+      if (deps.substrate?.ingest) {
+        try { summary = (await deps.substrate.ingest(deps.vaultRoot)).output } catch (e) { summary = `ingest skipped: ${String(e)}` }
+      }
+      return { artifacts: [{ name: ARTIFACTS.conversationHistory, data: { sessions: [], summary } }] }
+    },
     DOCUMENTS_CLASSIFIED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.documentIntent, data: { documents: [] } }] }),
     LEAD_MERGED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.graphUpdatePlan, data: { node_ops: [], edge_ops: [] } }] }),
     WRITE_PLAN_CREATED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.writePlan, data: { operations: [] } }] }),

@@ -41,4 +41,11 @@ export class PythonKernelAdapter implements WikiSubstrate {
     const { stdout, stderr, code } = await this.run(['-m', 'autosci_core.adapters', '--vault', vaultRoot])
     return { ok: code === 0, output: `${stdout}\n${stderr}` }
   }
+
+  async ingest(vaultRoot: string): Promise<{ ok: boolean; output: string; count: number }> {
+    // scripts/autosci_ingest.py is resolved relative to the adapter's cwd (the repo root).
+    const { stdout, stderr, code } = await this.run(['scripts/autosci_ingest.py', '--vault', vaultRoot])
+    const count = Number(stdout.match(/ingested (\d+) parsed/)?.[1] ?? 0)
+    return { ok: code === 0, output: `${stdout}\n${stderr}`, count }
+  }
 }
