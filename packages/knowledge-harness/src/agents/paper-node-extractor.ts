@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { resolvePaperContractDir } from '../domains/paper-pack.js'
+import { LlmAgent } from './llm-agent.js'
 
 const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
 const ENTITY_TYPES = ['papers', 'modules', 'pipelines', 'pipeline_trials'] as const
@@ -33,4 +34,18 @@ export function loadPaperContractText(contractDir: string = resolvePaperContract
     part('schema/edges.yaml'),
     part('schema/conventions.yaml'),
   ].join('\n\n')
+}
+
+const ROLE_HEAD = [
+  'You are the paper-node-extractor agent. From the provided sources, extract typed wiki nodes for a',
+  'research-paper knowledge graph. Emit ONLY nodes that the sources evidence — never invent papers,',
+  'modules, pipelines, or trial results. Each node has: `type` (one of papers|modules|pipelines|',
+  'pipeline_trials), a `slug` matching the slug rule, and `fields` = the frontmatter for that entity',
+  "type per the contract below (include every required field). Put any prose description in `body`.",
+  'Produce { "nodes": [...] }. The contract (entities, edges, conventions) is authoritative:',
+].join(' ')
+
+export function makePaperNodeExtractor(preamble: string, contractDir?: string): LlmAgent<PaperExtractorOutput> {
+  const role = `${ROLE_HEAD}\n\n${loadPaperContractText(contractDir)}`
+  return new LlmAgent({ name: 'paper-node-extractor', role, schema: PaperExtractorOutputSchema, preamble })
 }
