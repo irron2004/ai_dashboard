@@ -26,7 +26,7 @@ function rowToProject(row: Row): Project {
     startDate: row.start_date ?? undefined,
     targetDate: row.target_date ?? undefined,
     projectType: row.project_type,
-    domain: row.domain ?? undefined,
+    domain: row.domain,
     repoPaths: JSON.parse(row.repo_paths),
     vaultPaths: JSON.parse(row.vault_paths),
     sourcePaths: JSON.parse(row.source_paths),
