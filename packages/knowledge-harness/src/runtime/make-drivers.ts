@@ -60,6 +60,10 @@ export type DriverDeps = {
   onNodesDiscovered?: (ev: LiveNodesEvent) => void
   /** 확인 모드: WRITE_PLAN_CREATED가 approved-nodes 아티팩트가 없으면 paused로 정지한다. */
   interactive?: boolean
+  /** Domain overlay pack (Plan 1+). When id==='paper', makeDrivers overlays the paper drivers. */
+  domainPack?: import('../domains/types.js').DomainPack
+  /** Substrate for paper kernel lint (built from the venv python). Required for paper VALIDATED. */
+  substrate?: import('@apc/wiki-substrate').WikiSubstrate
   // Phase 3 will add: policy, validators
 }
 
