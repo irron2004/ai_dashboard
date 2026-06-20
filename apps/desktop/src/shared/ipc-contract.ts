@@ -59,8 +59,8 @@ export const CH = {
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
-export type RegisterProjectReq = { name: string; projectType: string; repoPath: string }
-export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string }
+export type RegisterProjectReq = { name: string; projectType: string; repoPath: string; domain?: string }
+export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string; domain?: string }
 export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }

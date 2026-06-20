@@ -34,6 +34,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
         repoPaths: req.repoPath ? [req.repoPath] : [],
         vaultPaths: [],
         sourcePaths: [],
+        domain: (req.domain ?? 'project-docs') as 'project-docs' | 'paper',
       })
       return container.registry.get(id)
     },
@@ -47,6 +48,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
         name: req.name,
         projectType: req.projectType as 'git' | 'obsidian' | 'hybrid',
         repoPaths: req.repoPath ? [req.repoPath] : [],
+        domain: (req.domain ?? existing.domain) as 'project-docs' | 'paper',
       })
       return container.registry.get(req.id)
     },
