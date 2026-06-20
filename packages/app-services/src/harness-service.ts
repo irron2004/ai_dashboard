@@ -39,7 +39,9 @@ export function resolveDomainPack(domain: DomainId | undefined): DomainPack {
 export function buildVenvSubstrate(repoRoot: string): WikiSubstrate | undefined {
   const lock = join(repoRoot, 'core.lock')
   if (!existsSync(lock)) return undefined
-  const python = join(repoRoot, JSON.parse(readFileSync(lock, 'utf8')).venv_python ?? '')
+  const venvPython: string | undefined = JSON.parse(readFileSync(lock, 'utf8')).venv_python
+  if (!venvPython) return undefined  // malformed lock (no venv_python) — don't resolve to repoRoot itself
+  const python = join(repoRoot, venvPython)
   const winRunnable = process.platform !== 'win32' || /[\\/]scripts[\\/]/i.test(python)
   if (!existsSync(python) || !winRunnable) return undefined
   return new PythonKernelAdapter({ python, cwd: repoRoot })
