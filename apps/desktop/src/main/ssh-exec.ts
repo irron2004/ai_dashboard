@@ -3,13 +3,27 @@ import type { AgentType } from '@apc/shared'
 
 export type SshTarget = { user: string; host: string; port: number; path: string }
 
+/**
+ * A doubled-authority ssh url — e.g. `ssh://user@newhost:22//user@oldhost:22/home/x` produced when a
+ * project's SSH host was changed by prefixing a new authority onto the existing full url instead of
+ * swapping it — parses with the OUTER host but leaves the inner authority as a `//user@host:port/…`
+ * pathname, so the remote `cd` got the garbage prefix and failed. Strip a leading authority-shaped
+ * segment (one carrying `@` or `:`) to recover the true remote path; a plain `//foo/bar` unix path
+ * (no authority markers) is left untouched.
+ */
+function recoverRemotePath(pathname: string): string {
+  const m = pathname.match(/^\/\/([^/]+)(\/.*)$/)
+  if (m && /[@:]/.test(m[1])) return m[2]
+  return pathname
+}
+
 /** Parse an ssh://user@host:port/remote/path project path, or null if not ssh. */
 export function parseSsh(raw: string): SshTarget | null {
   if (!raw || !raw.startsWith('ssh://')) return null
   try {
     const u = new URL(raw)
     if (u.protocol !== 'ssh:') return null
-    return { user: decodeURIComponent(u.username) || 'root', host: u.hostname, port: u.port ? Number(u.port) : 22, path: decodeURIComponent(u.pathname) || '.' }
+    return { user: decodeURIComponent(u.username) || 'root', host: u.hostname, port: u.port ? Number(u.port) : 22, path: recoverRemotePath(decodeURIComponent(u.pathname)) || '.' }
   } catch { return null }
 }
 
