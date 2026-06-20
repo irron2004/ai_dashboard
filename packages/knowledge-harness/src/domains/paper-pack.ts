@@ -1,4 +1,4 @@
-import { cpSync, existsSync } from 'node:fs'
+import { cpSync, existsSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import type { WikiSubstrate } from '@apc/wiki-substrate'
@@ -29,9 +29,11 @@ export const paperPack: DomainPack = {
       )
     }
     // The kernel resolves pages from contractDir.parent (WikiVault sibling constraint), so the contract
-    // must sit next to the wiki dir. Seed it at `<parent-of-wikiDir>/runtime`, then lint that pair.
-    const contractDir = join(dirname(wikiDir), 'runtime')
-    cpSync(src, contractDir, { recursive: true })
-    return deps.substrate.lint({ contractDir, wikiDir })
+    // must sit next to the wiki dir. Seed it FRESH at `<parent-of-wikiDir>/runtime` (clear any prior
+    // copy first so a re-validate can't leave stale contract files), then lint that pair.
+    const seededContractDir = join(dirname(wikiDir), 'runtime')
+    rmSync(seededContractDir, { recursive: true, force: true })
+    cpSync(src, seededContractDir, { recursive: true })
+    return deps.substrate.lint({ contractDir: seededContractDir, wikiDir })
   },
 }

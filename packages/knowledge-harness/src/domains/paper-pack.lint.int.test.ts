@@ -41,7 +41,9 @@ d('paperPack.validate over real kernel lint', () => {
     const root = vaultWithGolden()
     try {
       const papers = join(root, 'wiki', 'papers')
-      const f = join(papers, readdirSync(papers).find((n) => n.endsWith('.md'))!)
+      const md = readdirSync(papers).find((n) => n.endsWith('.md'))
+      if (!md) throw new Error(`golden fixture has no .md under papers/ (${papers})`)
+      const f = join(papers, md)
       writeFileSync(f, readFileSync(f, 'utf8').replace(/^title:.*$/m, ''))
       const report = await paperPack.validate!(join(root, 'wiki'), { substrate })
       expect(report.ok).toBe(false)
