@@ -19,7 +19,7 @@ describe('KnowledgeIndexer', () => {
     store = new KnowledgeStore(db)
     retrieval = new KnowledgeRetrieval(db)
     vaultRoot = mkdtempSync(join(tmpdir(), 'apc-knidx-'))
-    registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/p1'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/p1'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
     const projDir = join(vaultRoot, 'projects', 'p1', 'wiki')
     mkdirSync(projDir, { recursive: true })
     writeFileSync(join(projDir, 'orchestration.md'), '# Orchestration\n\nagent orchestration and routing notes')
@@ -61,7 +61,7 @@ describe('KnowledgeIndexer', () => {
     const extraDir = join(vaultRoot, 'external', 'docs')
     mkdirSync(extraDir, { recursive: true })
     writeFileSync(join(extraDir, 'guide.md'), '# Guide\n\nexternal vaultpath knowledge content')
-    registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', repoPaths: ['/work/p2'], vaultPaths: [extraDir], sourcePaths: [] })
+    registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', repoPaths: ['/work/p2'], vaultPaths: [extraDir], sourcePaths: [], domain: 'project-docs' })
 
     const count = new KnowledgeIndexer({ registry, store, vaultRoot }).reindexProject('p2')
     expect(count).toBe(1)

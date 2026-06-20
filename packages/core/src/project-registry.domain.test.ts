@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach } from 'vitest'
 import { openDb, migrate } from './db.js'
 import { ProjectRegistry } from './project-registry.js'
 
-const base = { status: 'active' as const, projectType: 'git' as const, repoPaths: [], vaultPaths: [], sourcePaths: [] }
+const base = { status: 'active' as const, projectType: 'git' as const, repoPaths: [], vaultPaths: [], sourcePaths: [], domain: 'project-docs' as const }
 
 describe('ProjectRegistry domain', () => {
   let reg: ProjectRegistry

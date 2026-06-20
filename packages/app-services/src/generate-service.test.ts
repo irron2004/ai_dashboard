@@ -56,7 +56,7 @@ describe('GenerateService', () => {
 
   test('summarizes the latest matching session and writes summary + proposal', async () => {
     const registry = new ProjectRegistry(db)
-    registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'did work', toolCalls: [] }], filesTouched: [] }
     const wiki = new WikiEngine(new FakeAgentRunner([JSON.stringify({
       workSummary: 'summary', filesTouched: ['a.ts'], openProblems: [], nextTasks: [{ title: 'next', rationale: 'r' }],
@@ -75,7 +75,7 @@ describe('GenerateService', () => {
 
   test('ok:false with a reason when no session matches the project repoPath', async () => {
     const registry = new ProjectRegistry(db)
-    registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', repoPaths: ['/other'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p2', name: 'P2', status: 'active', projectType: 'git', repoPaths: ['/other'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const wiki = new WikiEngine(new FakeAgentRunner([]))
     const svc = new GenerateService({ adapters: [fakeAdapter(session)], registry, vault: new VaultAdapter(dir), vaultWriter: new VaultWriter(new VaultAdapter(dir)), wiki })
@@ -86,7 +86,7 @@ describe('GenerateService', () => {
 
   test('ignores newer sources from unrelated repos and matches project subdirectories', async () => {
     const registry = new ProjectRegistry(db)
-    registry.register({ id: 'p-target', name: 'Target', status: 'active', projectType: 'git', repoPaths: ['/work/apc/'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p-target', name: 'Target', status: 'active', projectType: 'git', repoPaths: ['/work/apc/'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
     const sessions: Record<string, NormalizedSession> = {
       unrelated: { id: 'unrelated', agentType: 'claude', repoPath: '/home/hskim/work/llm-agent-v2', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'pebot', toolCalls: [] }], filesTouched: [] },
       target: { id: 'target', agentType: 'claude', repoPath: '/work/apc/apps/desktop', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [{ role: 'user', text: 'dashboard', toolCalls: [] }], filesTouched: [] },
@@ -119,7 +119,7 @@ describe('GenerateService', () => {
 
   test('finds a matching repo session beyond the old 25-source window while keeping a scan bound', async () => {
     const registry = new ProjectRegistry(db)
-    registry.register({ id: 'p3', name: 'P3', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p3', name: 'P3', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
     const sessions: NormalizedSession[] = Array.from({ length: 30 }, (_, index) => ({
       id: `s${index}`,
       agentType: 'claude',
@@ -141,7 +141,7 @@ describe('GenerateService', () => {
 
   test('does not parse past the generate source scan limit', async () => {
     const registry = new ProjectRegistry(db)
-    registry.register({ id: 'p4', name: 'P4', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [] })
+    registry.register({ id: 'p4', name: 'P4', status: 'active', projectType: 'git', repoPaths: ['/target'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
     const sessions: NormalizedSession[] = Array.from({ length: GENERATE_SOURCE_SCAN_LIMIT + 5 }, (_, index) => ({
       id: `s${index}`,
       agentType: 'claude',
