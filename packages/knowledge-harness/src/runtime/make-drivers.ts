@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { basename } from 'node:path'
+import { makePaperDrivers } from './paper-drivers.js'
 import { resolveInside, isRaw } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
 import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
@@ -240,8 +241,9 @@ export function pruneGraphEdges(
 }
 
 /** Read a prior state's artifact by its base name (e.g. ARTIFACTS.leadWritePlan). Order-independent.
- *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling. */
-function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
+ *  Matches on exact basename equality so one name can never resolve a longer-suffixed sibling.
+ *  Exported so domain overlay drivers (paper-drivers.ts) can use the same lookup contract. */
+export function artifactByName<T = unknown>(ctx: RunnerContext, state: KhState, name: string): T | undefined {
   const paths = ctx.runState.artifacts[state] ?? []
   const rel = paths.find(p => basename(p) === `${name}.json`)
   return rel ? ctx.store.readArtifact<T>(rel) : undefined
@@ -280,7 +282,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS, engineOptions: deps.engineOptions }
   const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_SOURCE_CHARS
 
-  return {
+  const base: Partial<Record<KhState, Driver>> = {
     PROJECT_SCANNED: async (ctx) => {
       const data = await discovery.run({ ...run, engine: engineOf(ctx), label: `PROJECT_SCANNED-${discovery.name}`, input: { projectId: ctx.projectId } })
       return { artifacts: [{ name: ARTIFACTS.projectDiscovery, data }] }
@@ -557,4 +559,8 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       ] }
     },
   }
+  if (deps.domainPack?.id === 'paper') {
+    return { ...base, ...makePaperDrivers(deps) }
+  }
+  return base
 }
