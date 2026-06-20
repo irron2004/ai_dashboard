@@ -8,8 +8,11 @@ import {
   makeProjectDiscovery, makeWikiPolicyAdvisor,
   writeProposedPolicy, approvePolicy, revertPolicy, resolveProjectPreamble, readPolicy,
   resolveInside,
+  domainPackFor,
   type WikiPolicyRecord,
   type SourceLedger,
+  type DomainId,
+  type DomainPack,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
@@ -24,6 +27,11 @@ import { dirname } from 'node:path'
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
  * `reason` carries the error on FAILED (the field name the CLI + IPC consumers read). */
 export type HarnessRunResult = { ok: boolean; runId: string; finalState: RunState['state']; reason?: string }
+
+/** Resolve the domain pack for a run; missing domain = the legacy project-docs pack. */
+export function resolveDomainPack(domain: DomainId | undefined): DomainPack {
+  return domainPackFor(domain ?? 'project-docs')
+}
 
 /** 엔진 출력 스트리밍 이벤트 — UI live tail용. label = '<STATE>-<agent>'. */
 export type EngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
@@ -186,8 +194,10 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean; domain?: DomainId }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
     const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
+    const pack = resolveDomainPack(input.domain)
+    log(`domain: ${pack.id}\n`)
     // The wiki lives in the project's workspace. Bring the canonical internal state (graph/proposals/
     // runs/projects) into the local working vault before the run; raw/ is re-materialized below.
     const wv = this.vaultFor(input.projectId)

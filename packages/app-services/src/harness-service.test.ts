@@ -396,7 +396,10 @@ describe('HarnessService engine logging', () => {
     const svc = new HarnessService({ runner: streaming, vaultRoot, runsRoot: join(tmp, 'runs') })
     const events: Array<{ label: string; stream: string; chunk: string }> = []
     await svc.run({ projectId: 'p1', engine: 'codex' }, undefined, (e) => events.push(e))
-    expect(events).toEqual([{ label: 'PROJECT_SCANNED-project-discovery', stream: 'stdout', chunk: 'scanning…' }])
+    expect(events).toEqual([
+      { label: 'workspace', stream: 'stdout', chunk: 'domain: project-docs\n' },
+      { label: 'PROJECT_SCANNED-project-discovery', stream: 'stdout', chunk: 'scanning…' },
+    ])
   })
 })
 
