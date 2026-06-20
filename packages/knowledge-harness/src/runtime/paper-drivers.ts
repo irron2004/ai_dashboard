@@ -7,10 +7,12 @@ import type { DriverDeps } from './make-drivers.js'
 import { ARTIFACTS, artifactByName } from './make-drivers.js'
 import { makePaperNodeExtractor } from '../agents/paper-node-extractor.js'
 import type { PaperNode } from '../agents/paper-node-extractor.js'
+import { SourceReader } from './source-reader.js'
 
 export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> {
   const extractor = makePaperNodeExtractor(deps.preamble)
   const pack = deps.domainPack!  // makeDrivers only overlays when id==='paper'
+  const sources = new SourceReader(deps.vaultRoot)
 
   return {
     NODE_PROPOSALS_CREATED: async (ctx: RunnerContext): Promise<DriverResult> => {
@@ -21,7 +23,7 @@ export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driv
         cwd: deps.projectCwd,
         engineOptions: deps.engineOptions,
         label: `NODE_PROPOSALS_CREATED-${extractor.name}`,
-        input: {},
+        input: { sources: sources.read() },
       })
       return { artifacts: [{ name: ARTIFACTS.nodeProposals, data: out }] }
     },
@@ -45,7 +47,7 @@ export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driv
       }
     },
 
-    VALIDATED: async (): Promise<DriverResult> => {
+    VALIDATED: async (_ctx: RunnerContext): Promise<DriverResult> => {
       if (!deps.substrate) {
         return {
           artifacts: [],
