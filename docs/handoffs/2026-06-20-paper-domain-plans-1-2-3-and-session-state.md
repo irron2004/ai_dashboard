@@ -120,3 +120,29 @@ wsl bash -lc '.venv-substrate/bin/python -m kernel lint --contract-dir <root>/ru
 - venv-skip 가드 3중복(`paper-pack.lint.int`, `python-kernel-adapter.int`, `paper-phase1.e2e`) — 기존 2개는 `winRunnable` 가드 없음 → 헬퍼로 추출.
 - 일부 커밋 메시지에 BOM(`﻿`) — PowerShell here-string 커밋 흔적. 이후 `-F` temp 파일로 ([[git-commit-heredoc-quotes]]).
 - `container.ts` harnessRun 긴 spread 라인, `describe.skipIf` 미사용 등.
+
+---
+
+## 8. 추가 진행 (Plan 3b·4) — 2026-06-20 후반
+
+| Plan | 내용 | 상태 |
+|---|---|---|
+| **3b** | `makePaperNodeExtractor` (계약 주입 LlmAgent → `{nodes: TypedNode[]}`) + `PaperNodeSchema`/`loadPaperContractText` | ✅ 두 태스크 리뷰 Approved, Windows green(fake-runner) |
+| **4 core** | `DriverDeps`에 `domainPack`+`substrate` 스레드(T1) · `makePaperDrivers` 오버레이(extract→render→kernel-lint, T2) · 오버레이 라우팅 테스트(T3) | ✅ 커밋, 회귀 236 pass/5 skip, tsc 0 |
+
+**SSH 수정 커밋 완료:** `819669f`(parseSsh 복구 + pty dedup), `957845c`(런처 경로). 작업트리 clean.
+
+### ⚠️ Plan 4에서 드러난 핵심 갭 (Plan 5 필수)
+오버레이는 **3개 상태만**(`NODE_PROPOSALS_CREATED`/`STAGING_WRITTEN`/`VALIDATED`) 교체한다. 나머지 **base 상태**(`PROJECT_SCANNED`·`SOURCES_EXTRACTED`·`DOCUMENTS_CLASSIFIED`·`LEAD_MERGED`)는 paper 런에서도 **project-docs LLM 에이전트를 그대로 호출**한다 — paper STAGING_WRITTEN이 그 출력을 무시하므로 런은 전진하지만(크래시 가능성 있음: LEAD_MERGED가 `{nodes}` 아티팩트를 `{proposals}`로 파싱 시도), **LLM 토큰 낭비 + 부정확**. **Plan 5 1순위 = base 상태도 paper용으로 오버레이**(no-op 또는 paper-적합).
+
+### Plan 5 범위 (실제 작동까지 남은 것)
+1. **base 상태 오버레이** (위 갭) — paper 런이 project-docs 에이전트를 안 부르게.
+2. PDF 인제스트: `WikiSubstrate.checkSources`(autosci-read) → 파싱 텍스트를 extractor sources로(현재는 raw/ 마크다운/텍스트만 `SourceReader`로 흐름).
+3. 타입드 엣지: lead/추출 결과 → `wiki/graph/edges.jsonl`(renderNode는 노드만).
+4. 패키징: `wiki-domains/`를 electron-builder `extraResources`로 + 패키징 빌드에서 `resolvePaperContractDir`/`APC_PAPER_CONTRACT_DIR` 해석 검증.
+5. **실제 LLM 실행**: papers 워크스페이스로 end-to-end(검증은 WSL/Linux venv 필요).
+
+### 환경/운영 메모
+- **subagent 월 지출 한도 도달**(세션 후반) — 이후 작업은 controller 직접 수행 또는 한도 상향 후 재개.
+- 커널 게이트/렌더는 controller가 WSL로 실증(§3·Plan 3). paper 통합 테스트는 native Windows skip(Linux venv).
+- 현재 `feat/workspace-vault` ahead origin ~31, 미푸시.
