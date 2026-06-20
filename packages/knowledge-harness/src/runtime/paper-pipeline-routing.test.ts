@@ -49,15 +49,18 @@ describe('makeDrivers domain overlay routing', () => {
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
-  test('paper overlay keeps the project-docs base states so the run can still advance', () => {
+  test('paper overlay replaces the base states (no project-docs agents run)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'route-base-'))
     try {
+      const store = new RunArtifactStore(join(dir, 'run')); store.init()
       const paper = makeDrivers(deps(dir, fakeRunner({}), true))
-      // overlaid states
-      for (const s of ['NODE_PROPOSALS_CREATED', 'STAGING_WRITTEN', 'VALIDATED'] as const) expect(paper[s]).toBeDefined()
-      // base states still present (NOTE: these currently run the project-docs agents even for paper —
-      // overlaying them for the paper domain is a Plan 5 item; see the handoff).
-      for (const s of ['PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED', 'LEAD_MERGED'] as const) expect(paper[s]).toBeDefined()
+      // PROJECT_SCANNED is now the paper-minimal driver: emits { domain: 'paper' } with NO runner call
+      // (the project-docs discovery agent would instead produce a KhProjectDiscoveryReport).
+      const res = await paper.PROJECT_SCANNED!(nodeProposalsCtx(store))
+      const data = res.artifacts.find((a) => a.name === ARTIFACTS.projectDiscovery)!.data as { domain?: string }
+      expect(data.domain).toBe('paper')
+      // every generation + base state is overlaid by the paper pack
+      for (const s of ['PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED', 'LEAD_MERGED', 'WRITE_PLAN_CREATED', 'NODE_PROPOSALS_CREATED', 'STAGING_WRITTEN', 'VALIDATED'] as const) expect(paper[s]).toBeDefined()
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })

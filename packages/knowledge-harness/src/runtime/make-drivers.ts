@@ -560,7 +560,12 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
   }
   if (deps.domainPack?.id === 'paper') {
-    return { ...base, ...makePaperDrivers(deps) }
+    // Paper gets ONLY its own drivers — NOT overlaid on `base`. A paper run must never invoke a
+    // project-docs LLM agent, and states the paper pack doesn't define (e.g. HUMAN_REVIEW_REQUIRED)
+    // advance with empty artifacts (the runner's no-driver behaviour, as proven by paper-phase1).
+    // Overlaying on `base` would leave the project-docs HUMAN_REVIEW driver reading paper artifacts
+    // it can't parse (e.g. a graph-validation report paper's VALIDATED never produces).
+    return makePaperDrivers(deps)
   }
   return base
 }
