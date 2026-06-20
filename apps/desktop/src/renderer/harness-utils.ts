@@ -1083,7 +1083,11 @@ export function resolveStagedRel(
   node: GraphNodeRef,
   entries: ReadonlyArray<{ relPath: string; nodeId?: string }>,
 ): string | undefined {
-  const stemOf = (s: string): string => s.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
+  // Strip the dir and the FINAL extension only — so a proposal `inbox/proposals/<id>.json` and the
+  // rendered `nodes/<id>.md` reduce to the same stem (`<id>`), while a dotted node id like
+  // `decision.real` (file `decision.real.md`) keeps its dot. Without this, clicking a proposal-json
+  // graph node never matched its staged doc and the viewer showed "원문 없음".
+  const stemOf = (s: string): string => s.replace(/^.*[\\/]/, '').replace(/\.[^.\\/]+$/, '')
   const byNodeId = new Map(entries.filter((e) => e.nodeId).map((e) => [e.nodeId as string, e.relPath]))
   const byStem = new Map(entries.map((e) => [stemOf(e.relPath), e.relPath]))
   const id = node.id.replace(/^(artifact|file|task|evidence|run|document|node):/, '')
