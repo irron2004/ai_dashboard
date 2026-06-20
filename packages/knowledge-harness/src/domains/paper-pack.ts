@@ -1,9 +1,10 @@
 import { cpSync, existsSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import matter from 'gray-matter'
 import type { WikiSubstrate } from '@apc/wiki-substrate'
 import type { KhKernelLintReport } from '@apc/shared'
-import type { DomainPack } from './types.js'
+import type { DomainPack, TypedNode, RenderedNode } from './types.js'
 
 // repo-root/wiki-domains/paper/runtime, resolved relative to this file
 // (packages/knowledge-harness/src/domains/ -> up 4 to repo root).
@@ -38,5 +39,11 @@ export const paperPack: DomainPack = {
     rmSync(seededContractDir, { recursive: true, force: true })
     cpSync(src, seededContractDir, { recursive: true })
     return deps.substrate.lint({ contractDir: seededContractDir, wikiDir })
+  },
+  renderNode(node: TypedNode): RenderedNode {
+    // gray-matter.stringify writes `---\n<yaml>\n---\n<body>`. fields is the contract frontmatter
+    // verbatim; the kernel (validate) judges contract-validity, so renderNode stays schema-agnostic.
+    const content = matter.stringify(node.body ?? '', node.fields)
+    return { relPath: `wiki/${node.type}/${node.slug}.md`, content }
   },
 }
