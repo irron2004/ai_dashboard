@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { useStore } from '../store.js'
 import {
-  artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, isMarkdownArtifact, pickNodeArtifact,
+  artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, buildPaperGraphData, isMarkdownArtifact, pickNodeArtifact,
   resolveStagedRel,
   type GraphNodeRef, type HarnessRunBundle,
 } from '../harness-utils.js'
 import { GraphVisualization } from './GraphVisualization.js'
 import { MarkdownContent } from './MarkdownContent.js'
-import type { StagedDocDto } from '../../shared/ipc-contract.js'
+import type { StagedDocDto, GraphEdgeDto } from '../../shared/ipc-contract.js'
 
 type Mode = 'docs' | 'graph'
 /** 트리/뷰어가 가리키는 문서: run 아티팩트 · 디스크의 md · staging의 생성된 노드(검수중). */
@@ -30,7 +30,10 @@ function runStateLabel(state: string | undefined): string {
 }
 
 export function KnowledgeView() {
-  const { selectedProjectId, harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading } = useStore()
+  const { selectedProjectId, projects, harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading } = useStore()
+  // Paper-domain projects publish autosci's own knowledge graph (wiki/<type>/<slug>.md + edges.jsonl);
+  // project-docs projects don't, so the graph source differs by domain.
+  const domain = projects.find((p) => p.id === selectedProjectId)?.domain
   const [mode, setMode] = useState<Mode>('docs')
   const [selectedDoc, setSelectedDoc] = useState<DocRef | null>(null)
   const [fileContent, setFileContent] = useState<{ relPath: string; content: string } | { relPath: string; error: string } | null>(null)
@@ -65,7 +68,20 @@ export function KnowledgeView() {
     () => buildLiveGraphData(harnessLiveNodesRunId ?? 'run', harnessLiveNodes),
     [harnessLiveNodesRunId, harnessLiveNodes],
   )
-  const effectiveGraph = liveActive ? liveGraph : graphData
+  // For paper runs the rendered graph IS autosci's knowledge graph: typed entity nodes (the staged
+  // node docs) wired by the kernel's typed edges (wiki/graph/edges.jsonl). project-docs runs have no
+  // edges.jsonl, so this loads nothing and the provenance graph (graphData) is used instead.
+  const [paperEdges, setPaperEdges] = useState<GraphEdgeDto[]>([])
+  useEffect(() => {
+    if (!runId || domain !== 'paper') { setPaperEdges([]); return }
+    let stale = false
+    void api.harnessReadGraphEdges({ runId })
+      .then((res) => { if (!stale) setPaperEdges(res.edges ?? []) })
+      .catch(() => { if (!stale) setPaperEdges([]) })
+    return () => { stale = true }
+  }, [runId, domain])
+  const paperGraph = useMemo(() => buildPaperGraphData(nodeDocs, paperEdges), [nodeDocs, paperEdges])
+  const effectiveGraph = liveActive ? liveGraph : domain === 'paper' ? paperGraph : graphData
 
   // Auto-reveal the graph the first time live nodes arrive for a run, so generation is visible.
   const revealedRunId = useRef<string | null>(null)

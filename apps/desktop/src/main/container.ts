@@ -25,6 +25,7 @@ import type {
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   HarnessReadStagedDocReq, HarnessReadStagedDocRes, HarnessListStagedDocsReq, HarnessListStagedDocsRes,
+  HarnessReadGraphEdgesReq, HarnessReadGraphEdgesRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
@@ -84,6 +85,7 @@ export type Container = {
   harnessRevertPolicy: (req: HarnessRevertPolicyReq) => HarnessRevertPolicyRes
   harnessReadStagedDoc: (req: HarnessReadStagedDocReq) => HarnessReadStagedDocRes
   harnessListStagedDocs: (req: HarnessListStagedDocsReq) => HarnessListStagedDocsRes
+  harnessReadGraphEdges: (req: HarnessReadGraphEdgesReq) => HarnessReadGraphEdgesRes
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
   dashboard: typeof getProjectDashboard
 }
@@ -300,6 +302,7 @@ export function buildContainer(opts: {
   const harnessRevertPolicy = (req: HarnessRevertPolicyReq): HarnessRevertPolicyRes => harness.revertWikiPolicy(req)
   const harnessReadStagedDoc = (req: HarnessReadStagedDocReq): HarnessReadStagedDocRes => harness.readStagedDoc(req)
   const harnessListStagedDocs = (req: HarnessListStagedDocsReq): HarnessListStagedDocsRes => harness.listStagedDocs(req)
+  const harnessReadGraphEdges = (req: HarnessReadGraphEdgesReq): HarnessReadGraphEdgesRes => harness.readGraphEdges(req)
   const harnessExportWiki = (req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> => harness.exportWiki(req)
 
   return {
@@ -307,7 +310,7 @@ export function buildContainer(opts: {
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
-    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessExportWiki,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
     dashboard: getProjectDashboard,
   }
 }

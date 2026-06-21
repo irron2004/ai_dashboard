@@ -1,8 +1,39 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, resolveStagedRel } from './harness-utils.js'
+import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, buildPaperGraphData, resolveStagedRel } from './harness-utils.js'
 import type { HarnessRunArtifact, HarnessRunBundle } from './harness-utils.js'
 
 const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
+
+describe('buildPaperGraphData (autosci graph from nodes + edges.jsonl)', () => {
+  const nodes = [
+    { relPath: 'nodes/transformer.md', nodeId: 'transformer', nodeType: 'papers', title: 'Attention Is All You Need' },
+    { relPath: 'nodes/self-attention.md', nodeId: 'self-attention', nodeType: 'modules', title: 'Self-Attention' },
+  ]
+
+  test('each staged node becomes a graph node keyed by <type>:<slug>, carrying title and doc path', () => {
+    const { nodes: out } = buildPaperGraphData(nodes, [])
+    const paper = out.find((n) => n.id === 'papers:transformer')
+    expect(paper?.label).toBe('Attention Is All You Need')
+    expect(paper?.type).toBe('papers')
+    expect((paper?.data as { path?: string } | undefined)?.path).toBe('nodes/transformer.md')
+    expect(out.find((n) => n.id === 'modules:self-attention')?.type).toBe('modules')
+  })
+
+  test('a typed edge connects two nodes as a rel link labeled with the edge type', () => {
+    const edges = [{ from: 'modules:self-attention', to: 'papers:transformer', type: 'pipeline_from_paper' }]
+    const link = buildPaperGraphData(nodes, edges).links.find((l) => l.kind === 'rel')
+    expect(link?.source).toBe('modules:self-attention')
+    expect(link?.target).toBe('papers:transformer')
+    expect(link?.label).toBe('pipeline_from_paper')
+  })
+
+  test('an edge endpoint with no staged node still renders (ghost node materialized)', () => {
+    const edges = [{ from: 'papers:transformer', to: 'modules:missing', type: 'uses_module' }]
+    const { nodes: out, links } = buildPaperGraphData(nodes, edges)
+    expect(out.find((n) => n.id === 'modules:missing')).toBeTruthy()
+    expect(links.some((l) => l.source === 'papers:transformer' && l.target === 'modules:missing')).toBe(true)
+  })
+})
 
 describe('buildHarnessGraphData', () => {
   test('a proposal node carries its staging draft path so a click can open it', () => {

@@ -1536,10 +1536,16 @@ textarea {
 .knowledge__viewer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px; }
 .knowledge__empty, .knowledge__error { color: #666; font-size: 0.85rem; padding: 16px; }
 .knowledge__error { color: #e8a0a0; }
-.knowledge__graph { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.knowledge__graph--peek { grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr); }
+.knowledge__graph { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+/* peek is an overlay drawer, not a second grid column: opening it must NOT resize the graph
+   canvas. Resizing the SVG (width/height 100% + viewBox) re-rasterizes every node's gaussian-blur
+   glow filter at once, which reads as a flicker/blink on each node click. */
 .knowledge__graph-canvas { min-height: 0; overflow: hidden; }
-.knowledge__peek { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid #2c2f38; }
+.knowledge__peek {
+  position: absolute; top: 0; right: 0; bottom: 0; width: min(360px, 42%); z-index: 5;
+  display: flex; flex-direction: column; min-height: 0;
+  border-left: 1px solid #2c2f38; box-shadow: -14px 0 30px rgba(0, 0, 0, 0.45);
+}
 .knowledge__peek-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .knowledge__peek-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 14px; }
 

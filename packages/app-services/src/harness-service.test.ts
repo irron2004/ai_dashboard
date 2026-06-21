@@ -529,3 +529,31 @@ describe('HarnessService readStagedDoc', () => {
     expect(svc(join(ws, 'runs')).readStagedDoc({ runId: 'RUN-1', relPath: 'concepts/x.json' }).ok).toBe(false)
   })
 })
+
+describe('HarnessService readGraphEdges', () => {
+  function svc(runsRoot: string) {
+    return new HarnessService({ runner: new FakeAgentRunner([]), vaultRoot: join(runsRoot, '..', 'vault'), runsRoot, preamble: 'RULES' })
+  }
+
+  test('parses wiki/graph/edges.jsonl, keeping well-formed edges and skipping blank/malformed lines', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-edges-'))
+    const dir = join(ws, 'runs', 'RUN-1', 'vault-staging', 'wiki', 'graph')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'edges.jsonl'), [
+      JSON.stringify({ from: 'modules:self-attention', to: 'papers:transformer', type: 'pipeline_from_paper', confidence: 'high' }),
+      '',
+      '{ not json',
+      JSON.stringify({ from: 'x', type: 'missing-to' }),
+      JSON.stringify({ from: 'papers:transformer', to: 'modules:self-attention', type: 'uses_module' }),
+    ].join('\n'))
+    const { edges } = svc(join(ws, 'runs')).readGraphEdges({ runId: 'RUN-1' })
+    expect(edges).toHaveLength(2)
+    expect(edges[0]).toMatchObject({ from: 'modules:self-attention', to: 'papers:transformer', type: 'pipeline_from_paper', confidence: 'high' })
+    expect(edges[1].type).toBe('uses_module')
+  })
+
+  test('missing edges.jsonl (e.g. project-docs run) → empty, never throws', () => {
+    const ws = mkdtempSync(join(tmpdir(), 'hs-edges-'))
+    expect(svc(join(ws, 'runs')).readGraphEdges({ runId: 'RUN-1' }).edges).toEqual([])
+  })
+})

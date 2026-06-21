@@ -11,6 +11,7 @@ import type {
   HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   HarnessReadStagedDocReq, HarnessReadStagedDocRes,
   HarnessListStagedDocsReq, HarnessListStagedDocsRes,
+  HarnessReadGraphEdgesReq, HarnessReadGraphEdgesRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
@@ -121,6 +122,9 @@ export const api = {
   },
   harnessListStagedDocs(req: HarnessListStagedDocsReq): Promise<HarnessListStagedDocsRes> {
     return window.apc.invoke(CH.harnessListStagedDocs, req) as Promise<HarnessListStagedDocsRes>
+  },
+  harnessReadGraphEdges(req: HarnessReadGraphEdgesReq): Promise<HarnessReadGraphEdgesRes> {
+    return window.apc.invoke(CH.harnessReadGraphEdges, req) as Promise<HarnessReadGraphEdgesRes>
   },
   harnessExportWiki(req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> {
     return window.apc.invoke(CH.harnessExportWiki, req) as Promise<HarnessExportWikiRes>

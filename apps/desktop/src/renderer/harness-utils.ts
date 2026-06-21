@@ -174,7 +174,9 @@ export type HarnessRunBundle = {
   mode?: HarnessRunMode
 }
 
-export type HarnessGraphNodeType = 'run' | 'task' | 'evidence' | 'file' | 'document'
+// 'run'..'document' are the project-docs provenance buckets; 'papers'..'pipeline_trials' are the
+// autosci paper-domain entity types (drawn from wiki/<type>/<slug>.md + edges.jsonl).
+export type HarnessGraphNodeType = 'run' | 'task' | 'evidence' | 'file' | 'document' | 'papers' | 'modules' | 'pipelines' | 'pipeline_trials'
 export type HarnessGraphShape = 'circle' | 'diamond' | 'square'
 
 export type HarnessGraphNode = {
@@ -927,6 +929,70 @@ export function buildLiveGraphData(
     addLink(links, { id: `${runNodeId}->${id}`, source: runNodeId, target: id, kind: 'run-task', label: 'live' })
   }
   return { nodes: out, links }
+}
+
+const PAPER_NODE_STYLE: Record<string, { shape: HarnessGraphShape; color: string }> = {
+  papers: { shape: 'square', color: '#60a5fa' },
+  modules: { shape: 'diamond', color: '#f59e0b' },
+  pipelines: { shape: 'diamond', color: '#c084fc' },
+  pipeline_trials: { shape: 'circle', color: '#34d399' },
+}
+
+/** A typed edge from autosci's wiki/graph/edges.jsonl: `from`/`to` are qualified `<type>:<slug>` refs,
+ *  `type` is the edge vocabulary, and contract attributes (e.g. confidence) ride inline. */
+export type PaperGraphEdge = { from: string; to: string; type: string } & Record<string, unknown>
+type PaperGraphNodeInput = { relPath: string; nodeId?: string; nodeType?: string; title?: string }
+
+const paperNodeRef = (n: PaperGraphNodeInput): string => `${n.nodeType ?? 'node'}:${n.nodeId ?? labelFromPath(n.relPath)}`
+
+/** Build the graph from autosci's OWN output — the staged node md files (wiki/<type>/<slug>.md, surfaced
+ *  as StagedDoc node_id/node_type) plus the kernel's wiki/graph/edges.jsonl typed edges. Graph node ids
+ *  are the qualified `<type>:<slug>` refs the edges use, so edges connect directly. Unlike
+ *  buildHarnessGraphData (which reads project-docs run artifacts and ignores edges.jsonl), this draws the
+ *  actual paper knowledge graph: typed entity nodes and typed `rel` relationships. */
+export function buildPaperGraphData(nodes: PaperGraphNodeInput[], edges: PaperGraphEdge[]): HarnessGraphData {
+  const nodeMap = new Map<string, HarnessGraphNode>()
+  const links: HarnessGraphLink[] = []
+
+  for (const n of nodes) {
+    const type = n.nodeType ?? 'document'
+    const style = PAPER_NODE_STYLE[type] ?? { shape: 'circle' as HarnessGraphShape, color: colorForNode('document') }
+    addNode(nodeMap, {
+      id: paperNodeRef(n),
+      label: n.title ?? n.nodeId ?? labelFromPath(n.relPath),
+      type: type as HarnessGraphNodeType,
+      shape: style.shape,
+      color: style.color,
+      details: type,
+      // carry the staging-relative doc path so a click opens the node's md in the peek drawer.
+      data: { path: n.relPath },
+    })
+  }
+
+  // An edge may point at a node not (yet) staged (a cross-ref to a node another run owns). Materialize a
+  // muted ghost so the relationship still renders instead of silently dropping the edge.
+  const ensureEndpoint = (ref: string): void => {
+    if (nodeMap.has(ref)) return
+    const type = ref.includes(':') ? ref.slice(0, ref.indexOf(':')) : 'document'
+    const style = PAPER_NODE_STYLE[type] ?? { shape: 'circle' as HarnessGraphShape, color: colorForNode('ghost') }
+    addNode(nodeMap, {
+      id: ref, label: ref.slice(ref.indexOf(':') + 1), type: type as HarnessGraphNodeType,
+      shape: style.shape, color: colorForNode('ghost'), details: `${type} (미생성)`,
+    })
+  }
+
+  for (const e of edges) {
+    if (!e?.from || !e?.to) continue
+    ensureEndpoint(e.from)
+    ensureEndpoint(e.to)
+    const confidence = typeof e.confidence === 'string' ? e.confidence : ''
+    addLink(links, {
+      id: `rel:${e.from}->${e.to}:${e.type}`, source: e.from, target: e.to, kind: 'rel',
+      label: confidence ? `${e.type} · ${confidence}` : e.type,
+    })
+  }
+
+  return { nodes: [...nodeMap.values()], links }
 }
 
 export function parseUnifiedDiff(patch: string): HarnessDiffFile[] {

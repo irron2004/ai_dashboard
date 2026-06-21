@@ -8,7 +8,10 @@ type Props = {
 
 type LayoutNode = HarnessGraphNode & { x: number; y: number; vx: number; vy: number }
 
-const NODE_TYPES: HarnessGraphNode['type'][] = ['run', 'task', 'evidence', 'file', 'document']
+// Canonical ordering for the filter chips. The first five are the project-docs provenance buckets; the
+// rest are autosci paper entity types. The chips actually shown are intersected with the types present in
+// `data`, so a project-docs graph shows 5 chips and a paper graph shows its entity chips — no dead buttons.
+const TYPE_ORDER: HarnessGraphNode['type'][] = ['run', 'task', 'evidence', 'file', 'document', 'papers', 'modules', 'pipelines', 'pipeline_trials']
 const LAYOUT_ITERATIONS = 80
 
 function layoutGraph(nodes: HarnessGraphNode[], links: HarnessGraphLink[], width = 1200, height = 760): LayoutNode[] {
@@ -80,7 +83,9 @@ function layoutGraph(nodes: HarnessGraphNode[], links: HarnessGraphLink[], width
 export function GraphVisualization({ data, onNodeClick }: Props) {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filters, setFilters] = useState<Record<HarnessGraphNode['type'], boolean>>({ run: true, task: true, evidence: true, file: true, document: true })
+  // A type is visible unless explicitly toggled off (=== false), so node types not seeded here (e.g. paper
+  // entity types) still render. Keyed by type string rather than a fixed 5-key record.
+  const [filters, setFilters] = useState<Record<string, boolean>>({})
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [zoom, setZoom] = useState({ scale: 1, x: 0, y: 0 })
@@ -99,11 +104,18 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
 
   const filtered = useMemo(() => {
     const query = debouncedSearch.trim().toLowerCase()
-    const nodes = data.nodes.filter((node) => filters[node.type] && (!query || `${node.label} ${node.details ?? ''}`.toLowerCase().includes(query)))
+    const nodes = data.nodes.filter((node) => filters[node.type] !== false && (!query || `${node.label} ${node.details ?? ''}`.toLowerCase().includes(query)))
     const allowed = new Set(nodes.map((node) => node.id))
     const links = data.links.filter((link) => allowed.has(link.source) && allowed.has(link.target))
     return { nodes, links }
   }, [data, filters, debouncedSearch])
+
+  // Only the type chips actually present in the data — derived so paper and project-docs graphs each show
+  // their own buckets.
+  const presentTypes = useMemo(() => {
+    const present = new Set(data.nodes.map((node) => node.type))
+    return TYPE_ORDER.filter((type) => present.has(type))
+  }, [data.nodes])
 
   const graphSignature = useMemo(
     () => `${filtered.nodes.map((node) => node.id).join('\u0000')}|${filtered.links.map((link) => `${link.source}->${link.target}`).join('\u0000')}`,
@@ -190,12 +202,12 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
       </header>
 
       <div className="graph-visualization__filters">
-        {NODE_TYPES.map((type) => (
+        {presentTypes.map((type) => (
           <button
             key={type}
             type="button"
-            className={filters[type] ? 'graph-visualization__filter graph-visualization__filter--active' : 'graph-visualization__filter'}
-            onClick={() => setFilters((current) => ({ ...current, [type]: !current[type] }))}
+            className={filters[type] !== false ? 'graph-visualization__filter graph-visualization__filter--active' : 'graph-visualization__filter'}
+            onClick={() => setFilters((current) => ({ ...current, [type]: current[type] === false }))}
           >
             {type}
           </button>

@@ -33,6 +33,7 @@ export const CH = {
   harnessRevertPolicy: 'c:harnessRevertPolicy',
   harnessReadStagedDoc: 'c:harnessReadStagedDoc',
   harnessListStagedDocs: 'c:harnessListStagedDocs',
+  harnessReadGraphEdges: 'c:harnessReadGraphEdges',
   harnessExportWiki: 'c:harnessExportWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
@@ -140,6 +141,12 @@ export type HarnessReadStagedDocRes = { ok: true; content: string } | { ok: fals
 export type StagedDocDto = { relPath: string; isNode: boolean; nodeId?: string; nodeType?: string; title?: string }
 export type HarnessListStagedDocsReq = { runId: string }
 export type HarnessListStagedDocsRes = { docs: StagedDocDto[] }
+
+/** A typed edge from a paper run's wiki/graph/edges.jsonl. `from`/`to` are qualified `<type>:<slug>` refs;
+ *  attributes (e.g. confidence) ride inline. */
+export type GraphEdgeDto = { from: string; to: string; type: string } & Record<string, unknown>
+export type HarnessReadGraphEdgesReq = { runId: string }
+export type HarnessReadGraphEdgesRes = { edges: GraphEdgeDto[] }
 // Publish the project's human-readable wiki into its workspace `wiki/` area (manual export).
 export type HarnessExportWikiReq = { projectId: string }
 export type HarnessExportWikiRes = { ok: true; target: string; files: number } | { ok: false; reason: string }

@@ -428,6 +428,29 @@ export class HarnessService {
     return { docs: collectStagedDocs(this.deps.runsRoot, input.runId) }
   }
 
+  /** Read a paper run's typed knowledge-graph edges from vault-staging/wiki/graph/edges.jsonl (one JSON
+   * object per line — the kernel's edge_storage). Empty for project-docs runs (no such file). The graph
+   * view draws these so the rendered graph is autosci's actual knowledge graph. Never throws. */
+  readGraphEdges(input: { runId: string }): { edges: Array<{ from: string; to: string; type: string } & Record<string, unknown>> } {
+    let abs: string
+    try {
+      abs = resolveInside(this.deps.runsRoot, join(input.runId, 'vault-staging', 'wiki', 'graph', 'edges.jsonl'))
+    } catch { return { edges: [] } }
+    if (!existsSync(abs)) return { edges: [] }
+    try {
+      const edges: Array<{ from: string; to: string; type: string } & Record<string, unknown>> = []
+      for (const line of readFileSync(abs, 'utf8').split(/\r?\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          const e = JSON.parse(trimmed)
+          if (e && typeof e.from === 'string' && typeof e.to === 'string' && typeof e.type === 'string') edges.push(e)
+        } catch { /* skip a malformed line rather than failing the whole read */ }
+      }
+      return { edges }
+    } catch { return { edges: [] } }
+  }
+
   promote(input: { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }): HarnessPromoteResult {
     const r = new HarnessPromoteService({ runsRoot: this.deps.runsRoot, vaultRoot: this.vaultFor(this.projectIdOf(input.runId)).localRoot })
       .promote(input)
