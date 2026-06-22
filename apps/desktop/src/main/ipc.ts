@@ -178,6 +178,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessReadGraphEdges(req)
     },
 
+    [CH.readProjectWiki]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload)
+      return container.readProjectWiki(req)
+    },
+
     [CH.harnessExportWiki]: async (payload: unknown) => {
       const req = z.object({ projectId: z.string() }).strict().parse(payload)
       return container.harnessExportWiki(req)

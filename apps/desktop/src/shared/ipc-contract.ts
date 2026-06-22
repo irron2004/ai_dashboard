@@ -35,6 +35,7 @@ export const CH = {
   harnessListStagedDocs: 'c:harnessListStagedDocs',
   harnessReadGraphEdges: 'c:harnessReadGraphEdges',
   harnessExportWiki: 'c:harnessExportWiki',
+  readProjectWiki: 'c:readProjectWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
@@ -147,6 +148,12 @@ export type HarnessListStagedDocsRes = { docs: StagedDocDto[] }
 export type GraphEdgeDto = { from: string; to: string; type: string } & Record<string, unknown>
 export type HarnessReadGraphEdgesReq = { runId: string }
 export type HarnessReadGraphEdgesRes = { edges: GraphEdgeDto[] }
+
+export type WikiGraphNodeDto = { ref: string; type: string; title: string; relPath: string }
+export type ReadProjectWikiReq = { projectId: string }
+export type ReadProjectWikiRes =
+  | { available: true; wikiDir: string; nodes: WikiGraphNodeDto[]; edges: GraphEdgeDto[] }
+  | { available: false; reason?: string }
 // Publish the project's human-readable wiki into its workspace `wiki/` area (manual export).
 export type HarnessExportWikiReq = { projectId: string }
 export type HarnessExportWikiRes = { ok: true; target: string; files: number } | { ok: false; reason: string }

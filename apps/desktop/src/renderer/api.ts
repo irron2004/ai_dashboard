@@ -13,6 +13,7 @@ import type {
   HarnessListStagedDocsReq, HarnessListStagedDocsRes,
   HarnessReadGraphEdgesReq, HarnessReadGraphEdgesRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
+  ReadProjectWikiReq, ReadProjectWikiRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
@@ -125,6 +126,9 @@ export const api = {
   },
   harnessReadGraphEdges(req: HarnessReadGraphEdgesReq): Promise<HarnessReadGraphEdgesRes> {
     return window.apc.invoke(CH.harnessReadGraphEdges, req) as Promise<HarnessReadGraphEdgesRes>
+  },
+  readProjectWiki(req: ReadProjectWikiReq): Promise<ReadProjectWikiRes> {
+    return window.apc.invoke(CH.readProjectWiki, req) as Promise<ReadProjectWikiRes>
   },
   harnessExportWiki(req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> {
     return window.apc.invoke(CH.harnessExportWiki, req) as Promise<HarnessExportWikiRes>

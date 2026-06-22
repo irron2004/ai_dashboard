@@ -15,6 +15,7 @@ import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter }
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
+import { readProjectWiki } from './project-wiki.js'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
 import type {
@@ -27,6 +28,7 @@ import type {
   HarnessReadStagedDocReq, HarnessReadStagedDocRes, HarnessListStagedDocsReq, HarnessListStagedDocsRes,
   HarnessReadGraphEdgesReq, HarnessReadGraphEdgesRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
+  ReadProjectWikiReq, ReadProjectWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
 } from '../shared/ipc-contract.js'
@@ -87,6 +89,7 @@ export type Container = {
   harnessListStagedDocs: (req: HarnessListStagedDocsReq) => HarnessListStagedDocsRes
   harnessReadGraphEdges: (req: HarnessReadGraphEdgesReq) => HarnessReadGraphEdgesRes
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
+  readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   dashboard: typeof getProjectDashboard
 }
 
@@ -304,6 +307,10 @@ export function buildContainer(opts: {
   const harnessListStagedDocs = (req: HarnessListStagedDocsReq): HarnessListStagedDocsRes => harness.listStagedDocs(req)
   const harnessReadGraphEdges = (req: HarnessReadGraphEdgesReq): HarnessReadGraphEdgesRes => harness.readGraphEdges(req)
   const harnessExportWiki = (req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> => harness.exportWiki(req)
+  const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
+    const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
+    return readProjectWiki(repoPaths)
+  }
 
   return {
     vaultRoot: opts.vaultRoot,
@@ -311,6 +318,7 @@ export function buildContainer(opts: {
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
+    readProjectWiki: readProjectWikiQuery,
     dashboard: getProjectDashboard,
   }
 }
