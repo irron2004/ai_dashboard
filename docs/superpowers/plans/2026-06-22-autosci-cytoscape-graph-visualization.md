@@ -11,7 +11,9 @@
 ## Global Constraints
 
 - Reference implementation (read, do not import): `AutoSci/app/modules/graph.js`. Port from it; adapt to our data + stack. The `AutoSci/` folder is an untracked sibling clone — NEVER `git add` it.
-- New renderer code lives under `apps/desktop/src/renderer/graph/`. Component stays at `apps/desktop/src/renderer/components/GraphVisualization.tsx`.
+- **Portability (REQUIRED):** the graph visualization must be developed so it can later be lifted out as a standalone package. ALL graph code — types, pure modules, AND the React component — lives under `apps/desktop/src/renderer/graph/`. That folder MUST NOT import from `api`, `store`, IPC contracts, or `harness-utils`. Its only external runtime dep is `cytoscape` + React. The single coupling to the host app is the data shape (defined locally in `graph/graph-types.ts`) and the `onNodeClick` callback. A `graph/index.ts` barrel is the public surface; `graph/README.md` documents it for extraction.
+- **Graph data types live in `graph/graph-types.ts`** (`GraphNode`/`GraphLink`/`GraphData`). `harness-utils.ts` imports these and re-exports aliases (`export type HarnessGraphNode = GraphNode`, etc.) so existing dashboard imports keep working.
+- The component MOVES to `apps/desktop/src/renderer/graph/GraphVisualization.tsx` (re-exported from the old `components/GraphVisualization.tsx` path, or update the single `KnowledgeView` import). Keep the public props identical.
 - Run desktop tests with: `pnpm --filter @apc/desktop exec vitest run <path>`.
 - Typecheck with: `npx tsc -p apps/desktop/tsconfig.json --noEmit`.
 - The component's public props are unchanged: `{ data: HarnessGraphData; onNodeClick: (node: HarnessGraphNode) => void }`. `KnowledgeView` must not need edits.
@@ -22,14 +24,18 @@
 
 ## File Structure
 
+- Create: `apps/desktop/src/renderer/graph/graph-types.ts` — `GraphNode`/`GraphLink`/`GraphData` (canonical home for the graph data shape; host-app agnostic).
+- Create: `apps/desktop/src/renderer/graph/index.ts` — barrel: public surface for extraction (component + types).
+- Create: `apps/desktop/src/renderer/graph/README.md` — documents the module's public API + the one host coupling (`onNodeClick`), so the folder can be lifted out.
 - Create: `apps/desktop/src/renderer/graph/graph-style.ts` — entity/edge colors, workflow + group + preset maps, direction/confidence helpers, present-type derivation.
 - Create: `apps/desktop/src/renderer/graph/graph-layout.ts` — `obsidianForceLayout` (pure, deterministic).
 - Create: `apps/desktop/src/renderer/graph/graph-algorithms.ts` — `buildAdjacency`, `bfsNeighborhood`, `findPaths`.
 - Create: `apps/desktop/src/renderer/graph/*.test.ts` — one per pure module.
-- Modify: `apps/desktop/src/renderer/harness-utils.ts` — extend `HarnessGraphLink`; enrich `buildPaperGraphData` + `buildHarnessGraphData`.
+- Modify: `apps/desktop/src/renderer/harness-utils.ts` — import the graph types from `graph/graph-types.ts` and re-export aliases; enrich `buildPaperGraphData` + `buildHarnessGraphData`.
 - Modify: `apps/desktop/src/renderer/harness-utils.test.ts` — assert new link fields.
-- Rewrite: `apps/desktop/src/renderer/components/GraphVisualization.tsx` — Cytoscape component + sidebar.
-- Replace: `apps/desktop/src/renderer/components/GraphVisualization.test.tsx` — mock-cytoscape smoke + mapping test.
+- Create: `apps/desktop/src/renderer/graph/GraphVisualization.tsx` — Cytoscape component + sidebar (host-agnostic; types from `graph-types`, not `harness-utils`).
+- Modify: `apps/desktop/src/renderer/components/GraphVisualization.tsx` — becomes a one-line re-export of `../graph/GraphVisualization.js` (keeps the existing `KnowledgeView` import working) OR delete and update `KnowledgeView`'s import to `../graph/index.js`.
+- Create: `apps/desktop/src/renderer/graph/GraphVisualization.test.tsx` — mock-cytoscape smoke + mapping test.
 - Modify: `apps/desktop/src/renderer/app.css` — graph shell + sidebar styles.
 - Modify: `apps/desktop/package.json` — add `cytoscape` dependency.
 
@@ -482,15 +488,19 @@ git commit -F <tmpfile>   # "feat(graph): pure BFS + path-query algorithms"
 
 ---
 
-## Task 5: Enrich graph link data
+## Task 5: Relocate graph types to graph-types.ts + enrich links
 
 **Files:**
-- Modify: `apps/desktop/src/renderer/harness-utils.ts` (type `HarnessGraphLink` ~L190; `buildPaperGraphData` edge loop; `buildHarnessGraphData` `addLink` calls)
+- Create: `apps/desktop/src/renderer/graph/graph-types.ts` (canonical `GraphNode`/`GraphLink`/`GraphData`)
+- Modify: `apps/desktop/src/renderer/harness-utils.ts` (replace the local type defs with imports + aliases; enrich `buildPaperGraphData` edge loop; `buildHarnessGraphData` `rel` `addLink`)
 - Test: `apps/desktop/src/renderer/harness-utils.test.ts`
 
 **Interfaces:**
-- Consumes: `workflowFor`, `directionFor` from `./graph/graph-style.js`.
-- Produces: `HarnessGraphLink` with optional `confidence`, `direction`, `workflow`. `buildPaperGraphData` sets them on `rel` links; `label` is the bare edge type (no `· confidence` concat).
+- Consumes: `workflowFor`, `directionFor` from `./graph-style.js`.
+- Produces:
+  - `graph-types.ts`: `GraphNodeType`, `GraphShape`, `GraphNode`, `GraphLink` (with optional `confidence`/`direction`/`workflow`), `GraphData`.
+  - `harness-utils.ts`: `export type HarnessGraphNode = GraphNode` (and `…Link`, `…Data`, `…NodeType`) — existing imports keep working.
+  - `buildPaperGraphData` sets `confidence`/`direction`/`workflow` on `rel` links; `label` is the bare edge type (no `· confidence` concat).
 
 - [ ] **Step 1: Write the failing test** (append to `harness-utils.test.ts`, inside the `buildPaperGraphData` describe)
 
@@ -519,26 +529,34 @@ Expected: FAIL — `link.confidence` is undefined and `label` is `"pipeline_from
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `harness-utils.ts`, extend the link type:
+First create `graph/graph-types.ts` (canonical, host-agnostic home for the graph data shape — moved out of `harness-utils` so the `graph/` folder is self-contained). Copy the existing `HarnessGraphNodeType`/`HarnessGraphShape`/`HarnessGraphNode`/`HarnessGraphLink`/`HarnessGraphData` definitions here, renamed without the `Harness` prefix, and add the new optional link fields:
 
 ```ts
-export type HarnessGraphLink = {
-  id: string
-  source: string
-  target: string
-  label?: string
-  kind: string
-  confidence?: string
-  direction?: 'directed' | 'symmetric'
-  workflow?: string
+// Host-agnostic graph data shape. Lives here (not in harness-utils) so the graph/ folder can be
+// lifted out as a standalone package. The host app adapts its data into these types.
+export type GraphNodeType = 'run' | 'task' | 'evidence' | 'file' | 'document' | 'papers' | 'modules' | 'pipelines' | 'pipeline_trials'
+export type GraphShape = 'circle' | 'diamond' | 'square'
+export type GraphNode = { id: string; label: string; type: GraphNodeType; shape: GraphShape; color: string; details?: string; data?: unknown }
+export type GraphLink = {
+  id: string; source: string; target: string; label?: string; kind: string
+  confidence?: string; direction?: 'directed' | 'symmetric'; workflow?: string
 }
+export type GraphData = { nodes: GraphNode[]; links: GraphLink[] }
 ```
 
-Add the import at the top of the file:
+Then in `harness-utils.ts`, delete the local `HarnessGraphNodeType`/`HarnessGraphShape`/`HarnessGraphNode`/`HarnessGraphLink`/`HarnessGraphData` definitions and replace with imports + aliases, and import the style helpers:
 
 ```ts
 import { workflowFor, directionFor } from './graph/graph-style.js'
+import type { GraphNode, GraphLink, GraphData, GraphNodeType, GraphShape } from './graph/graph-types.js'
+export type HarnessGraphNodeType = GraphNodeType
+export type HarnessGraphShape = GraphShape
+export type HarnessGraphNode = GraphNode
+export type HarnessGraphLink = GraphLink
+export type HarnessGraphData = GraphData
 ```
+
+(Note: the `colorForNode` param type and `addNode`/`addLink` signatures already reference these names — the aliases keep them valid.)
 
 Replace the `buildPaperGraphData` edge loop body (the block that currently builds `confidence` + `addLink`):
 
@@ -569,8 +587,8 @@ Expected: PASS (all `buildPaperGraphData` + `buildHarnessGraphData` tests green,
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/harness-utils.ts apps/desktop/src/renderer/harness-utils.test.ts
-git commit -F <tmpfile>   # "feat(graph): structured confidence/direction/workflow on links"
+git add apps/desktop/src/renderer/graph/graph-types.ts apps/desktop/src/renderer/harness-utils.ts apps/desktop/src/renderer/harness-utils.test.ts
+git commit -F <tmpfile>   # "refactor(graph): host-agnostic graph-types + structured link fields"
 ```
 
 ---
@@ -578,12 +596,14 @@ git commit -F <tmpfile>   # "feat(graph): structured confidence/direction/workfl
 ## Task 6: Cytoscape component — canvas, mapping, core interactions
 
 **Files:**
-- Rewrite: `apps/desktop/src/renderer/components/GraphVisualization.tsx`
-- Replace: `apps/desktop/src/renderer/components/GraphVisualization.test.tsx`
+- Create: `apps/desktop/src/renderer/graph/GraphVisualization.tsx`
+- Create: `apps/desktop/src/renderer/graph/GraphVisualization.test.tsx`
+- Modify: `apps/desktop/src/renderer/components/GraphVisualization.tsx` → one-line re-export shim: `export { GraphVisualization } from '../graph/GraphVisualization.js'` (keeps `KnowledgeView`'s import path stable).
+- Delete: `apps/desktop/src/renderer/graph/GraphVisualization.test.tsx` (old SVG test; replaced by the graph/ one).
 
 **Interfaces:**
-- Consumes: `obsidianForceLayout` (graph-layout), `entityColor`/`edgeColor`/`directionFor`/`confidenceClass` (graph-style), `buildAdjacency`/`bfsNeighborhood`/`findPaths` (graph-algorithms), `HarnessGraphData`/`HarnessGraphNode` (harness-utils), `cytoscape`.
-- Produces: default-exported `GraphVisualization({ data, onNodeClick })`.
+- Consumes (all from sibling `./` graph modules — NO `harness-utils` import): `obsidianForceLayout` (graph-layout), `entityColor`/`edgeColor`/`directionFor`/`confidenceClass` (graph-style), `buildAdjacency`/`bfsNeighborhood`/`findPaths` (graph-algorithms), `GraphData`/`GraphNode` (graph-types), `cytoscape`.
+- Produces: named export `GraphVisualization({ data, onNodeClick })` where `data: GraphData`.
 
 This task delivers: cy element mapping from `HarnessGraphData`, the layout-seeded `preset` Cytoscape init, the entity/edge stylesheet (entity color by `entityColor`, edge color by `edgeColor`, `dir-directed` arrowheads, `conf-*` weighting), node tap = BFS highlight, double-tap = `onNodeClick`, zoom-aware label visibility, and teardown on unmount/data change. The richer sidebar widgets are Task 7.
 
@@ -592,7 +612,7 @@ This task delivers: cy element mapping from `HarnessGraphData`, the layout-seede
 ```tsx
 import { describe, expect, test, vi } from 'vitest'
 import { render } from '@testing-library/react'
-import type { HarnessGraphData } from '../harness-utils.js'
+import type { GraphData } from './graph-types.js'
 
 const cyInstance = { on: vi.fn(), destroy: vi.fn(), fit: vi.fn(), elements: () => [], nodes: () => ({ addClass: vi.fn(), removeClass: vi.fn() }), zoom: () => 1 }
 const cyFactory = vi.fn(() => cyInstance)
@@ -600,7 +620,7 @@ vi.mock('cytoscape', () => ({ default: (opts: unknown) => cyFactory(opts) }))
 
 import { GraphVisualization } from './GraphVisualization.js'
 
-const data: HarnessGraphData = {
+const data: GraphData = {
   nodes: [
     { id: 'papers:t', label: 'T', type: 'papers', shape: 'square', color: '#000', data: { path: 'nodes/t.md' } },
     { id: 'modules:s', label: 'S', type: 'modules', shape: 'diamond', color: '#000' },
@@ -620,7 +640,7 @@ describe('GraphVisualization (cytoscape)', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/components/GraphVisualization.test.tsx`
+Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/graph/GraphVisualization.test.tsx`
 Expected: FAIL — current SVG component does not call cytoscape.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -639,14 +659,20 @@ Provide the full component (canvas + core handlers; sidebar `<aside>` markup pre
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/components/GraphVisualization.test.tsx`
+Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/graph/GraphVisualization.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Typecheck + commit**
+- [ ] **Step 5: Add the re-export shim, delete the old SVG test, typecheck + commit**
 
+Replace `components/GraphVisualization.tsx` with a one-line shim, and remove the old SVG test:
+```ts
+// components/GraphVisualization.tsx
+export { GraphVisualization } from '../graph/GraphVisualization.js'
+```
+Run: `git rm apps/desktop/src/renderer/components/GraphVisualization.test.tsx`
 Run: `npx tsc -p apps/desktop/tsconfig.json --noEmit` → no errors.
 ```bash
-git add apps/desktop/src/renderer/components/GraphVisualization.tsx apps/desktop/src/renderer/components/GraphVisualization.test.tsx
+git add apps/desktop/src/renderer/graph/GraphVisualization.tsx apps/desktop/src/renderer/graph/GraphVisualization.test.tsx apps/desktop/src/renderer/components/GraphVisualization.tsx
 git commit -F <tmpfile>   # "feat(graph): cytoscape canvas with force layout + BFS + node open"
 ```
 
@@ -656,7 +682,7 @@ git commit -F <tmpfile>   # "feat(graph): cytoscape canvas with force layout + B
 
 **Files:**
 - Modify: `apps/desktop/src/renderer/components/GraphVisualization.tsx`
-- Modify: `apps/desktop/src/renderer/components/GraphVisualization.test.tsx` (add a render-with-data smoke that asserts the sidebar headings render)
+- Modify: `apps/desktop/src/renderer/graph/GraphVisualization.test.tsx` (add a render-with-data smoke that asserts the sidebar headings render)
 
 **Interfaces:**
 - Consumes: everything from Task 6 plus `groupEdgeTypes`, `presentEntityTypes`, `findPaths`.
@@ -678,7 +704,7 @@ Port these graph.js functions into the component, adapted to React state + the c
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/components/GraphVisualization.test.tsx -t "sidebar"`
+Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/graph/GraphVisualization.test.tsx -t "sidebar"`
 Expected: FAIL — those headings not yet rendered.
 
 - [ ] **Step 3: Implement the sidebar**
@@ -687,29 +713,44 @@ Add the sidebar markup + widgets per the port list above. Drive entity/edge chip
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/components/GraphVisualization.test.tsx`
+Run: `pnpm --filter @apc/desktop exec vitest run src/renderer/graph/GraphVisualization.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Typecheck + commit**
 
 Run: `npx tsc -p apps/desktop/tsconfig.json --noEmit` → no errors.
 ```bash
-git add apps/desktop/src/renderer/components/GraphVisualization.tsx apps/desktop/src/renderer/components/GraphVisualization.test.tsx
+git add apps/desktop/src/renderer/graph/GraphVisualization.tsx apps/desktop/src/renderer/graph/GraphVisualization.test.tsx
 git commit -F <tmpfile>   # "feat(graph): full graph.js sidebar (filters, presets, path query, tooltips)"
 ```
 
 ---
 
-## Task 8: Styles + final integration
+## Task 8: Styles, extraction barrel, final integration
 
 **Files:**
 - Modify: `apps/desktop/src/renderer/app.css` (add `.graph-shell`, `.graph-sidebar`, `.cy-canvas`, `.graph-info`, filter/preset/tooltip styles; remove dead `.graph-visualization__*` SVG-only rules that no longer apply)
+- Create: `apps/desktop/src/renderer/graph/index.ts` — barrel (public surface for extraction)
+- Create: `apps/desktop/src/renderer/graph/README.md` — module doc for standalone reuse
 
 **Interfaces:** none.
 
 - [ ] **Step 1: Add the graph shell + sidebar CSS**
 
 Port the relevant rules from `AutoSci/app/app.css` (search `graph-shell`, `graph-sidebar`, `cy-canvas`, `edge-tooltip`, `preset-btn`, `filter-group`, `edge-group`) into `app.css`, recolored to our dark palette / CSS variables. Ensure `.cy-canvas` has an explicit height (e.g. `min-height: 540px`) — Cytoscape needs a sized container.
+
+- [ ] **Step 1b: Write the extraction barrel + README**
+
+```ts
+// graph/index.ts — public surface. The folder is self-contained: types, layout, algorithms, style,
+// component. No imports from api/store/IPC/harness-utils. Lift this folder out to reuse it.
+export { GraphVisualization } from './GraphVisualization.js'
+export type { GraphData, GraphNode, GraphLink, GraphNodeType, GraphShape } from './graph-types.js'
+export { obsidianForceLayout } from './graph-layout.js'
+export { buildAdjacency, bfsNeighborhood, findPaths } from './graph-algorithms.js'
+```
+
+`graph/README.md` documents: the public API (above), the one host coupling (`onNodeClick(node)`), the data contract (`GraphData`), the runtime deps (`cytoscape`, React), and that styling vocab is data-driven with graceful fallbacks for unknown entity/edge types — so a different host can feed its own schema.
 
 - [ ] **Step 2: Verify the app builds and the full suite is green**
 
@@ -724,8 +765,8 @@ Note in the handoff: the user should open the running dev app, switch to the gra
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/app.css
-git commit -F <tmpfile>   # "feat(graph): cytoscape graph shell + sidebar styling"
+git add apps/desktop/src/renderer/app.css apps/desktop/src/renderer/graph/index.ts apps/desktop/src/renderer/graph/README.md
+git commit -F <tmpfile>   # "feat(graph): shell+sidebar styling, extraction barrel + README"
 ```
 
 ---
@@ -735,4 +776,5 @@ git commit -F <tmpfile>   # "feat(graph): cytoscape graph shell + sidebar stylin
 - **Spec coverage:** engine=Cytoscape (T1,T6); pure modules layout/algorithms/style (T2-T4); data enrichment confidence/direction/workflow (T5); full interaction set (T6 core + T7 sidebar); shared across both schemas (graph-style covers both; T6 maps any data); CSS (T8); testing strategy (pure-module TDD + mocked-cytoscape component smoke). All covered.
 - **Determinism deviation** from the spec is implemented in T3 (index-derived init, no RNG).
 - **Type consistency:** `obsidianForceLayout`, `bfsNeighborhood`, `findPaths`, `entityColor`/`edgeColor`/`directionFor`/`confidenceClass`/`groupEdgeTypes`/`presentEntityTypes` names match across tasks; `HarnessGraphLink` optional fields used in T5 and consumed in T6/T7.
+- **Portability:** all graph code under `graph/` (types in graph-types T5, modules T2-T4, component T6-T7), no host imports, barrel + README in T8 — the folder is extractable as a standalone package. The host coupling is `GraphData` + `onNodeClick`.
 - **Out of scope (unchanged):** citations.jsonl, AutoSci full schema, layout persistence.
