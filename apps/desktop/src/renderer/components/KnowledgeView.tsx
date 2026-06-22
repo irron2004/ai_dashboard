@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { useStore } from '../store.js'
 import {
-  artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, buildPaperGraphData, isMarkdownArtifact, pickNodeArtifact,
+  artifactLabel, artifactToMarkdown, buildHarnessGraphData, buildLiveGraphData, buildPaperGraphData, buildWikiGraphData, isMarkdownArtifact, pickNodeArtifact,
   resolveStagedRel,
   type GraphNodeRef, type HarnessRunBundle,
 } from '../harness-utils.js'
 import { GraphVisualization } from './GraphVisualization.js'
 import { MarkdownContent } from './MarkdownContent.js'
-import type { StagedDocDto, GraphEdgeDto } from '../../shared/ipc-contract.js'
+import type { StagedDocDto, GraphEdgeDto, ReadProjectWikiRes } from '../../shared/ipc-contract.js'
 
 type Mode = 'docs' | 'graph'
 /** 트리/뷰어가 가리키는 문서: run 아티팩트 · 디스크의 md · staging의 생성된 노드(검수중). */
@@ -42,6 +42,9 @@ export function KnowledgeView() {
   const [peek, setPeek] = useState<Peek | null>(null)
   // 노드를 빠르게 연속 클릭할 때 늦게 도착한 디스크 응답이 최신 선택을 덮어쓰지 않도록.
   const peekReq = useRef(0)
+
+  const [projectWiki, setProjectWiki] = useState<ReadProjectWikiRes | null>(null)
+  const [graphSource, setGraphSource] = useState<'run' | 'wiki'>('run')
 
   const run = useMemo(() => latestWikiRun(harnessRuns), [harnessRuns])
   const runId = run?.runState.runId
@@ -81,7 +84,13 @@ export function KnowledgeView() {
     return () => { stale = true }
   }, [runId, domain])
   const paperGraph = useMemo(() => buildPaperGraphData(nodeDocs, paperEdges), [nodeDocs, paperEdges])
-  const effectiveGraph = liveActive ? liveGraph : domain === 'paper' ? paperGraph : graphData
+  const wikiGraph = useMemo(
+    () => (projectWiki?.available ? buildWikiGraphData(projectWiki.nodes, projectWiki.edges) : { nodes: [], links: [] }),
+    [projectWiki],
+  )
+  const effectiveGraph = liveActive ? liveGraph
+    : (graphSource === 'wiki' && projectWiki?.available) ? wikiGraph
+    : (domain === 'paper' ? paperGraph : graphData)
 
   // Auto-reveal the graph the first time live nodes arrive for a run, so generation is visible.
   const revealedRunId = useRef<string | null>(null)
@@ -98,6 +107,15 @@ export function KnowledgeView() {
     void api.fsListDocs({ projectId: selectedProjectId }).then((res) => {
       if (!stale) setProjectDocs(res.docs.filter((d) => /\.mdx?$/i.test(d.relPath)))
     })
+    return () => { stale = true }
+  }, [selectedProjectId])
+
+  useEffect(() => {
+    if (!selectedProjectId) { setProjectWiki(null); setGraphSource('run'); return }
+    let stale = false
+    void api.readProjectWiki({ projectId: selectedProjectId })
+      .then((res) => { if (stale) return; setProjectWiki(res); setGraphSource(res.available ? 'wiki' : 'run') })
+      .catch(() => { if (!stale) { setProjectWiki(null); setGraphSource('run') } })
     return () => { stale = true }
   }, [selectedProjectId])
 
@@ -170,9 +188,12 @@ export function KnowledgeView() {
     // Resolve the doc in order: the run's STAGED draft (unpromoted HUMAN_REVIEW output — concept/
     // decision md that isn't a run.artifact and isn't in the vault yet) → then a promoted/project doc
     // on disk. Without the staging read, draft nodes wrongly showed "원문 없음".
+    // Wiki-source nodes live on disk (wiki/<type>/<slug>.md) — skip staged lookup to avoid false
+    // "no staging" errors and go straight to the disk read.
     const runId = run?.runState.runId
+    const isWikiNode = graphSource === 'wiki' && /^wiki[\\/]/.test(nodePath)
     void (async () => {
-      if (runId) {
+      if (runId && !isWikiNode) {
         try {
           const staged = await api.harnessReadStagedDoc({ runId, relPath: nodePath })
           if (reqId !== peekReq.current) return
@@ -263,6 +284,15 @@ export function KnowledgeView() {
       ) : (
         <div className={peek ? 'knowledge__graph knowledge__graph--peek' : 'knowledge__graph'}>
           <div className="knowledge__graph-canvas panel">
+            <div className="knowledge__graph-source">
+              <button type="button"
+                className={graphSource === 'wiki' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'}
+                disabled={!projectWiki?.available}
+                onClick={() => setGraphSource('wiki')}>프로젝트 위키</button>
+              <button type="button"
+                className={graphSource === 'run' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'}
+                onClick={() => setGraphSource('run')}>최신 런</button>
+            </div>
             <GraphVisualization data={effectiveGraph} onNodeClick={handleNodeClick} />
           </div>
           {peek && (

@@ -9,6 +9,12 @@ const fsListDocs = vi.fn(async () => ({ docs: [{ relPath: 'docs/plan.md', mtimeM
 // default: no staged draft → graph clicks fall through to the disk read
 const harnessReadStagedDoc = vi.fn(async () => ({ ok: false, reason: 'no staging' }))
 const harnessListStagedDocs = vi.fn(async () => ({ docs: [] as Array<{ relPath: string; isNode: boolean; nodeId?: string; nodeType?: string; title?: string }> }))
+const readProjectWiki = vi.fn(async () => ({
+  available: true as const,
+  wikiDir: '/projects/p1/wiki',
+  nodes: [{ ref: 'concept/test-concept', type: 'concept', title: 'Test Concept', relPath: 'wiki/concept/test-concept.md' }],
+  edges: [],
+}))
 vi.mock('../api.js', () => ({
   api: new Proxy({}, {
     get: (_t, prop) => {
@@ -16,6 +22,7 @@ vi.mock('../api.js', () => ({
       if (prop === 'fsListDocs') return (...a: unknown[]) => fsListDocs(...a as [])
       if (prop === 'harnessReadStagedDoc') return (...a: unknown[]) => harnessReadStagedDoc(...a as [])
       if (prop === 'harnessListStagedDocs') return (...a: unknown[]) => harnessListStagedDocs(...a as [])
+      if (prop === 'readProjectWiki') return (...a: unknown[]) => readProjectWiki(...a as [])
       return vi.fn(async () => ({ ok: true }))
     },
   }),
@@ -134,5 +141,15 @@ describe('KnowledgeView', () => {
     expect(await screen.findByText('from disk')).toBeDefined()
     // the disk file's relPath is now the active viewer title
     expect(screen.getByRole('heading', { name: 'docs/plan.md' })).toBeDefined()
+  })
+
+  test('shows a project-wiki / latest-run toggle; wiki button enabled when a wiki is available', async () => {
+    render(<KnowledgeView />)
+    // switch to graph mode
+    fireEvent.click(screen.getByRole('button', { name: '그래프' }))
+    const wikiBtn = await screen.findByRole('button', { name: '프로젝트 위키' })
+    expect(wikiBtn).toBeDefined()
+    expect((wikiBtn as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByRole('button', { name: '최신 런' })).toBeDefined()
   })
 })
