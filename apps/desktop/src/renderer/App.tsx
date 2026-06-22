@@ -7,6 +7,7 @@ import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
+import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -48,6 +49,9 @@ export function App() {
   const [dockCollapsed, setDockCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:dockCollapsed') === '1' } catch { return false }
   })
+  const [dockHeight, setDockHeight] = useState(() => {
+    try { const v = Number(localStorage.getItem('apc:dockHeight')); return v > 0 ? v : DOCK_DEFAULT_H } catch { return DOCK_DEFAULT_H }
+  })
   const toggleDock = useCallback((next?: boolean) => setDockCollapsed((prev) => {
     const v = next ?? !prev
     try { localStorage.setItem('apc:dockCollapsed', v ? '1' : '0') } catch { /* ignore */ }
@@ -63,7 +67,7 @@ export function App() {
   const effectiveSidebarW = sidebarCollapsed ? RAIL_W : sidebarW
   const appLayoutStyle: CSSProperties & Record<'--sidebar-width' | '--dock-height', string> = {
     '--sidebar-width': `${effectiveSidebarW}px`,
-    '--dock-height': dockCollapsed ? '30px' : '280px',
+    '--dock-height': dockCollapsed ? '30px' : `${dockHeight}px`,
   }
   const toggleSidebar = () => setSidebarCollapsed((prev) => {
     const next = !prev
@@ -107,6 +111,32 @@ export function App() {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
       dragRef.current = null
+    }
+    dragRef.current = { onMove, onUp }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  // Drag the dock's top edge up/down to resize the agent-terminal panel height. Dragging up (clientY
+  // decreasing) makes the dock taller. Persist the final height; one window 'resize' on release lets the
+  // xterm instances refit their rows (same mechanism toggleDock uses on expand).
+  const startDockDrag = (e: ReactMouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()  // never let the grab toggle the dock-bar collapse
+    if (dockCollapsed) return
+    if (dragRef.current) {
+      window.removeEventListener('mousemove', dragRef.current.onMove)
+      window.removeEventListener('mouseup', dragRef.current.onUp)
+    }
+    const startY = e.clientY
+    const startH = dockHeight
+    const onMove = (ev: MouseEvent) => setDockHeight(clampDockHeight(startH - (ev.clientY - startY), window.innerHeight))
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      dragRef.current = null
+      setDockHeight((h) => { try { localStorage.setItem('apc:dockHeight', String(h)) } catch { /* ignore */ } return h })
+      window.dispatchEvent(new Event('resize'))
     }
     dragRef.current = { onMove, onUp }
     window.addEventListener('mousemove', onMove)
@@ -247,7 +277,17 @@ export function App() {
       </main>
 
       {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
-      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}>
+        {!dockCollapsed && (
+          <div
+            className="dock-resize"
+            onMouseDown={startDockDrag}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="터미널 높이 조절"
+            title="드래그해서 터미널 높이 조절"
+          />
+        )}
         <div
           className="dock-bar"
           onClick={() => toggleDock()}
