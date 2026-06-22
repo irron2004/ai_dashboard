@@ -1,0 +1,45 @@
+import { describe, expect, test } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { readProjectWiki } from './project-wiki.js'
+
+function makeWiki(): string {
+  const repo = mkdtempSync(join(tmpdir(), 'pw-'))
+  const wiki = join(repo, 'wiki')
+  mkdirSync(join(wiki, 'graph'), { recursive: true })
+  mkdirSync(join(wiki, 'papers'), { recursive: true })
+  mkdirSync(join(wiki, 'methods'), { recursive: true })
+  writeFileSync(join(wiki, 'graph', 'edges.jsonl'), [
+    JSON.stringify({ from: 'papers/transformer', to: 'methods/self-attention', type: 'uses_method', confidence: 'high' }),
+    '',
+    '{ broken',
+    JSON.stringify({ from: 'papers/transformer', type: 'missing-to' }),
+  ].join('\n'))
+  writeFileSync(join(wiki, 'papers', 'transformer.md'), '---\nslug: transformer\ntitle: Attention Is All You Need\n---\nbody')
+  writeFileSync(join(wiki, 'methods', 'self-attention.md'), '---\ntitle: Self-Attention\n---\nbody')
+  writeFileSync(join(wiki, 'index.md'), '# index')  // must be skipped (not a node)
+  return repo
+}
+
+describe('readProjectWiki', () => {
+  test('reads nodes + well-formed edges, skips malformed lines and index.md', () => {
+    const repo = makeWiki()
+    const res = readProjectWiki([repo])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.edges).toHaveLength(1)
+    expect(res.edges[0]).toMatchObject({ from: 'papers/transformer', to: 'methods/self-attention', type: 'uses_method', confidence: 'high' })
+    const refs = res.nodes.map((n) => n.ref).sort()
+    expect(refs).toEqual(['methods/self-attention', 'papers/transformer'])
+    const t = res.nodes.find((n) => n.ref === 'papers/transformer')
+    expect(t).toMatchObject({ type: 'papers', title: 'Attention Is All You Need', relPath: 'wiki/papers/transformer.md' })
+    expect(res.nodes.some((n) => n.ref.startsWith('index'))).toBe(false)
+  })
+
+  test('available:false when no wiki/graph/edges.jsonl, and skips ssh repos — never throws', () => {
+    expect(readProjectWiki([mkdtempSync(join(tmpdir(), 'pw-empty-'))]).available).toBe(false)
+    expect(readProjectWiki(['ssh://me@host/home/me/proj']).available).toBe(false)
+    expect(readProjectWiki([]).available).toBe(false)
+  })
+})
