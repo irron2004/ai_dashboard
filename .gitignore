@@ -5,3 +5,6 @@ dist/
 .claude/
 .superpowers/
 .venv-substrate/
+
+# AutoSci reference clone (not part of this repo)
+AutoSci/
