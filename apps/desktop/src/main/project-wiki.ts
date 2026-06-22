@@ -11,7 +11,7 @@ const FRONT = (body: string, key: string): string | undefined => {
   if (!body.startsWith('---')) return undefined
   const end = body.indexOf('\n---', 3)
   const fm = end === -1 ? '' : body.slice(3, end)
-  return fm.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim()
+  return fm.match(new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(.+)$`, 'm'))?.[1]?.trim()
 }
 
 /** Read a project's published wiki (<repo>/wiki) into graph data. First LOCAL repo whose
@@ -21,8 +21,8 @@ export function readProjectWiki(repoPaths: readonly string[]): ReadWikiResult {
     if (!repo || repo.startsWith('ssh://')) continue
     const wikiDir = join(repo, 'wiki')
     const edgesFile = join(wikiDir, 'graph', 'edges.jsonl')
-    if (!existsSync(edgesFile)) continue
     try {
+      if (!existsSync(edgesFile)) continue
       const edges: WikiGraphEdge[] = []
       for (const line of readFileSync(edgesFile, 'utf8').split(/\r?\n/)) {
         const t = line.trim()
