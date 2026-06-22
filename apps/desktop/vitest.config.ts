@@ -22,8 +22,16 @@ export default _m;
   },
 }
 
-const pkgs = ['shared','core','vault','workflow','agents','search','llm-wiki','pm','dashboard-api','harness','knowledge-harness','app-services']
-const alias = Object.fromEntries(pkgs.map((p) => [`@apc/${p}`, `${repoRoot}packages/${p}/src/index.ts`]))
+const pkgs = ['shared','core','vault','workflow','agents','search','llm-wiki','pm','dashboard-api','harness','knowledge-harness','app-services','graph-view']
+const alias: Array<{ find: string | RegExp; replacement: string }> = pkgs.map((p) => ({
+  find: `@apc/${p}`,
+  replacement: `${repoRoot}packages/${p}/src/index.ts`,
+}))
+// graph-view subpath export (must come before the @apc/graph-view alias to take priority)
+alias.unshift({
+  find: /^@apc\/graph-view\/node$/,
+  replacement: `${repoRoot}packages/graph-view/src/node/index.ts`,
+})
 
 export default defineConfig({
   plugins: [nodeSqlitePlugin, react()],

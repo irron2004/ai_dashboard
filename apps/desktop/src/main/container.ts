@@ -15,7 +15,7 @@ import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter }
 import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
-import { readProjectWiki } from './project-wiki.js'
+import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
 import type {

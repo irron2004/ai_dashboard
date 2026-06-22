@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config'
+import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
 
@@ -38,7 +39,7 @@ export default _m;
 }
 
 export default defineConfig({
-  plugins: [nodeSqlitePlugin],
+  plugins: [nodeSqlitePlugin, react()],
   resolve: {
     alias: {
       '@apc/shared': `${root}packages/shared/src/index.ts`,
@@ -54,10 +55,14 @@ export default defineConfig({
       '@apc/app-services': `${root}packages/app-services/src/index.ts`,
       '@apc/knowledge': `${root}packages/knowledge/src/index.ts`,
       '@apc/wiki-substrate': `${root}packages/wiki-substrate/src/index.ts`,
+      '@apc/graph-view': `${root}packages/graph-view/src/index.ts`,
+      '@apc/graph-view/node': `${root}packages/graph-view/src/node/index.ts`,
     },
   },
   test: {
     globals: true,
-    include: ['packages/**/*.test.ts', 'scripts/**/*.test.ts'],
+    environment: 'node',
+    environmentMatchGlobs: [['packages/graph-view/**/*.test.tsx', 'jsdom']],
+    include: ['packages/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts'],
   },
 })

@@ -1,1 +1,1 @@
-export { GraphVisualization } from '../graph/GraphVisualization.js'
+export { GraphVisualization } from '@apc/graph-view'

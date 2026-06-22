@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { readProjectWiki } from './project-wiki.js'
+import { readProjectWiki } from './read-wiki.js'
 
 function makeWiki(): string {
   const repo = mkdtempSync(join(tmpdir(), 'pw-'))
