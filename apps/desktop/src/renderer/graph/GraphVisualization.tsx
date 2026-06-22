@@ -158,6 +158,9 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Keep a stable Map from id -> original GraphNode so onNodeClick gets the raw object
   const nodeMapRef = useRef<Map<string, GraphNode>>(new Map())
+  // Ref pattern: always holds the latest onNodeClick without re-initializing cytoscape
+  const onNodeClickRef = useRef(onNodeClick)
+  useEffect(() => { onNodeClickRef.current = onNodeClick }, [onNodeClick])
 
   useEffect(() => {
     const container = containerRef.current
@@ -188,7 +191,7 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
     })
 
     // Fit after a short delay to let Cytoscape settle
-    setTimeout(() => { try { cy.fit(cy.elements(), 60) } catch { /* ignore */ } }, 50)
+    const fitTimer = setTimeout(() => { try { cy.fit(cy.elements(), 60) } catch { /* ignore */ } }, 50)
 
     // Initial label visibility pass
     applyLabelVisibility(cy)
@@ -230,21 +233,21 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
       }
     })
 
-    // Double-tap: open node via callback
+    // Double-tap: open node via callback (uses ref so stale closure is never an issue)
     cy.on('dbltap', 'node', (evt) => {
       const id = (evt.target as cytoscape.NodeSingular).id()
       const original = nodeMapRef.current.get(id)
-      if (original) onNodeClick(original)
+      if (original) onNodeClickRef.current(original)
     })
 
     // Zoom-aware labels
     cy.on('zoom', () => applyLabelVisibility(cy))
 
     return () => {
+      clearTimeout(fitTimer)
       cy.destroy()
     }
-  // Re-run (and re-init cy) when data changes; onNodeClick is stable from caller so exclude from deps
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Re-run (and re-init cy) only when data changes; onNodeClick is accessed via ref (no stale-closure risk)
   }, [data])
 
   return (
