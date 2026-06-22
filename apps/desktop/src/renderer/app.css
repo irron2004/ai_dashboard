@@ -897,6 +897,23 @@ textarea {
   overflow: hidden;
 }
 
+/* Draggable divider between the canvas and the controls sidebar (drag to resize the sidebar width). */
+.graph-visualization__sidebar-resize {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 4;
+}
+.graph-visualization__sidebar-resize::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.graph-visualization__sidebar-resize:hover::after { background: rgba(117, 199, 255, 0.55); }
+
 /* Sidebar (controls: search, filters, presets, path query, node info) */
 .graph-visualization__sidebar {
   background: rgba(12, 18, 26, 0.72);

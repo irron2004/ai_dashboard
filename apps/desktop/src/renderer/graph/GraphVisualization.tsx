@@ -759,6 +759,11 @@ export type Props = {
   onNodeClick: (node: GraphNode) => void
 }
 
+// Graph sidebar width bounds (px) for the draggable divider.
+const SIDEBAR_MIN = 160
+const SIDEBAR_MAX = 480
+const SIDEBAR_DEFAULT = 220
+
 /**
  * Cytoscape-based graph canvas with force-layout, BFS highlight on node tap,
  * double-tap node open, zoom-aware labels, proper teardown, and full sidebar:
@@ -774,6 +779,43 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
   useEffect(() => { onNodeClickRef.current = onNodeClick }, [onNodeClick])
   const alwaysLabelsRef = useRef(false)
   const pathClickRef = useRef<((nodeId: string) => void) | null>(null)
+
+  // Sidebar width — draggable, persisted. The sidebar sits on the RIGHT, so dragging the divider LEFT
+  // widens it. localStorage is the only host touchpoint and is a browser global (keeps this module
+  // self-contained / extractable).
+  const [sidebarW, setSidebarW] = useState(() => {
+    try { const v = Number(localStorage.getItem('apc:graphSidebarW')); return v >= SIDEBAR_MIN && v <= SIDEBAR_MAX ? v : SIDEBAR_DEFAULT } catch { return SIDEBAR_DEFAULT }
+  })
+  const sidebarDragRef = useRef<{ onMove: (e: MouseEvent) => void; onUp: () => void } | null>(null)
+  useEffect(() => () => {
+    if (sidebarDragRef.current) {
+      window.removeEventListener('mousemove', sidebarDragRef.current.onMove)
+      window.removeEventListener('mouseup', sidebarDragRef.current.onUp)
+    }
+  }, [])
+  const startSidebarDrag = (e: React.MouseEvent) => {
+    e.preventDefault()
+    if (sidebarDragRef.current) {
+      window.removeEventListener('mousemove', sidebarDragRef.current.onMove)
+      window.removeEventListener('mouseup', sidebarDragRef.current.onUp)
+    }
+    const startX = e.clientX
+    const startW = sidebarW
+    const onMove = (ev: MouseEvent) => {
+      setSidebarW(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startW + (startX - ev.clientX))))
+      cyRef.current?.resize()   // reflow the canvas as it gains/loses width
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      sidebarDragRef.current = null
+      setSidebarW((w) => { try { localStorage.setItem('apc:graphSidebarW', String(w)) } catch { /* ignore */ } return w })
+      cyRef.current?.resize()
+    }
+    sidebarDragRef.current = { onMove, onUp }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   // Info panel state
   const [infoNode, setInfoNode] = useState<{ id: string; label: string; entity: string } | null>(null)
@@ -909,8 +951,18 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
         {/* cy-canvas: Cytoscape mounts into this div */}
         <div ref={containerRef} className="cy-canvas" style={{ width: '100%', height: '100%', minHeight: 500 }} />
 
+        {/* Draggable divider — resize the sidebar width */}
+        <div
+          className="graph-visualization__sidebar-resize"
+          onMouseDown={startSidebarDrag}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="사이드바 폭 조절"
+          title="드래그해서 사이드바 폭 조절"
+        />
+
         {/* Sidebar — search, filters, presets, path query, toggles, node info */}
-        <aside className="graph-visualization__sidebar" aria-label="Graph controls" style={{ width: 220, flexShrink: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
+        <aside className="graph-visualization__sidebar" aria-label="Graph controls" style={{ width: sidebarW, flexShrink: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
           <SearchWidget cyRef={cyRef} adjRef={adjRef} />
           <Toggles cyRef={cyRef} alwaysLabelsRef={alwaysLabelsRef} />
           <EntityFilters entityTypes={entityTypes} counts={entityCounts} cyRef={cyRef} />
