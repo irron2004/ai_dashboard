@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import cytoscape from 'cytoscape'
 import type { GraphData, GraphNode } from './graph-types.js'
 import { obsidianForceLayout } from './graph-layout.js'
@@ -515,9 +515,10 @@ function PresetViews({ edgeGroups, cyRef }: PresetViewsProps) {
 
 type TogglesProps = {
   cyRef: React.MutableRefObject<cytoscape.Core | null>
+  alwaysLabelsRef: React.MutableRefObject<boolean>
 }
 
-function Toggles({ cyRef }: TogglesProps) {
+function Toggles({ cyRef, alwaysLabelsRef }: TogglesProps) {
   const [hideLow, setHideLow] = useState(false)
   const [alwaysLabels, setAlwaysLabels] = useState(false)
 
@@ -534,6 +535,7 @@ function Toggles({ cyRef }: TogglesProps) {
 
   const handleAlwaysLabels = useCallback((on: boolean) => {
     setAlwaysLabels(on)
+    alwaysLabelsRef.current = on
     const cy = cyRef.current
     if (!cy) return
     if (on || cy.zoom() >= 1.4) {
@@ -541,7 +543,7 @@ function Toggles({ cyRef }: TogglesProps) {
     } else {
       cy.nodes().removeClass('show-label')
     }
-  }, [cyRef])
+  }, [cyRef, alwaysLabelsRef])
 
   return (
     <div className="sidebar-section">
@@ -578,9 +580,10 @@ type PathState = { start: string | null; end: string | null; highlighted: boolea
 type PathQueryProps = {
   cyRef: React.MutableRefObject<cytoscape.Core | null>
   adjRef: React.MutableRefObject<ReturnType<typeof buildAdjacency>>
+  pathClickRef: React.MutableRefObject<((nodeId: string) => void) | null>
 }
 
-function PathQuery({ cyRef, adjRef }: PathQueryProps) {
+function PathQuery({ cyRef, adjRef, pathClickRef }: PathQueryProps) {
   const pathStateRef = useRef<PathState>({ start: null, end: null, highlighted: false })
   const [status, setStatus] = useState('Right-click two nodes')
 
@@ -616,14 +619,11 @@ function PathQuery({ cyRef, adjRef }: PathQueryProps) {
   const handleRef = useRef(handlePathClick)
   useEffect(() => { handleRef.current = handlePathClick }, [handlePathClick])
 
-  // Expose via a stable ref so the cytoscape useEffect can call it without re-running
-  // We attach this to a window-level slot keyed to the component instance — but since
-  // we can't share refs cross-effects cleanly here without lifting state, we use a
-  // module-level ref slot instead (safe: only one GraphVisualization per page).
+  // Expose via pathClickRef so the parent's cytoscape useEffect can call it without re-running
   useEffect(() => {
-    _pathClickHandler = (nodeId: string) => handleRef.current(nodeId)
-    return () => { _pathClickHandler = null }
-  }, [])
+    pathClickRef.current = (nodeId: string) => handleRef.current(nodeId)
+    return () => { pathClickRef.current = null }
+  }, [pathClickRef])
 
   const clearQuery = useCallback(() => {
     const cy = cyRef.current
@@ -644,9 +644,6 @@ function PathQuery({ cyRef, adjRef }: PathQueryProps) {
     </div>
   )
 }
-
-// Module-level slot for the path click handler (one graph per page)
-let _pathClickHandler: ((nodeId: string) => void) | null = null
 
 function refreshPathHighlight(cy: cytoscape.Core, ps: PathState): void {
   cy.nodes().removeClass('path-start path-end')
@@ -701,8 +698,8 @@ function computeAndHighlightPaths(
 }
 
 function shortId(id: string): string {
-  const [, ...rest] = id.split('/')
-  const slug = rest.join('/')
+  const [, ...rest] = id.split(':')
+  const slug = rest.join(':')
   return slug.length > 24 ? slug.slice(0, 22) + '…' : (slug || id)
 }
 
@@ -712,11 +709,11 @@ function shortId(id: string): string {
 
 type NodeInfoPanelProps = {
   node: { id: string; label: string; entity: string } | null
-  onNodeClick: (node: GraphNode) => void
+  onNodeClickRef: React.MutableRefObject<(node: GraphNode) => void>
   nodeMapRef: React.MutableRefObject<Map<string, GraphNode>>
 }
 
-function NodeInfoPanel({ node, onNodeClick, nodeMapRef }: NodeInfoPanelProps) {
+function NodeInfoPanel({ node, onNodeClickRef, nodeMapRef }: NodeInfoPanelProps) {
   if (!node) return null
   const original = nodeMapRef.current.get(node.id)
   return (
@@ -730,7 +727,7 @@ function NodeInfoPanel({ node, onNodeClick, nodeMapRef }: NodeInfoPanelProps) {
       {original && (
         <button
           type="button"
-          onClick={() => onNodeClick(original)}
+          onClick={() => onNodeClickRef.current(original)}
           style={{ fontSize: '0.75em', padding: '2px 8px', background: '#4A90D9', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}
         >
           Open in reader →
@@ -775,25 +772,33 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
   const nodeMapRef = useRef<Map<string, GraphNode>>(new Map())
   const onNodeClickRef = useRef(onNodeClick)
   useEffect(() => { onNodeClickRef.current = onNodeClick }, [onNodeClick])
+  const alwaysLabelsRef = useRef(false)
+  const pathClickRef = useRef<((nodeId: string) => void) | null>(null)
 
   // Info panel state
   const [infoNode, setInfoNode] = useState<{ id: string; label: string; entity: string } | null>(null)
 
   // Derive entity types + edge groups from data (stable per data reference)
-  const entityTypes = presentEntityTypes(data.nodes.map((n) => n.type))
-  const edgeLabels  = [...new Set(data.links.map((l) => l.label ?? l.kind))]
-  const edgeGroups  = groupEdgeTypes(edgeLabels)
+  const entityTypes = useMemo(() => presentEntityTypes(data.nodes.map((n) => n.type)), [data])
+  const edgeLabels  = useMemo(() => [...new Set(data.links.map((l) => l.label ?? l.kind))], [data])
+  const edgeGroups  = useMemo(() => groupEdgeTypes(edgeLabels), [edgeLabels])
 
   // Entity counts
-  const entityCounts = new Map<string, number>()
-  data.nodes.forEach((n) => { entityCounts.set(n.type, (entityCounts.get(n.type) ?? 0) + 1) })
+  const entityCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    data.nodes.forEach((n) => { m.set(n.type, (m.get(n.type) ?? 0) + 1) })
+    return m
+  }, [data])
 
   // Edge counts
-  const edgeCounts = new Map<string, number>()
-  data.links.forEach((l) => {
-    const lbl = l.label ?? l.kind
-    edgeCounts.set(lbl, (edgeCounts.get(lbl) ?? 0) + 1)
-  })
+  const edgeCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    data.links.forEach((l) => {
+      const lbl = l.label ?? l.kind
+      m.set(lbl, (m.get(lbl) ?? 0) + 1)
+    })
+    return m
+  }, [data])
 
   // Main cytoscape init/teardown effect
   useEffect(() => {
@@ -868,12 +873,12 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
     })
 
     // Zoom-aware labels
-    cy.on('zoom', () => applyZoomLabels(cy, false))
+    cy.on('zoom', () => applyZoomLabels(cy, alwaysLabelsRef.current))
 
     // Right-click (context tap): path query
     cy.on('cxttap', 'node', (evt) => {
       const id = (evt.target as cytoscape.NodeSingular).id()
-      if (_pathClickHandler) _pathClickHandler(id)
+      pathClickRef.current?.(id)
     })
 
     // Edge tooltip on mouseover/mouseout
@@ -907,12 +912,12 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
         {/* Sidebar — search, filters, presets, path query, toggles, node info */}
         <aside className="graph-visualization__sidebar" aria-label="Graph controls" style={{ width: 220, flexShrink: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
           <SearchWidget cyRef={cyRef} adjRef={adjRef} />
-          <Toggles cyRef={cyRef} />
+          <Toggles cyRef={cyRef} alwaysLabelsRef={alwaysLabelsRef} />
           <EntityFilters entityTypes={entityTypes} counts={entityCounts} cyRef={cyRef} />
           <EdgeFilters groups={edgeGroups} counts={edgeCounts} cyRef={cyRef} />
           <PresetViews edgeGroups={edgeGroups} cyRef={cyRef} />
-          <PathQuery cyRef={cyRef} adjRef={adjRef} />
-          <NodeInfoPanel node={infoNode} onNodeClick={onNodeClick} nodeMapRef={nodeMapRef} />
+          <PathQuery cyRef={cyRef} adjRef={adjRef} pathClickRef={pathClickRef} />
+          <NodeInfoPanel node={infoNode} onNodeClickRef={onNodeClickRef} nodeMapRef={nodeMapRef} />
         </aside>
       </div>
     </section>

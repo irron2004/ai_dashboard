@@ -124,10 +124,16 @@ describe('GraphVisualization (cytoscape)', () => {
 
   test('entity checkbox toggles node visibility on cy', () => {
     const { getByRole } = render(<GraphVisualization data={data} onNodeClick={() => {}} />)
+    // Prepare a captured collection so we can inspect .style calls
+    const stylespy = vi.fn().mockReturnThis()
+    const capturedCollection = { ...makeNodeCollection(['papers:t']), style: stylespy }
+    cyInstance.nodes.mockImplementationOnce((sel?: string) => {
+      if (sel === '.papers') return capturedCollection
+      return makeNodeCollection(['papers:t', 'modules:s'])
+    })
     const checkboxes = getByRole('checkbox', { name: /papers/ })
-    fireEvent.click(checkboxes)
-    // After unchecking, nodes('.<type>').style('display', 'none') would be called
-    // We just verify no error is thrown and the checkbox responds
-    expect(checkboxes).toBeTruthy()
+    fireEvent.click(checkboxes) // uncheck → toggle(false) → cy.nodes('.papers').style('display','none')
+    expect(cyInstance.nodes).toHaveBeenCalledWith('.papers')
+    expect(stylespy).toHaveBeenCalledWith('display', 'none')
   })
 })
