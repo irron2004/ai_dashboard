@@ -1,4 +1,6 @@
 import type { AgentType, KhState, RunState, FeatureGateKey, EngineOptions, ReasoningEffort } from '@apc/shared'
+import { workflowFor, directionFor } from './graph/graph-style.js'
+import type { GraphNode, GraphLink, GraphData, GraphNodeType, GraphShape } from './graph/graph-types.js'
 
 export const HARNESS_STATE_ORDER: KhState[] = [
   'CREATED', 'PROJECT_SCANNED', 'SOURCES_EXTRACTED', 'DOCUMENTS_CLASSIFIED',
@@ -176,31 +178,13 @@ export type HarnessRunBundle = {
 
 // 'run'..'document' are the project-docs provenance buckets; 'papers'..'pipeline_trials' are the
 // autosci paper-domain entity types (drawn from wiki/<type>/<slug>.md + edges.jsonl).
-export type HarnessGraphNodeType = 'run' | 'task' | 'evidence' | 'file' | 'document' | 'papers' | 'modules' | 'pipelines' | 'pipeline_trials'
-export type HarnessGraphShape = 'circle' | 'diamond' | 'square'
-
-export type HarnessGraphNode = {
-  id: string
-  label: string
-  type: HarnessGraphNodeType
-  shape: HarnessGraphShape
-  color: string
-  details?: string
-  data?: unknown
-}
-
-export type HarnessGraphLink = {
-  id: string
-  source: string
-  target: string
-  label?: string
-  kind: string
-}
-
-export type HarnessGraphData = {
-  nodes: HarnessGraphNode[]
-  links: HarnessGraphLink[]
-}
+// Canonical type definitions live in ./graph/graph-types.ts; re-exported here so all existing
+// dashboard imports keep working without changes.
+export type HarnessGraphNodeType = GraphNodeType
+export type HarnessGraphShape = GraphShape
+export type HarnessGraphNode = GraphNode
+export type HarnessGraphLink = GraphLink
+export type HarnessGraphData = GraphData
 
 export type HarnessDiffRow = {
   kind: 'context' | 'add' | 'delete'
@@ -882,7 +866,7 @@ export function buildHarnessGraphData(bundle: HarnessRunBundle | null): HarnessG
   for (const e of pendingEdges) {
     if (e.from === e.to) continue
     const from = resolveNode(e.from), to = resolveNode(e.to)
-    addLink(links, { id: `rel:${from}->${to}:${e.type}`, source: from, target: to, kind: 'rel', label: e.type })
+    addLink(links, { id: `rel:${from}->${to}:${e.type}`, source: from, target: to, kind: 'rel', label: e.type, workflow: workflowFor(e.type), direction: directionFor(e.type) })
   }
 
   for (const [sourceId, targets] of linkTargets.entries()) {
@@ -985,10 +969,10 @@ export function buildPaperGraphData(nodes: PaperGraphNodeInput[], edges: PaperGr
     if (!e?.from || !e?.to) continue
     ensureEndpoint(e.from)
     ensureEndpoint(e.to)
-    const confidence = typeof e.confidence === 'string' ? e.confidence : ''
+    const confidence = typeof e.confidence === 'string' ? e.confidence : undefined
     addLink(links, {
       id: `rel:${e.from}->${e.to}:${e.type}`, source: e.from, target: e.to, kind: 'rel',
-      label: confidence ? `${e.type} · ${confidence}` : e.type,
+      label: e.type, confidence, direction: directionFor(e.type), workflow: workflowFor(e.type),
     })
   }
 

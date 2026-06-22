@@ -33,6 +33,22 @@ describe('buildPaperGraphData (autosci graph from nodes + edges.jsonl)', () => {
     expect(out.find((n) => n.id === 'modules:missing')).toBeTruthy()
     expect(links.some((l) => l.source === 'papers:transformer' && l.target === 'modules:missing')).toBe(true)
   })
+
+  test('a paper edge carries confidence/direction/workflow as structured fields (not in the label)', () => {
+    const edges = [{ from: 'modules:self-attention', to: 'papers:transformer', type: 'pipeline_from_paper', confidence: 'high' }]
+    const link = buildPaperGraphData(nodes, edges).links.find((l) => l.kind === 'rel')
+    expect(link?.label).toBe('pipeline_from_paper')          // no "· high" concat
+    expect(link?.confidence).toBe('high')
+    expect(link?.direction).toBe('directed')
+    expect(link?.workflow).toBe('provenance')
+  })
+
+  test('a symmetric paper edge is marked symmetric', () => {
+    const edges = [{ from: 'papers:transformer', to: 'papers:bert', type: 'alternative_to' }]
+    const link = buildPaperGraphData([...nodes, { relPath: 'nodes/bert.md', nodeId: 'bert', nodeType: 'papers', title: 'BERT' }], edges)
+      .links.find((l) => l.kind === 'rel')
+    expect(link?.direction).toBe('symmetric')
+  })
 })
 
 describe('buildHarnessGraphData', () => {
