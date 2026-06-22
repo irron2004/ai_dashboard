@@ -888,71 +888,160 @@ textarea {
 /* ── Graph visualization ───────────────────────────────── */
 .graph-visualization { min-height: 0; }
 .graph-visualization__header { align-items: center; }
-.graph-visualization__search {
+
+/* Body: canvas + sidebar side-by-side */
+.graph-visualization__body {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 240px;
-  color: var(--muted);
-  font-size: 0.8rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
-.graph-visualization__filters {
-  display: flex;
-  gap: 8px;
-  padding: 0 16px 12px;
-  flex-wrap: wrap;
-}
-.graph-visualization__filter {
-  border-radius: 999px;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.03);
-  border-color: transparent;
-}
-.graph-visualization__filter--active {
-  color: var(--text);
-  border-color: rgba(117, 199, 255, 0.25);
-  background: rgba(117, 199, 255, 0.1);
-}
-.graph-visualization__canvas {
-  min-height: 540px;
-  padding: 0 10px 10px;
-}
-.graph-visualization__canvas svg {
-  width: 100%;
-  height: 100%;
-  min-height: 540px;
-  display: block;
-  background: radial-gradient(circle at center, rgba(117, 199, 255, 0.04), transparent 56%);
-  border-radius: 18px;
-  border: 1px solid rgba(126, 152, 183, 0.14);
-}
-.graph-visualization__link { stroke: rgba(126, 152, 183, 0.35); stroke-width: 1.5; }
-.graph-visualization__link--muted { stroke-opacity: 0.12; }
-/* node↔node knowledge relationships — brighter/thicker so the real graph stands out from provenance lines */
-.graph-visualization__link--rel { stroke: rgba(110, 191, 154, 0.7); stroke-width: 1.8; }
-.graph-visualization__link-label { fill: #8fd6b4; font-size: 9px; text-anchor: middle; pointer-events: none; text-transform: lowercase; }
-.graph-visualization__node { cursor: pointer; }
-.graph-visualization__node--muted { opacity: 0.18; }
-.graph-visualization__ring {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.15);
-  stroke-width: 1.5;
-}
-.graph-visualization__ring--active { stroke: rgba(117, 199, 255, 0.9); stroke-width: 2; }
-.graph-visualization__label {
-  fill: var(--text);
-  font-size: 11px;
-  text-anchor: middle;
-  pointer-events: none;
-  opacity: 0.9;
-}
-.graph-visualization__details {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0 16px 16px;
-  color: var(--muted);
+
+/* Sidebar (controls: search, filters, presets, path query, node info) */
+.graph-visualization__sidebar {
+  background: rgba(12, 18, 26, 0.72);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
   font-size: 0.82rem;
+  color: var(--text);
+}
+
+/* Cytoscape mount target — MUST have an explicit height for Cytoscape to render */
+.cy-canvas {
+  flex: 1;
+  min-width: 0;
+  min-height: 540px;
+  background: radial-gradient(circle at center, rgba(117, 199, 255, 0.03), transparent 56%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Sidebar sections */
+.sidebar-section {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.sidebar-section:last-child { border-bottom: none; }
+.sidebar-section__title {
+  margin: 0 0 6px 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* Search input */
+.graph-search {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 0.82rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: rgba(10, 16, 23, 0.96);
+  color: var(--text);
+  box-sizing: border-box;
+}
+.graph-search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(117, 199, 255, 0.14); }
+
+/* Search result list */
+.search-results {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.search-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.79rem;
+}
+.search-item:hover { background: rgba(126, 152, 183, 0.12); }
+
+/* Entity/edge filter rows */
+.entity-filter-row,
+.edge-type-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 0.79rem;
+}
+.entity-filter-row:hover,
+.edge-type-row:hover { background: rgba(126, 152, 183, 0.10); }
+.entity-filter-row input[type="checkbox"],
+.edge-type-row input[type="checkbox"] { accent-color: var(--accent); }
+
+/* Edge groups (collapsible) */
+.edge-group { margin: 2px 0; }
+.edge-group summary {
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 3px;
+  list-style: none;
+  font-size: 0.79rem;
+}
+.edge-group summary::-webkit-details-marker { display: none; }
+.edge-group summary::before { content: "▸ "; display: inline-block; width: 1ch; transition: transform 0.1s; }
+.edge-group[open] > summary::before { content: "▾ "; }
+.edge-group summary:hover { background: rgba(126, 152, 183, 0.10); }
+.edge-group .group-summary { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.edge-group .edge-type-row { padding-left: 16px; }
+
+/* Preset-view buttons */
+.preset-btn {
+  padding: 3px 8px;
+  font-size: 0.76rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: rgba(18, 27, 38, 0.96);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.preset-btn:hover:not(:disabled) { background: rgba(126, 152, 183, 0.12); border-color: rgba(117, 199, 255, 0.3); transform: none; }
+.preset-btn--active {
+  background: rgba(117, 199, 255, 0.18);
+  border-color: rgba(117, 199, 255, 0.5);
+  color: var(--accent);
+}
+.preset-reset { opacity: 0.8; }
+
+/* Edge hover tooltip (appended to body by JS) */
+.edge-tooltip {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: rgba(9, 16, 23, 0.95);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  max-width: 280px;
+  line-height: 1.45;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.edge-tooltip .small { opacity: 0.75; font-size: 0.72rem; }
+
+/* Node info panel */
+.node-info-panel { background: rgba(12, 18, 26, 0.5); }
+
+/* Path status text */
+.path-status { font-size: 0.76rem; color: var(--muted); }
+
+/* Generic colour dot (entity/edge legend) */
+.dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ── Task flow ──────────────────────────────────────────── */
@@ -1097,10 +1186,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .graph-visualization__search {
-    min-width: 0;
-    width: 100%;
-  }
+  .cy-canvas { min-height: 380px; }
 }
 
 /* ── PM Home ─────────────────────────────────────────── */
