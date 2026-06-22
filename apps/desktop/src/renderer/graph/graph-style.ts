@@ -5,11 +5,19 @@
 const ENTITY_COLORS: Record<string, string> = {
   // paper entities (AutoSci hue trio + ours)
   papers: '#4A90D9', modules: '#84CC16', pipelines: '#C084FC', pipeline_trials: '#E74C3C',
+  // AutoSci/OmegaWiki entity types (existing wikis)
+  concepts: '#EC4899', topics: '#E67E22', people: '#2ECC71', ideas: '#F39C12',
+  experiments: '#E74C3C', methods: '#84CC16', Summary: '#1ABC9C', foundations: '#95A5A6',
+  outputs: '#9B59B6',
   // project-docs provenance buckets
   run: '#60A5FA', task: '#F59E0B', evidence: '#34D399', file: '#94A3B8', document: '#95A5A6',
 }
 const ENTITY_FALLBACK = '#95A5A6'
-const ENTITY_ORDER = ['papers', 'modules', 'pipelines', 'pipeline_trials', 'run', 'task', 'evidence', 'file', 'document']
+const ENTITY_ORDER = [
+  'papers', 'concepts', 'topics', 'people', 'ideas', 'experiments', 'methods', 'foundations', 'Summary', 'outputs',
+  'modules', 'pipelines', 'pipeline_trials',
+  'run', 'task', 'evidence', 'file', 'document',
+]
 
 export function entityColor(type: string): string {
   return ENTITY_COLORS[type] ?? ENTITY_FALLBACK

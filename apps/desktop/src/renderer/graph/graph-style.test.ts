@@ -36,4 +36,12 @@ describe('graph-style', () => {
     expect(flat).toContain('uses_module')
     expect(groups.find((g) => g.group === 'Other')?.types).toContain('mystery_edge')
   })
+
+  test('AutoSci entity types get concrete colors and order', () => {
+    expect(entityColor('concepts')).toMatch(/^#/)
+    expect(entityColor('methods')).toMatch(/^#/)
+    expect(entityColor('people')).toMatch(/^#/)
+    // present in canonical order (papers before concepts before methods)
+    expect(presentEntityTypes(['methods', 'concepts', 'papers'])).toEqual(['papers', 'concepts', 'methods'])
+  })
 })
