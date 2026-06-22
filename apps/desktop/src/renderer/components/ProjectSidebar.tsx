@@ -121,6 +121,14 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
     }
   }
 
+  // Why Save is blocked, mirroring handleSubmit's gates — so the button shows DISABLED with a reason
+  // instead of silently no-op'ing (the "확인이 안 눌려요" bug: an empty required field, e.g. an ssh url
+  // with no `user@`, made the submit return without any feedback).
+  const submitReason = !name.trim()
+    ? '이름을 입력하세요'
+    : (pathMode === 'ssh' && (!sshHost || !sshUser || !sshPath)) ? 'SSH 호스트·사용자·경로를 모두 입력하세요'
+    : ''
+
   return (
     <>
       {collapsed ? (
@@ -312,9 +320,17 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
               </div>
             )}
 
+            {submitReason && (
+              <p style={{ color: '#d9a', fontSize: '0.8rem', margin: '4px 0 0' }}>{submitReason}</p>
+            )}
             <div className="add-project-dialog__actions">
               <button type="button" onClick={() => { resetForm(); setShowDialog(false) }}>Cancel</button>
-              <button type="button" onClick={handleSubmit} style={{ background: '#2a4a2a', borderColor: '#4a8a4a' }}>
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!!submitReason}
+                style={{ background: '#2a4a2a', borderColor: '#4a8a4a', opacity: submitReason ? 0.5 : 1 }}
+              >
                 {editingId ? 'Save' : 'Create'}
               </button>
             </div>
