@@ -1,5 +1,5 @@
 import type { AgentType, KhState, RunState, FeatureGateKey, EngineOptions, ReasoningEffort } from '@apc/shared'
-import { workflowFor, directionFor } from './graph/graph-style.js'
+import { workflowFor, directionFor, entityColor } from './graph/graph-style.js'
 import type { GraphNode, GraphLink, GraphData, GraphNodeType, GraphShape } from './graph/graph-types.js'
 
 export const HARNESS_STATE_ORDER: KhState[] = [
@@ -976,6 +976,48 @@ export function buildPaperGraphData(nodes: PaperGraphNodeInput[], edges: PaperGr
     })
   }
 
+  return { nodes: [...nodeMap.values()], links }
+}
+
+type WikiNodeInput = { ref: string; type: string; title: string; relPath: string }
+
+/** Build the graph from a project's published wiki (<repo>/wiki): node `id` is the AutoSci `<type>/<slug>`
+ *  ref the edges.jsonl uses, so edges connect directly. Mirrors buildPaperGraphData but for slash-form
+ *  refs and arbitrary entity types. */
+export function buildWikiGraphData(nodes: WikiNodeInput[], edges: PaperGraphEdge[]): HarnessGraphData {
+  const nodeMap = new Map<string, HarnessGraphNode>()
+  const links: HarnessGraphLink[] = []
+
+  for (const n of nodes) {
+    addNode(nodeMap, {
+      id: n.ref,
+      label: n.title || n.ref,
+      type: n.type as HarnessGraphNode['type'],
+      shape: 'circle',
+      color: entityColor(n.type),
+      details: n.type,
+      data: { path: n.relPath },
+    })
+  }
+
+  const ensure = (ref: string): void => {
+    if (nodeMap.has(ref)) return
+    const type = ref.includes('/') ? ref.slice(0, ref.indexOf('/')) : 'document'
+    addNode(nodeMap, {
+      id: ref, label: ref.slice(ref.indexOf('/') + 1), type: type as HarnessGraphNode['type'],
+      shape: 'circle', color: '#475569', details: `${type} (미생성)`,
+    })
+  }
+
+  for (const e of edges) {
+    if (!e?.from || !e?.to) continue
+    ensure(e.from); ensure(e.to)
+    const confidence = typeof e.confidence === 'string' ? e.confidence : undefined
+    addLink(links, {
+      id: `rel:${e.from}->${e.to}:${e.type}`, source: e.from, target: e.to, kind: 'rel',
+      label: e.type, confidence, direction: directionFor(e.type), workflow: workflowFor(e.type),
+    })
+  }
   return { nodes: [...nodeMap.values()], links }
 }
 
