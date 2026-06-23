@@ -36,4 +36,14 @@ contextBridge.exposeInMainWorld('apc', {
     ipcRenderer.on(CH.harnessNodes, handler)
     return () => ipcRenderer.removeListener(CH.harnessNodes, handler)
   },
+
+  // Workspace session persistence
+  paneOpened: (p: unknown) => ipcRenderer.send(CH.paneOpened, p),
+  paneClosed: (p: unknown) => ipcRenderer.send(CH.paneClosed, p),
+  selectProject: (id: string) => ipcRenderer.send(CH.selectProject, id),
+  onWorkspaceRestore: (cb: (p: unknown) => void) => {
+    const handler = (_e: unknown, p: unknown) => cb(p)
+    ipcRenderer.on(CH.workspaceRestore, handler)
+    return () => ipcRenderer.removeListener(CH.workspaceRestore, handler)
+  },
 })

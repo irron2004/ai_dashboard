@@ -58,6 +58,11 @@ export const CH = {
   // project working-tree changes (Changes tab)
   changesList: 'q:changesList',
   changesDiff: 'q:changesDiff',
+  // workspace session persistence (main→renderer restore, renderer→main reports)
+  workspaceRestore: 'workspace:restore',
+  paneOpened: 'pane:opened',
+  paneClosed: 'pane:closed',
+  selectProject: 'workspace:select-project',
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
@@ -198,3 +203,10 @@ export type ChangesListRes = {
 }
 export type ChangesDiffReq = { projectId: string; relPath: string }
 export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }
+
+// Workspace session persistence
+export type PaneRef = { projectId: string; agent: 'claude' | 'codex' | 'opencode' }
+export type WorkspaceRestore = {
+  panes: Array<PaneRef & { lastSessionId: string | null }>
+  selectedProjectId: string | null
+}
