@@ -13,7 +13,13 @@
 - 대상 CLI: `claude` · `codex` · `opencode` (= `AgentKind`). 그 외는 기존 평범한 start 유지.
 - resume 실패/세션 없음 → **패널은 항상 열림**, fresh 폴백 + 안내 메시지(작업 흐름 안 깨짐).
 - 기존 `kernel`/`@apc/*` 공개 시그니처를 깨지 않는다. `StartPtyReq`는 **추가 필드만**(`resume?`, `agent?`, `sessionId?`) — 기존 호출 호환.
-- 테스트: vitest. 실행은 repo 루트에서 `pnpm vitest run <path>`.
+- **테스트 실행(중요):** `node_modules`가 Windows/Electron ABI로 설치돼 WSL plain node로는 vitest(rollup/native)가 안 돈다. **반드시 Windows 툴체인을 호출한다.** WSL bash에서:
+  - `CMD=/mnt/c/Windows/System32/cmd.exe` · `WIN='C:\Users\irron\Desktop\my\ruahverce\ai_dashboard-main'`
+  - agents 테스트: `"$CMD" /c "cd /d $WIN && pnpm exec vitest run packages/agents/src/<file>"`
+  - desktop 테스트: `"$CMD" /c "cd /d $WIN && pnpm --filter @apc/desktop exec vitest run src/main/<file>"` (renderer는 `src/renderer/<file>`)
+  - typecheck: `"$CMD" /c "cd /d $WIN && pnpm typecheck"`
+  - (파일 편집은 WSL 경로 `/mnt/c/...`로 평소대로. 테스트만 Windows로 호출.)
+- **better-sqlite3는 Electron 전용 ABI 빌드**라 vitest(plain node)에서 `ERR_DLOPEN_FAILED`로 로드 불가. **SessionStore 테스트는 node 22 내장 `node:sqlite`의 `DatabaseSync`**(better-sqlite3와 동일한 `exec`/`prepare`→`{run,get,all}` 인터페이스)를 주입해 돌린다. 프로덕션 코드는 better-sqlite3 그대로(주입 지점만 다름). `node:sqlite`는 `all()`이 null-prototype 행을 주므로 `SessionStore`는 결과를 **plain object로 매핑**한다.
 - 커밋은 Conventional Commits.
 
 ---
@@ -250,13 +256,14 @@ git commit -m "feat(agents): findLatestSession + adapterFor (discover latest ses
 
 ```ts
 // apps/desktop/src/main/session-store.test.ts
+// NOTE: better-sqlite3는 Electron ABI 전용이라 vitest에서 로드 불가 → node 22 내장 node:sqlite 사용.
 import { describe, test, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import { SessionStore } from './session-store.js'
 
 let store: SessionStore
 beforeEach(() => {
-  store = new SessionStore(new Database(':memory:'))
+  store = new SessionStore(new DatabaseSync(':memory:'))
   store.ensureSchema()
 })
 
@@ -331,10 +338,12 @@ export class SessionStore {
   }
 
   listOpenPanes(): Array<{ projectId: string; agent: string; lastSessionId: string | null }> {
-    return this.db.prepare(
+    const rows = this.db.prepare(
       `SELECT project_id as projectId, agent, last_session_id as lastSessionId
        FROM workspace_pane WHERE was_open = 1 ORDER BY project_id, agent`,
     ).all()
+    // node:sqlite는 null-prototype 행을 주므로 plain object로 정규화(toEqual 안정성)
+    return rows.map((r: any) => ({ projectId: r.projectId, agent: r.agent, lastSessionId: r.lastSessionId ?? null }))
   }
 
   setState(key: string, value: string): void {
