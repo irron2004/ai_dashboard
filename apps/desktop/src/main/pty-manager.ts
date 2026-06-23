@@ -20,7 +20,7 @@ type PtyModule = {
 export type SendFn = (channel: string, ...args: unknown[]) => void
 
 type ResumeDeps = {
-  resolveResume?: (agent: AgentKind, cwd: string) => Promise<{ command: string; args: string[] }>
+  resolveResume?: (agent: AgentKind, cwd: string, sessionId?: string) => Promise<{ command: string; args: string[] }>
 }
 
 /**
@@ -33,7 +33,8 @@ export class PtyManager {
   private readonly resolveResume: NonNullable<ResumeDeps['resolveResume']>
 
   constructor(private readonly send: SendFn, deps: ResumeDeps = {}) {
-    this.resolveResume = deps.resolveResume ?? (async (agent, cwd) => {
+    this.resolveResume = deps.resolveResume ?? (async (agent, cwd, sessionId) => {
+      if (sessionId) return resumeCommand(agent, { sessionId })
       const found = await findLatestSession(adapterFor(agent), cwd).catch(() => null)
       return resumeCommand(agent, { sessionId: found?.sessionId })
     })
@@ -53,7 +54,7 @@ export class PtyManager {
 
   async start(
     id: string, command: string, args: string[], cwd: string,
-    opts: { resume?: boolean; agent?: AgentKind } = {},
+    opts: { resume?: boolean; agent?: AgentKind; sessionId?: string } = {},
   ): Promise<void> {
     const pty = await this.load()
     if (!pty) {
@@ -100,7 +101,7 @@ export class PtyManager {
       let line = [command, ...args].filter(Boolean).join(' ').trim()
       if (opts.resume && opts.agent) {
         try {
-          const r = await this.resolveResume(opts.agent, cwd)
+          const r = await this.resolveResume(opts.agent, cwd, opts.sessionId)
           line = [r.command, ...r.args].join(' ').trim()
         } catch {
           this.send('pty:data', id, '[no prior session — fresh start]\r\n')
