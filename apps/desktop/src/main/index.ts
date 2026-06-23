@@ -11,6 +11,10 @@ import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq, type PtyResize
 // electron-vite injects import.meta.dirname-equivalent paths; on Node 24 ESM import.meta.dirname exists.
 const here = import.meta.dirname
 
+// Guard so before-quit is registered only once even if createWindow is called again
+// (e.g. macOS dock re-activation via app.on('activate')).
+let quitHandlerRegistered = false
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
@@ -40,16 +44,19 @@ function createWindow(): void {
     sessions.upsertPane({ projectId: p.projectId, agent: p.agent, wasOpen: false }))
   ipcMain.on(CH.selectProject, (_e, id: string) => sessions.setState('selected_project_id', id))
 
-  // Snapshot latest session ids for open panes before the app quits
-  app.on('before-quit', () => {
-    const open = sessions.listOpenPanes()
-    void Promise.all(open.map(async (pane) => {
-      const repoPath = container.registry.get(pane.projectId)?.repoPaths?.[0]
-      if (!repoPath) return
-      const found = await findLatestSession(adapterFor(pane.agent as 'claude' | 'codex' | 'opencode'), repoPath).catch(() => null)
-      if (found) sessions.upsertPane({ projectId: pane.projectId, agent: pane.agent, lastSessionId: found.sessionId, wasOpen: true })
-    }))
-  })
+  // Snapshot latest session ids for open panes before the app quits — registered exactly once.
+  if (!quitHandlerRegistered) {
+    quitHandlerRegistered = true
+    app.on('before-quit', () => {
+      const open = sessions.listOpenPanes()
+      void Promise.all(open.map(async (pane) => {
+        const repoPath = container.registry.get(pane.projectId)?.repoPaths?.[0]
+        if (!repoPath) return
+        const found = await findLatestSession(adapterFor(pane.agent as 'claude' | 'codex' | 'opencode'), repoPath).catch(() => null)
+        if (found) sessions.upsertPane({ projectId: pane.projectId, agent: pane.agent, lastSessionId: found.sessionId, wasOpen: true })
+      }))
+    })
+  }
 
   // Send restore payload once renderer is ready
   win.webContents.on('did-finish-load', () => {

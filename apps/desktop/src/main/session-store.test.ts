@@ -35,4 +35,14 @@ describe('SessionStore', () => {
     store.closeAllPanes()
     expect(store.listOpenPanes()).toEqual([])
   })
+
+  test('last_session_id preserved through close+reopen when omitted', () => {
+    // Initial open with a session id
+    store.upsertPane({ projectId: 'p1', agent: 'claude', lastSessionId: 'a', wasOpen: true })
+    // paneClosed: no lastSessionId provided — must NOT wipe 'a'
+    store.upsertPane({ projectId: 'p1', agent: 'claude', wasOpen: false })
+    // Reopen: no lastSessionId provided — must still preserve 'a'
+    store.upsertPane({ projectId: 'p1', agent: 'claude', wasOpen: true })
+    expect(store.listOpenPanes()).toEqual([{ projectId: 'p1', agent: 'claude', lastSessionId: 'a' }])
+  })
 })

@@ -26,7 +26,7 @@ export class SessionStore {
       INSERT INTO workspace_pane (project_id, agent, last_session_id, last_active, was_open)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(project_id, agent) DO UPDATE SET
-        last_session_id = excluded.last_session_id,
+        last_session_id = COALESCE(excluded.last_session_id, workspace_pane.last_session_id),
         last_active = excluded.last_active,
         was_open = excluded.was_open
     `).run(p.projectId, p.agent, p.lastSessionId ?? null, new Date().toISOString(), p.wasOpen ? 1 : 0)
