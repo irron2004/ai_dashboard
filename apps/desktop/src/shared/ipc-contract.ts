@@ -58,6 +58,11 @@ export const CH = {
   // project working-tree changes (Changes tab)
   changesList: 'q:changesList',
   changesDiff: 'q:changesDiff',
+  // workspace session persistence (main→renderer restore, renderer→main reports)
+  workspaceRestore: 'workspace:restore',
+  paneOpened: 'pane:opened',
+  paneClosed: 'pane:closed',
+  selectProject: 'workspace:select-project',
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
@@ -168,7 +173,12 @@ export type GenerateRunReq = {
   currentCanonical: string
 }
 
-export type StartPtyReq = { id: string; command: string; args: string[]; cwd: string }
+export type StartPtyReq = {
+  id: string; command: string; args: string[]; cwd: string
+  resume?: boolean            // true면 main이 resume argv를 구성(아래 agent 필요)
+  agent?: 'claude' | 'codex' | 'opencode'
+  sessionId?: string          // 알려진 세션 id(없으면 main이 최신 발견)
+}
 export type PtyInputReq = { id: string; data: string }
 export type PtyKillReq = { id: string }
 export type PtyResizeReq = { id: string; cols: number; rows: number }
@@ -193,3 +203,10 @@ export type ChangesListRes = {
 }
 export type ChangesDiffReq = { projectId: string; relPath: string }
 export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }
+
+// Workspace session persistence
+export type PaneRef = { projectId: string; agent: 'claude' | 'codex' | 'opencode' }
+export type WorkspaceRestore = {
+  panes: Array<PaneRef & { lastSessionId: string | null }>
+  selectedProjectId: string | null
+}

@@ -26,7 +26,7 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 
 export function App() {
   const {
-    projects, selectedProjectId, dashboard, error, agentStatus,
+    projects, selectedProjectId, dashboard, error, agentStatus, openPanes,
     harnessLoading,
     loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus,
   } = useStore()
@@ -167,6 +167,12 @@ export function App() {
   useEffect(() => api.onHarnessEngineLog((e) => useStore.getState().appendHarnessEngineLog(e)), [])
   useEffect(() => api.onHarnessNodes((e) => useStore.getState().addHarnessLiveNodes(e)), [])
 
+  // Workspace session persistence: hydrate panes from main on boot.
+  useEffect(() => {
+    const off = api.onWorkspaceRestore((p) => useStore.getState().hydrateWorkspace(p))
+    return off
+  }, [])
+
   useEffect(() => { loadProjects() }, [loadProjects])
 
   // Keyboard: Ctrl+1..9 → project by index; Shift+1/2/3 → agent.
@@ -210,10 +216,24 @@ export function App() {
   // so nudge a resize once it becomes visible to re-fit xterm.
   useEffect(() => {
     if (!selectedProjectId) return
-    setOpenedIds((prev) => prev.includes(selectedProjectId) ? prev : [...prev, selectedProjectId].slice(-MAX_KEPT_DOCKS))
+    setOpenedIds((prev) => {
+      const next = prev.includes(selectedProjectId) ? prev : [...prev, selectedProjectId].slice(-MAX_KEPT_DOCKS)
+      // Report panes that are newly added (gained) and those that were evicted (lost).
+      const gained = next.filter((id) => !prev.includes(id))
+      const lost = prev.filter((id) => !next.includes(id))
+      for (const pid of gained) for (const a of AGENTS) api.paneOpened({ projectId: pid, agent: a })
+      for (const pid of lost) for (const a of AGENTS) api.paneClosed({ projectId: pid, agent: a })
+      return next
+    })
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60)
     return () => clearTimeout(t)
   }, [selectedProjectId])
+
+  // Report selected project to main for workspace persistence.
+  useEffect(() => {
+    if (selectedProjectId) api.selectProject(selectedProjectId)
+  }, [selectedProjectId])
+
   const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
   const runUpdate = async () => {
@@ -366,6 +386,8 @@ export function App() {
                           command={a}
                           args={[]}
                           cwd={pcwd}
+                          agent={a}
+                          resumeSessionId={openPanes[`${pid}:${a}`]?.sessionId}
                           onStatus={(s) => setAgentStatus(`${pid}:${a}`, s)}
                           onActivate={() => setAgent(a)}
                         />

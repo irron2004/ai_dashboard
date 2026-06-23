@@ -19,6 +19,7 @@ import type {
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
   ChangesListReq, ChangesListRes, ChangesDiffReq, ChangesDiffRes,
   HarnessNodesEvent,
+  PaneRef, WorkspaceRestore,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
 
@@ -35,6 +36,11 @@ declare global {
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
       onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void
+      // Workspace session persistence
+      paneOpened(p: unknown): void
+      paneClosed(p: unknown): void
+      selectProject(id: string): void
+      onWorkspaceRestore(cb: (p: unknown) => void): () => void
     }
   }
 }
@@ -180,4 +186,10 @@ export const api = {
   onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void {
     return window.apc.onHarnessNodes(cb)
   },
+
+  // Workspace session persistence
+  paneOpened(p: PaneRef): void { window.apc.paneOpened(p) },
+  paneClosed(p: PaneRef): void { window.apc.paneClosed(p) },
+  selectProject(id: string): void { window.apc.selectProject(id) },
+  onWorkspaceRestore(cb: (p: WorkspaceRestore) => void): () => void { return window.apc.onWorkspaceRestore(cb as (p: unknown) => void) },
 }
