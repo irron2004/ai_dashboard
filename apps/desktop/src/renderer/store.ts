@@ -31,6 +31,8 @@ type ApcStore = {
   /** Agent run status keyed by `${projectId}:${agent}` so each project's agents are tracked independently
    *  (their terminals stay mounted across project switches). Missing key → treat as 'idle'. */
   agentStatus: Record<string, AgentRunStatus>
+  /** Open panes keyed by `${projectId}:${agent}`. Populated on boot via hydrateWorkspace (workspace restore). */
+  openPanes: Record<string, { agent: AgentType; sessionId: string | null }>
   preflighting: boolean
   generatePreflight: GeneratePreflightRes | null
   generating: boolean
@@ -67,6 +69,7 @@ type ApcStore = {
   loadWikiPolicy(projectId: string): Promise<void>
   revertWikiPolicy(projectId: string): Promise<void>
 
+  hydrateWorkspace(p: { panes: Array<{ projectId: string; agent: AgentType; lastSessionId: string | null }>; selectedProjectId: string | null }): void
   setAgentStatus(key: string, status: AgentRunStatus): void
   prepareGenerate(): Promise<void>
   generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
@@ -136,6 +139,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   lastIngest: null,
   error: null,
   agentStatus: {},
+  openPanes: {},
   preflighting: false,
   generatePreflight: null,
   generating: false,
@@ -159,6 +163,12 @@ export const useStore = create<ApcStore>((set, get) => ({
   wikiPolicyPreview: null,
   wikiPolicyBusy: false,
   wikiPolicyMessage: null,
+
+  hydrateWorkspace(p) {
+    const openPanes: Record<string, { agent: AgentType; sessionId: string | null }> = {}
+    for (const pane of p.panes) openPanes[`${pane.projectId}:${pane.agent}`] = { agent: pane.agent, sessionId: pane.lastSessionId }
+    set({ openPanes, selectedProjectId: p.selectedProjectId ?? get().selectedProjectId })
+  },
 
   setAgentStatus(key, status) {
     set((s) => ({ agentStatus: { ...s.agentStatus, [key]: status } }))
