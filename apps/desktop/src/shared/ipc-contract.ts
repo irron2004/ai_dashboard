@@ -168,7 +168,12 @@ export type GenerateRunReq = {
   currentCanonical: string
 }
 
-export type StartPtyReq = { id: string; command: string; args: string[]; cwd: string }
+export type StartPtyReq = {
+  id: string; command: string; args: string[]; cwd: string
+  resume?: boolean            // true면 main이 resume argv를 구성(아래 agent 필요)
+  agent?: 'claude' | 'codex' | 'opencode'
+  sessionId?: string          // 알려진 세션 id(없으면 main이 최신 발견)
+}
 export type PtyInputReq = { id: string; data: string }
 export type PtyKillReq = { id: string }
 export type PtyResizeReq = { id: string; cols: number; rows: number }

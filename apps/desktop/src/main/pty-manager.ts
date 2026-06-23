@@ -3,6 +3,8 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { parseSsh } from './ssh-exec.js'
+import { resumeCommand, findLatestSession, adapterFor } from '@apc/agents'
+import type { AgentKind } from '@apc/shared'
 
 type IPty = {
   onData(cb: (data: string) => void): void
@@ -17,6 +19,10 @@ type PtyModule = {
 
 export type SendFn = (channel: string, ...args: unknown[]) => void
 
+type ResumeDeps = {
+  resolveResume?: (agent: AgentKind, cwd: string) => Promise<{ command: string; args: string[] }>
+}
+
 /**
  * Manages node-pty sessions keyed by id, streaming output to the renderer.
  * channels: emits `pty:data` (id, data) and `pty:exit` (id, exitCode).
@@ -24,8 +30,14 @@ export type SendFn = (channel: string, ...args: unknown[]) => void
 export class PtyManager {
   private readonly sessions = new Map<string, IPty>()
   private mod: PtyModule | null | undefined // null = load attempted, unavailable
+  private readonly resolveResume: NonNullable<ResumeDeps['resolveResume']>
 
-  constructor(private readonly send: SendFn) {}
+  constructor(private readonly send: SendFn, deps: ResumeDeps = {}) {
+    this.resolveResume = deps.resolveResume ?? (async (agent, cwd) => {
+      const found = await findLatestSession(adapterFor(agent), cwd).catch(() => null)
+      return resumeCommand(agent, { sessionId: found?.sessionId })
+    })
+  }
 
   private async load(): Promise<PtyModule | null> {
     if (this.mod === null) return null // already failed
@@ -39,7 +51,10 @@ export class PtyManager {
     }
   }
 
-  async start(id: string, command: string, args: string[], cwd: string): Promise<void> {
+  async start(
+    id: string, command: string, args: string[], cwd: string,
+    opts: { resume?: boolean; agent?: AgentKind } = {},
+  ): Promise<void> {
     const pty = await this.load()
     if (!pty) {
       this.send('pty:data', id, '[node-pty unavailable — native module not loaded]\r\n')
@@ -82,7 +97,15 @@ export class PtyManager {
       // Auto-run the agent command in each pane (Enter included). Local fires quickly;
       // SSH waits longer so the command lands at the remote shell prompt (key-auth) rather
       // than mid-connect. (Password-auth hosts: clear the line and retype after authenticating.)
-      const line = [command, ...args].filter(Boolean).join(' ').trim()
+      let line = [command, ...args].filter(Boolean).join(' ').trim()
+      if (opts.resume && opts.agent) {
+        try {
+          const r = await this.resolveResume(opts.agent, cwd)
+          line = [r.command, ...r.args].join(' ').trim()
+        } catch {
+          this.send('pty:data', id, '[no prior session — fresh start]\r\n')
+        }
+      }
       if (line) {
         setTimeout(() => { try { p.write(line + '\r') } catch { /* shell closed */ } }, ssh ? 1500 : 500)
       }

@@ -73,7 +73,9 @@ function createWindow(): void {
   ipcMain.handle(CH.appRestart, async () => { app.relaunch(); app.quit() })
 
   const pty = new PtyManager((channel, ...args) => win.webContents.send(channel, ...args))
-  ipcMain.on(CH.ptyStart, (_e, req: StartPtyReq) => { void pty.start(req.id, req.command, req.args, req.cwd) })
+  ipcMain.on(CH.ptyStart, (_e, req: StartPtyReq) => {
+    void pty.start(req.id, req.command, req.args, req.cwd, { resume: req.resume, agent: req.agent })
+  })
   ipcMain.on(CH.ptyInput, (_e, req: PtyInputReq) => pty.write(req.id, req.data))
   ipcMain.on(CH.ptyKill, (_e, req: PtyKillReq) => pty.kill(req.id))
   ipcMain.on(CH.ptyResize, (_e, req: PtyResizeReq) => pty.resize(req.id, req.cols, req.rows))
