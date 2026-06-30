@@ -41,6 +41,12 @@ export class AgentRunStore {
       .run('completed', patch.endedAt, patch.summaryPath ?? null, id)
   }
 
+  /** Mark a run failed (non-zero exit, spawn error, timeout, or cancel). Mirrors complete(). */
+  fail(id: string, patch: { endedAt: string }): void {
+    this.db.prepare('UPDATE agent_runs SET status = ?, ended_at = ? WHERE id = ?')
+      .run('failed', patch.endedAt, id)
+  }
+
   listByTask(taskId: string): AgentRun[] {
     const rows = this.db.prepare('SELECT * FROM agent_runs WHERE task_id = ? ORDER BY started_at DESC').all(taskId) as Row[]
     return rows.map(toRun)
