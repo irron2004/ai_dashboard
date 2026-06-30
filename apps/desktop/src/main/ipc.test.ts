@@ -105,7 +105,10 @@ describe('IPC handlers (no Electron)', () => {
         return { session, position: JSON.stringify({ sizeBytes: 1, mtimeMs: 1 }) }
       },
     }
-    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
+    // SP1 wired session→Task capture into ingest (onSessionParsed → summarize via the agentRunner).
+    // Without a fake runner this would spawn a real CLI and time out — inject a fast FakeAgentRunner.
+    const { FakeAgentRunner } = await import('@apc/llm-wiki')
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake], agentRunner: new FakeAgentRunner(['{"title":"design the control tower"}']) })
     c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
     const h = handlers(c2)
     const res = (await h[CH.ingestAll](undefined)) as { sources: number; sessions: number; documents: number }
@@ -347,5 +350,12 @@ describe('IPC handlers (no Electron)', () => {
     const res = await h[channel]({ projectId: 'p1' })
     expect(calledWith).toEqual({ projectId: 'p1' })
     expect((res as { ok: boolean }).ok).toBe(true)
+  })
+
+  test('q:tasksList returns the project tasks', async () => {
+    container.tasks.create({ id: 'req:p1:s1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none' })
+    const h = handlers(container)
+    const res = (await h[CH.tasksList]({ projectId: 'p1' })) as { id: string }[]
+    expect(res.map((t) => t.id)).toContain('req:p1:s1')
   })
 })

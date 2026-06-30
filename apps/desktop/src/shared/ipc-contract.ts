@@ -6,6 +6,7 @@ export const CH = {
   projectDashboard: 'q:projectDashboard',
   search: 'q:search',
   listProfiles: 'q:listProfiles',
+  tasksList: 'q:tasksList',
   // dialogs
   selectFolder: 'd:selectFolder',
   testSsh: 'd:testSsh',
@@ -73,6 +74,7 @@ export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }
 export type SearchReq = { query: string; projectId?: string }
 export type ListProfilesReq = { projectPath: string }
+export type TasksListReq = { projectId: string }
 export type SubmitReviewReq = { review: Review }
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
