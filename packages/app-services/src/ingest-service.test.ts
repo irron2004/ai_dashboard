@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore, type Db } from '@apc/core'
 import { SearchIndex } from '@apc/search'
@@ -127,5 +127,21 @@ describe('IngestService', () => {
     // lock must have been released by the finally block — a second ingest (no knowledge) succeeds
     const okSvc = new IngestService({ registry, cursors, index })
     await expect(okSvc.ingestAll([new FakeAdapter(session)])).resolves.toMatchObject({ sources: 0 })
+  })
+
+  it('calls onSessionParsed for each parsed session with the resolved projectId', async () => {
+    const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
+    const onSessionParsed = vi.fn(async () => {})
+    const svc = new IngestService({ registry, cursors, index, onSessionParsed })
+    await svc.ingestAll([new FakeAdapter(session)])
+    expect(onSessionParsed).toHaveBeenCalledTimes(1)
+    expect(onSessionParsed.mock.calls[0][1]).toBe('p1')   // resolved via repoPath /work/apc → p1
+  })
+
+  it('a throwing onSessionParsed does not break ingest', async () => {
+    const session: NormalizedSession = { id: 's2', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
+    const onSessionParsed = vi.fn(async () => { throw new Error('extract boom') })
+    const svc = new IngestService({ registry, cursors, index, onSessionParsed })
+    await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toBeDefined()
   })
 })
