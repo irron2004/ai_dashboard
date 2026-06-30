@@ -68,3 +68,22 @@ export async function extractTasks(
   })
   return { request, todos }
 }
+
+export type TaskSink = {
+  create(t: Task): void
+  listByProject(projectId: string): Task[]
+  delete(id: string): void
+}
+
+/** Upsert the session's request + todos, then delete this session's prior todo-Tasks that vanished. */
+export function reconcileSessionTasks(
+  store: TaskSink, projectId: string, sessionId: string, request: Task, todos: Task[],
+): void {
+  store.create(request)
+  for (const t of todos) store.create(t)
+  const keep = new Set(todos.map((t) => t.id))
+  const prefix = `todo:${projectId}:${sessionId}:`
+  for (const existing of store.listByProject(projectId)) {
+    if (existing.id.startsWith(prefix) && !keep.has(existing.id)) store.delete(existing.id)
+  }
+}

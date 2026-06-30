@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import type { NormalizedSession } from '@apc/shared'
-import { mapTodoStatus, slug, extractTodos, extractTasks } from './task-extractor.js'
+import type { NormalizedSession, Task } from '@apc/shared'
+import { mapTodoStatus, slug, extractTodos, extractTasks, reconcileSessionTasks } from './task-extractor.js'
 
 function session(partial: Partial<NormalizedSession> = {}): NormalizedSession {
   return { id: 's1', agentType: 'claude', turns: [], filesTouched: [], sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, ...partial } as NormalizedSession
@@ -65,5 +65,30 @@ describe('extractTasks', () => {
     const r = await extractTasks(session(), 'p1', { summarize: spy, existingTitle: 'KEEP' })
     expect(spy).not.toHaveBeenCalled()
     expect(r.request.title).toBe('KEEP')
+  })
+})
+
+describe('reconcileSessionTasks', () => {
+  function fakeStore() {
+    const map = new Map<string, Task>()
+    return {
+      map,
+      create: (t: Task) => { map.set(t.id, t) },
+      listByProject: (pid: string) => [...map.values()].filter((t) => t.projectId === pid),
+      delete: (id: string) => { map.delete(id) },
+    }
+  }
+  const mk = (id: string, extra: Partial<Task> = {}): Task => ({ id, projectId: 'p1', title: id, status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none', ...extra })
+
+  it('upserts request + todos and deletes stale todos of the same session', () => {
+    const store = fakeStore()
+    // pre-existing: 3 todos for session s1
+    store.create(mk('todo:p1:s1:a')); store.create(mk('todo:p1:s1:b')); store.create(mk('todo:p1:s1:c'))
+    store.create(mk('todo:p1:s2:z')) // other session — must survive
+    const request = mk('req:p1:s1', { parentTaskId: undefined })
+    const todos = [mk('todo:p1:s1:a'), mk('todo:p1:s1:b')] // c dropped
+    reconcileSessionTasks(store, 'p1', 's1', request, todos)
+    const ids = store.listByProject('p1').map((t) => t.id).sort()
+    expect(ids).toEqual(['req:p1:s1', 'todo:p1:s1:a', 'todo:p1:s1:b', 'todo:p1:s2:z'])
   })
 })
