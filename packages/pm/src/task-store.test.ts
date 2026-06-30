@@ -31,6 +31,12 @@ describe('TaskStore', () => {
     const t = store.get('TASK-001')!
     expect(t.status).toBe('review'); expect(t.reviewStatus).toBe('pending')
   })
+  test('delete removes a task by id', () => {
+    store.create({ id: 'T-del', projectId: 'p1', title: 'x', status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none' })
+    expect(store.get('T-del')).toBeDefined()
+    store.delete('T-del')
+    expect(store.get('T-del')).toBeUndefined()
+  })
 
   test('round-trips PM fields: parentTaskId, acceptanceCriteria, linkedWikiPages, estimate', () => {
     store.create({

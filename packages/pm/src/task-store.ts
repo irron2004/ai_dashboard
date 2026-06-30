@@ -57,4 +57,8 @@ export class TaskStore {
     if (reviewStatus) this.db.prepare('UPDATE tasks SET status = ?, review_status = ? WHERE id = ?').run(status, reviewStatus, id)
     else this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(status, id)
   }
+
+  delete(id: string): void {
+    this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
+  }
 }
