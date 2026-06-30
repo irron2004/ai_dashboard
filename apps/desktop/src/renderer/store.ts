@@ -73,6 +73,8 @@ type ApcStore = {
   setAgentStatus(key: string, status: AgentRunStatus): void
   /** Per-session restart token keyed by `${projectId}:${agent}`. Bumping it re-spawns that agent's terminal. */
   restartNonce: Record<string, number>
+  /** Keys whose latest exit was a user-initiated ⏹ stop; the resulting onPtyExit 'done' is coerced to 'idle'. */
+  stoppingKeys: Record<string, boolean>
   restartAgent(key: string): void
   stopAgent(key: string): void
   prepareGenerate(): Promise<void>
@@ -144,6 +146,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   error: null,
   agentStatus: {},
   restartNonce: {},
+  stoppingKeys: {},
   openPanes: {},
   preflighting: false,
   generatePreflight: null,
@@ -176,15 +179,32 @@ export const useStore = create<ApcStore>((set, get) => ({
   },
 
   setAgentStatus(key, status) {
-    set((s) => ({ agentStatus: { ...s.agentStatus, [key]: status } }))
+    set((s) => {
+      if (status === 'done' && s.stoppingKeys[key]) {
+        const stopping = { ...s.stoppingKeys }
+        delete stopping[key]
+        return { agentStatus: { ...s.agentStatus, [key]: 'idle' }, stoppingKeys: stopping }
+      }
+      return { agentStatus: { ...s.agentStatus, [key]: status } }
+    })
   },
 
   restartAgent(key) {
-    set((s) => ({ restartNonce: { ...s.restartNonce, [key]: (s.restartNonce[key] ?? 0) + 1 } }))
+    set((s) => {
+      const stopping = { ...s.stoppingKeys }
+      delete stopping[key]
+      return {
+        restartNonce: { ...s.restartNonce, [key]: (s.restartNonce[key] ?? 0) + 1 },
+        stoppingKeys: stopping,
+      }
+    })
   },
   stopAgent(key) {
     api.killPty({ id: key })
-    set((s) => ({ agentStatus: { ...s.agentStatus, [key]: 'idle' } }))
+    set((s) => ({
+      agentStatus: { ...s.agentStatus, [key]: 'idle' },
+      stoppingKeys: { ...s.stoppingKeys, [key]: true },
+    }))
   },
 
   async prepareGenerate() {

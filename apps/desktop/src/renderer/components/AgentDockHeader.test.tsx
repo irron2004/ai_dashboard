@@ -38,4 +38,9 @@ describe('AgentDockHeader', () => {
     fireEvent.click(stop)
     expect(onStop).toHaveBeenCalledTimes(1)
   })
+
+  it('stop is disabled when done', () => {
+    setup('done')
+    expect((screen.getByLabelText('에이전트 중지') as HTMLButtonElement).disabled).toBe(true)
+  })
 })
