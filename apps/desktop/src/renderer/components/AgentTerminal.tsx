@@ -13,6 +13,7 @@ export type AgentTerminalProps = {
   cwd: string
   agent?: 'claude' | 'codex' | 'opencode'
   resumeSessionId?: string | null   // null = resume latest; undefined = no resume (fresh start)
+  restartNonce?: number   // bump to force re-spawn (start/restart)
   onStatus?: (status: AgentRunStatus) => void
   onActivate?: () => void
 }
@@ -24,7 +25,7 @@ const ATTENTION_RE = /(\(y\/n\)|\[y\/n\]|\by\/n\b|allow\b|permission|approve|pro
  * Agent Work Execution Panel terminal. Spawns a PTY in the main process and mirrors it
  * with xterm. Reports lifecycle to onStatus: running → (attention on a permission prompt) → done.
  */
-export function AgentTerminal({ sessionId, command, args, cwd, agent, resumeSessionId, onStatus, onActivate }: AgentTerminalProps) {
+export function AgentTerminal({ sessionId, command, args, cwd, agent, resumeSessionId, restartNonce, onStatus, onActivate }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   // keep callbacks in refs so a new identity each render doesn't remount the terminal
   const onStatusRef = useRef(onStatus)
@@ -96,7 +97,7 @@ export function AgentTerminal({ sessionId, command, args, cwd, agent, resumeSess
     }
     // args is intentionally joined (array identity is unstable across renders)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, command, cwd, args.join(' ')])
+  }, [sessionId, command, cwd, args.join(' '), restartNonce])
 
   return (
     <div
