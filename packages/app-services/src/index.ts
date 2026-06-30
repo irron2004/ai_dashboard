@@ -13,3 +13,5 @@ export {
 } from './workspace-vault.js'
 export { type PipelineStep, buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
 export * from './knowledge-indexer.js'
+export * from './task-extractor.js'
+export * from './session-summarizer.js'

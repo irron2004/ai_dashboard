@@ -6,7 +6,7 @@ import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceSt
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
@@ -167,11 +167,18 @@ export function buildContainer(opts: {
   const search = (req: SearchReq): UnifiedSearchResponse => unifiedSearch.search(req)
   const vault = new VaultAdapter(opts.vaultRoot)
   const taskProfiles = new TaskProfileStore(db)
+  const summarize = makeSessionSummarizer({ runner: opts.agentRunner ?? new RoutingAgentRunner(), engine: 'claude' })
   const ingest = new IngestService({
     registry,
     cursors,
     index: searchIndex,
     knowledge: new KnowledgeIndexer({ registry, store: knowledgeStore, vaultRoot: opts.vaultRoot }),
+    onSessionParsed: async (session, projectId) => {
+      if (!projectId) return
+      const existing = tasks.get(`req:${projectId}:${session.id}`)
+      const { request, todos } = await extractTasks(session, projectId, { summarize, existingTitle: existing?.title })
+      reconcileSessionTasks(tasks, projectId, session.id, request, todos)
+    },
   })
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
