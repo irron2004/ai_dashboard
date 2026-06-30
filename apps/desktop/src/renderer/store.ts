@@ -71,6 +71,10 @@ type ApcStore = {
 
   hydrateWorkspace(p: { panes: Array<{ projectId: string; agent: AgentType; lastSessionId: string | null }>; selectedProjectId: string | null }): void
   setAgentStatus(key: string, status: AgentRunStatus): void
+  /** Per-session restart token keyed by `${projectId}:${agent}`. Bumping it re-spawns that agent's terminal. */
+  restartNonce: Record<string, number>
+  restartAgent(key: string): void
+  stopAgent(key: string): void
   prepareGenerate(): Promise<void>
   generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
   clearGeneratePreflight(): void
@@ -139,6 +143,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   lastIngest: null,
   error: null,
   agentStatus: {},
+  restartNonce: {},
   openPanes: {},
   preflighting: false,
   generatePreflight: null,
@@ -172,6 +177,14 @@ export const useStore = create<ApcStore>((set, get) => ({
 
   setAgentStatus(key, status) {
     set((s) => ({ agentStatus: { ...s.agentStatus, [key]: status } }))
+  },
+
+  restartAgent(key) {
+    set((s) => ({ restartNonce: { ...s.restartNonce, [key]: (s.restartNonce[key] ?? 0) + 1 } }))
+  },
+  stopAgent(key) {
+    api.killPty({ id: key })
+    set((s) => ({ agentStatus: { ...s.agentStatus, [key]: 'idle' } }))
   },
 
   async prepareGenerate() {
