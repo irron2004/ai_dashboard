@@ -5,6 +5,7 @@ import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
 import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
+import { AgentDockHeader } from './components/AgentDockHeader.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
@@ -30,6 +31,9 @@ export function App() {
     harnessLoading,
     loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus,
   } = useStore()
+  const restartAgent = useStore((s) => s.restartAgent)
+  const stopAgent = useStore((s) => s.stopAgent)
+  const restartNonce = useStore((s) => s.restartNonce)
   const [agent, setAgent] = useState<AgentType>('claude')
   // Projects whose agent terminals are kept mounted (insertion order; capped at MAX_KEPT_DOCKS).
   const [openedIds, setOpenedIds] = useState<string[]>([])
@@ -366,19 +370,16 @@ export function App() {
                         borderRadius: 4, overflow: 'hidden',
                       }}
                     >
-                      <div
-                        onClick={() => setAgent(a)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-                          padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
-                          background: a === agent ? '#23311f' : '#161616',
-                        }}
-                        title={`Shift+${i + 1}`}
-                      >
-                        <span style={{ color: STATUS_COLOR[statusOf(pid, a)], fontSize: '0.9rem', lineHeight: 1 }}>●</span>
-                        <span style={{ fontWeight: a === agent ? 600 : 400 }}>{a}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{i + 1}</span>
-                      </div>
+                      <AgentDockHeader
+                        agent={a}
+                        status={statusOf(pid, a)}
+                        selected={a === agent}
+                        shortcut={i + 1}
+                        statusColor={STATUS_COLOR[statusOf(pid, a)]}
+                        onStart={() => restartAgent(`${pid}:${a}`)}
+                        onStop={() => stopAgent(`${pid}:${a}`)}
+                        onSelect={() => setAgent(a)}
+                      />
                       <div style={{ flex: 1, minHeight: 0 }}>
                         <AgentTerminal
                           key={`${pid}:${a}`}
@@ -387,6 +388,7 @@ export function App() {
                           args={[]}
                           cwd={pcwd}
                           agent={a}
+                          restartNonce={restartNonce[`${pid}:${a}`] ?? 0}
                           resumeSessionId={openPanes[`${pid}:${a}`]?.sessionId}
                           onStatus={(s) => setAgentStatus(`${pid}:${a}`, s)}
                           onActivate={() => setAgent(a)}
