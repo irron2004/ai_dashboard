@@ -48,6 +48,22 @@ describe('IPC handlers (no Electron)', () => {
     expect((res as any).recentRuns[0].id).toBe('R1')
   })
 
+  test('c:devHarnessRun returns ok:false for a project without repoPaths (no spawn)', async () => {
+    container.registry.register({
+      id: 'np', name: 'NoRepo', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: [], vaultPaths: [], sourcePaths: [],
+    })
+    const h = handlers(container)
+    const res = await h[CH.devHarnessRun]({ projectId: 'np', taskId: 'T1' })
+    expect(res).toMatchObject({ ok: false })
+  })
+
+  test('c:devHarnessCancel returns ok:false for an unknown run', async () => {
+    const h = handlers(container)
+    const res = await h[CH.devHarnessCancel]({ runId: 'nope' })
+    expect(res).toMatchObject({ ok: false })
+  })
+
   test('c:submitReview transitions the task to done', async () => {
     const h = handlers(container)
     // First complete the run so review is valid context

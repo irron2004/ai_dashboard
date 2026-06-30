@@ -6,7 +6,7 @@ import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceSt
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
@@ -28,6 +28,7 @@ import type {
   HarnessReadStagedDocReq, HarnessReadStagedDocRes, HarnessListStagedDocsReq, HarnessListStagedDocsRes,
   HarnessReadGraphEdgesReq, HarnessReadGraphEdgesRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
+  DevHarnessRunReq, DevHarnessRunRes, DevHarnessCancelReq, DevHarnessCancelRes, DevHarnessLogEvent,
   ReadProjectWikiReq, ReadProjectWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
@@ -89,6 +90,8 @@ export type Container = {
   harnessListStagedDocs: (req: HarnessListStagedDocsReq) => HarnessListStagedDocsRes
   harnessReadGraphEdges: (req: HarnessReadGraphEdgesReq) => HarnessReadGraphEdgesRes
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
+  devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
+  devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   dashboard: typeof getProjectDashboard
 }
@@ -140,6 +143,7 @@ export function buildContainer(opts: {
   harnessRunsRoot?: string
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
   emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
+  emitDevHarnessLog?: (e: DevHarnessLogEvent) => void
   emitHarnessNodes?: (e: HarnessNodesEvent) => void
 }): Container {
   const db = openDb(opts.dbFile)
@@ -314,6 +318,19 @@ export function buildContainer(opts: {
   const harnessListStagedDocs = (req: HarnessListStagedDocsReq): HarnessListStagedDocsRes => harness.listStagedDocs(req)
   const harnessReadGraphEdges = (req: HarnessReadGraphEdgesReq): HarnessReadGraphEdgesRes => harness.readGraphEdges(req)
   const harnessExportWiki = (req: HarnessExportWikiReq): Promise<HarnessExportWikiRes> => harness.exportWiki(req)
+
+  // dev-harness (S3): drives the multi-agent coding harness via the CLI contract, recording runs in
+  // AgentRunStore and streaming logs. Independent of the wiki HarnessService above.
+  const devHarness = new DevHarnessService({
+    cli: new DevHarnessCli(),
+    runs,
+    registry,
+    runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+  })
+  const devHarnessRun = (req: DevHarnessRunReq): Promise<DevHarnessRunRes> =>
+    devHarness.run(req, opts.emitDevHarnessLog ? (e) => opts.emitDevHarnessLog!(e) : undefined)
+  const devHarnessCancel = (req: DevHarnessCancelReq): DevHarnessCancelRes => devHarness.cancel(req)
+
   const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
     const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
     return readProjectWiki(repoPaths)
@@ -325,6 +342,7 @@ export function buildContainer(opts: {
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
+    devHarnessRun, devHarnessCancel,
     readProjectWiki: readProjectWikiQuery,
     dashboard: getProjectDashboard,
   }
