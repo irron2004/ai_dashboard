@@ -129,16 +129,16 @@ describe('IngestService', () => {
     await expect(okSvc.ingestAll([new FakeAdapter(session)])).resolves.toMatchObject({ sources: 0 })
   })
 
-  it('calls onSessionParsed for each parsed session with the resolved projectId', async () => {
+  test('calls onSessionParsed for each parsed session with the resolved projectId', async () => {
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
-    const onSessionParsed = vi.fn(async () => {})
+    const onSessionParsed = vi.fn(async (_session: NormalizedSession, _projectId: string) => {})
     const svc = new IngestService({ registry, cursors, index, onSessionParsed })
     await svc.ingestAll([new FakeAdapter(session)])
     expect(onSessionParsed).toHaveBeenCalledTimes(1)
     expect(onSessionParsed.mock.calls[0][1]).toBe('p1')   // resolved via repoPath /work/apc → p1
   })
 
-  it('a throwing onSessionParsed does not break ingest', async () => {
+  test('a throwing onSessionParsed does not break ingest', async () => {
     const session: NormalizedSession = { id: 's2', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const onSessionParsed = vi.fn(async () => { throw new Error('extract boom') })
     const svc = new IngestService({ registry, cursors, index, onSessionParsed })
