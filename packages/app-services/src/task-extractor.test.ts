@@ -66,6 +66,12 @@ describe('extractTasks', () => {
     expect(spy).not.toHaveBeenCalled()
     expect(r.request.title).toBe('KEEP')
   })
+  it('sets request linkedWikiPages to session.filesTouched', async () => {
+    const s = session({ filesTouched: ['/abs/proj/vault/a.md', '/abs/proj/src/x.py'],
+      turns: [{ role: 'user', text: 'do', toolCalls: [] }] as NormalizedSession['turns'] })
+    const { request } = await extractTasks(s, 'p1', { summarize })
+    expect(request.linkedWikiPages).toEqual(['/abs/proj/vault/a.md', '/abs/proj/src/x.py'])
+  })
 })
 
 describe('reconcileSessionTasks', () => {

@@ -3,5 +3,5 @@ export type { GraphData, GraphNode, GraphLink, GraphNodeType, GraphShape } from 
 export { obsidianForceLayout } from './graph-layout.js'
 export { buildAdjacency, bfsNeighborhood, findPaths } from './graph-algorithms.js'
 export { entityColor, edgeColor, workflowFor, directionFor, confidenceClass, presentEntityTypes, groupEdgeTypes } from './graph-style.js'
-export { buildWikiGraphData, addNode, addLink, colorForNode, labelFromPath } from './build-graph.js'
-export type { PaperGraphEdge } from './build-graph.js'
+export { buildWikiGraphData, buildWorkGraphData, addNode, addLink, colorForNode, labelFromPath } from './build-graph.js'
+export type { PaperGraphEdge, WorkTaskInput } from './build-graph.js'

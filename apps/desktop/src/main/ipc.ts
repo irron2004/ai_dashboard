@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { join } from 'node:path'
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq,
+  RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq, TasksListReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
   ConfigEditReq, ConfigRollbackReq,
@@ -75,6 +75,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = payload as ListProfilesReq
       const { OpenCodeConfigAdapter } = await import('@apc/harness')
       return new OpenCodeConfigAdapter().discoverProfiles({ projectPath: req.projectPath })
+    },
+
+    [CH.tasksList]: async (payload: unknown) => {
+      const req = payload as TasksListReq
+      return container.tasks.listByProject(req.projectId)
     },
 
     [CH.configPreview]: async (payload: unknown) => {

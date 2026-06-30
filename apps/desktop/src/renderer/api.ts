@@ -21,7 +21,7 @@ import type {
   HarnessNodesEvent,
   PaneRef, WorkspaceRestore,
 } from '../shared/ipc-contract.js'
-import type { Project, AgentProfile, UnifiedSearchResponse } from '@apc/shared'
+import type { Project, AgentProfile, UnifiedSearchResponse, Task } from '@apc/shared'
 
 declare global {
   interface Window {
@@ -78,6 +78,9 @@ export const api = {
   },
   listProfiles(projectPath: string): Promise<AgentProfile[]> {
     return window.apc.invoke(CH.listProfiles, { projectPath }) as Promise<AgentProfile[]>
+  },
+  tasksList(projectId: string): Promise<Task[]> {
+    return window.apc.invoke(CH.tasksList, { projectId }) as Promise<Task[]>
   },
   ingestAll(): Promise<{ sources: number; sessions: number; documents: number }> {
     return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number; documents: number }>

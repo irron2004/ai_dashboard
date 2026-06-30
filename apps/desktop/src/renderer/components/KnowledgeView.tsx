@@ -9,8 +9,11 @@ import {
 import { GraphVisualization } from './GraphVisualization.js'
 import { MarkdownContent } from './MarkdownContent.js'
 import type { StagedDocDto, GraphEdgeDto, ReadProjectWikiRes } from '../../shared/ipc-contract.js'
+import { buildWorkGraphData } from '@apc/graph-view'
+import type { Task } from '@apc/shared'
 
 type Mode = 'docs' | 'graph'
+type TaskNodeDetail = { kind: 'task'; id: string; label: string; todos: { title: string; status: string }[]; sessionId?: string }
 /** 트리/뷰어가 가리키는 문서: run 아티팩트 · 디스크의 md · staging의 생성된 노드(검수중). */
 type DocRef = { kind: 'artifact'; path: string } | { kind: 'file'; relPath: string } | { kind: 'staged'; relPath: string }
 const nodeIdOf = (rel: string): string => rel.replace(/^.*[\\/]/, '').replace(/\.md$/i, '')
@@ -40,11 +43,13 @@ export function KnowledgeView() {
   const [stagedContent, setStagedContent] = useState<{ relPath: string; content: string } | { relPath: string; error: string } | null>(null)
   const [projectDocs, setProjectDocs] = useState<{ relPath: string; mtimeMs: number }[]>([])
   const [peek, setPeek] = useState<Peek | null>(null)
+  const [selectedNode, setSelectedNode] = useState<TaskNodeDetail | null>(null)
   // 노드를 빠르게 연속 클릭할 때 늦게 도착한 디스크 응답이 최신 선택을 덮어쓰지 않도록.
   const peekReq = useRef(0)
 
   const [projectWiki, setProjectWiki] = useState<ReadProjectWikiRes | null>(null)
-  const [graphSource, setGraphSource] = useState<'run' | 'wiki'>('run')
+  const [graphSource, setGraphSource] = useState<'run' | 'wiki' | 'work'>('run')
+  const [tasks, setTasks] = useState<Task[]>([])
 
   const run = useMemo(() => latestWikiRun(harnessRuns), [harnessRuns])
   const runId = run?.runState.runId
@@ -88,7 +93,20 @@ export function KnowledgeView() {
     () => (projectWiki?.available ? buildWikiGraphData(projectWiki.nodes, projectWiki.edges) : { nodes: [], links: [] }),
     [projectWiki],
   )
+  useEffect(() => {
+    if (graphSource !== 'work' || !selectedProjectId) return
+    void api.tasksList(selectedProjectId).then(setTasks).catch(() => setTasks([]))
+  }, [graphSource, selectedProjectId])
+  const workGraph = useMemo(() => {
+    const reqs = tasks.filter((t) => t.id.startsWith('req:'))
+    const items = reqs.map((t) => ({
+      id: t.id, title: t.title, status: t.status, linkedWikiPages: t.linkedWikiPages,
+      data: { sessionId: t.contextPackage, todos: tasks.filter((c) => c.parentTaskId === t.id).map((c) => ({ title: c.title, status: c.status })) },
+    }))
+    return buildWorkGraphData(items, projectWiki?.available ? projectWiki.nodes : [])
+  }, [tasks, projectWiki])
   const effectiveGraph = liveActive ? liveGraph
+    : (graphSource === 'work') ? workGraph
     : (graphSource === 'wiki' && projectWiki?.available) ? wikiGraph
     : (domain === 'paper' ? paperGraph : graphData)
 
@@ -169,6 +187,13 @@ export function KnowledgeView() {
   }
 
   const handleNodeClick = (node: GraphNodeRef) => {
+    if ((node as { type?: string }).type === 'task') {
+      const d = node.data as { sessionId?: string; todos?: { title: string; status: string }[] } | undefined
+      setSelectedNode({ kind: 'task', id: node.id, label: node.label ?? node.id, todos: d?.todos ?? [], sessionId: d?.sessionId })
+      setPeek(null)
+      return
+    }
+    setSelectedNode(null)
     const reqId = ++peekReq.current
     const title = node.label ?? node.id
     const hit = run ? pickNodeArtifact(run.artifacts, node) : undefined
@@ -292,24 +317,34 @@ export function KnowledgeView() {
               <button type="button"
                 className={graphSource === 'run' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'}
                 onClick={() => setGraphSource('run')}>최신 런</button>
+              <button type="button"
+                className={graphSource === 'work' ? 'knowledge__seg-btn knowledge__seg-btn--on' : 'knowledge__seg-btn'}
+                onClick={() => setGraphSource('work')}>Work</button>
             </div>
             <GraphVisualization data={effectiveGraph} onNodeClick={handleNodeClick} />
           </div>
-          {peek && (
+          {(peek || selectedNode) && (
             <aside className="knowledge__peek panel">
               <header className="panel__header knowledge__peek-header">
-                <h2>{peek.title}</h2>
+                <h2>{selectedNode?.kind === 'task' ? selectedNode.label : peek!.title}</h2>
                 <div>
-                  {peek.markdown && (
+                  {!selectedNode && peek?.markdown && (
                     <button type="button" onClick={() => openPeekAsDoc(peek)}>문서로 열기 ↗</button>
                   )}
-                  <button type="button" onClick={() => setPeek(null)} aria-label="미리보기 닫기">✕</button>
+                  <button type="button" onClick={() => { setPeek(null); setSelectedNode(null) }} aria-label="미리보기 닫기">✕</button>
                 </div>
               </header>
               <div className="knowledge__peek-body">
-                {peek.markdown
+                {selectedNode?.kind === 'task' ? (
+                  <ul>
+                    {selectedNode.todos.map((td, i) => (
+                      <li key={i}>[{td.status}] {td.title}</li>
+                    ))}
+                    {selectedNode.todos.length === 0 && <li>할 일 없음</li>}
+                  </ul>
+                ) : peek?.markdown
                   ? <MarkdownContent markdown={peek.markdown} onOpenWikiLink={openWikiLink} />
-                  : <div className="knowledge__error">⚠ {peek.error}</div>}
+                  : <div className="knowledge__error">⚠ {peek?.error}</div>}
               </div>
             </aside>
           )}

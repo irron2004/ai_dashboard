@@ -74,3 +74,32 @@ export function buildWikiGraphData(nodes: WikiNodeInput[], edges: PaperGraphEdge
   }
   return { nodes: [...nodeMap.values()], links }
 }
+
+export type WorkTaskInput = { id: string; title: string; status: string; linkedWikiPages: string[]; data?: unknown }
+
+/** True if the wiki relPath is the tail of an edited file path (session literally edited that wiki file). */
+function touchedWikiNode(touched: string[], relPath: string): boolean {
+  return touched.some((t) => t === relPath || t.endsWith('/' + relPath) || t.endsWith('\\' + relPath))
+}
+
+/** Work↔wiki graph: request-Task nodes + the wiki nodes they edited + work→wiki edges.
+ *  Tasks that edited no wiki file appear as isolated task nodes; wiki nodes are deduped. */
+export function buildWorkGraphData(tasks: WorkTaskInput[], wikiNodes: WikiNodeInput[]): GraphData {
+  const nodeMap = new Map<string, GraphNode>()
+  const links: GraphLink[] = []
+  for (const task of tasks) {
+    addNode(nodeMap, {
+      id: task.id, label: task.title || task.id, type: 'task', shape: 'circle',
+      color: colorForNode('task'), details: task.status, data: task.data,
+    })
+    for (const w of wikiNodes) {
+      if (!touchedWikiNode(task.linkedWikiPages, w.relPath)) continue
+      addNode(nodeMap, {
+        id: w.ref, label: w.title || w.ref, type: w.type as GraphNode['type'],
+        shape: 'circle', color: entityColor(w.type), details: w.type, data: { path: w.relPath },
+      })
+      addLink(links, { id: `work:${task.id}->${w.ref}`, source: task.id, target: w.ref, kind: 'work', label: 'touched' })
+    }
+  }
+  return { nodes: [...nodeMap.values()], links }
+}

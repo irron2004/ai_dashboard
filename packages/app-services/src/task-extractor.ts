@@ -65,6 +65,7 @@ export async function extractTasks(
   const request = TaskSchema.parse({
     id: reqId, projectId, title: title.trim(), status: hasOpen ? 'in_progress' : 'done',
     assigneeType: 'agent', assignee: agent, contextPackage: sid,
+    linkedWikiPages: session.filesTouched,
   })
   return { request, todos }
 }
