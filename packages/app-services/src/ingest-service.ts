@@ -30,7 +30,7 @@ export class IngestService {
           this.deps.index.indexSession(withProject)
           if (this.deps.onSessionParsed) {
             try { await this.deps.onSessionParsed(withProject, withProject.projectId ?? '') }
-            catch { /* task capture is best-effort; never break ingest */ }
+            catch (e) { console.warn(`[ingest] onSessionParsed failed for session ${withProject.id} (project ${withProject.projectId ?? '?'}):`, e) }
           }
           this.deps.cursors.set(source.id, position)
           sessions++
