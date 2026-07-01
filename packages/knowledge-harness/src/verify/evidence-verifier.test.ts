@@ -58,6 +58,16 @@ describe('EvidenceVerifier', () => {
     expect(r.unverifiable[0].reason).toBe('source_not_found')
   })
 
+  test('flags a cited path that is a directory (existsSync is true for dirs) instead of throwing EISDIR', () => {
+    // A worker can cite a folder path (e.g. raw/project-docs/0/docs). existsSync(dir) is true, so the old
+    // guard fell through to readFileSync(dir) → "EISDIR: illegal operation on a directory, read", killing the
+    // whole run. A directory is not a citable source: treat it as source_not_found (unverifiable → pruned).
+    mkdirSync(join(vault, 'raw', 'docs'), { recursive: true })
+    const r = ev.verify([proposal([{ source_path: 'raw/docs', quote_or_summary: 'anything' }])], vault)
+    expect(r.ok).toBe(false)
+    expect(r.unverifiable[0].reason).toBe('source_not_found')
+  })
+
   test('flags a path that escapes the vault', () => {
     const r = ev.verify([proposal([{ source_path: '../../etc/passwd' }])], vault)
     expect(r.ok).toBe(false)

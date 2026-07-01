@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { statSync, readFileSync } from 'node:fs'
 import {
   KhEvidenceVerificationReportSchema,
   type KhNodeProposal, type KhEvidenceVerificationReport,
@@ -32,8 +32,12 @@ export class EvidenceVerifier {
         } catch {
           unverifiable.push({ ...base, reason: 'path_escape' }); continue
         }
-        // Evidence must cite an immutable raw source that actually exists — that's the hard guarantee.
-        if (!isRaw(ev.source_path) || !existsSync(abs)) {
+        // Evidence must cite an immutable raw source that's a real FILE — that's the hard guarantee.
+        // statSync(...isFile()) (not existsSync) because existsSync is true for a directory too: a worker
+        // that cites a folder path (e.g. raw/project-docs/0/docs) would otherwise fall through to the
+        // readFileSync below and throw "EISDIR: illegal operation on a directory, read", killing the run.
+        const st = statSync(abs, { throwIfNoEntry: false })
+        if (!isRaw(ev.source_path) || !st?.isFile()) {
           unverifiable.push({ ...base, reason: 'source_not_found' }); continue
         }
         // The source is real. The quote is best-effort: `quote_or_summary` explicitly allows a SUMMARY,
