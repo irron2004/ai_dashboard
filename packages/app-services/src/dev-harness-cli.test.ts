@@ -55,6 +55,20 @@ test('non-zero exit code is reported', async () => {
   expect(await p).toMatchObject({ exitCode: 3 })
 })
 
+test('reassembles a multibyte char split across chunk boundaries', async () => {
+  const child = fakeChild()
+  const cli = new DevHarnessCli((() => child) as never)
+  const chunks: string[] = []
+  const p = cli.run({ root: '/r', taskId: 'T', onChunk: (_s, t) => chunks.push(t) })
+  const buf = Buffer.from('가') // 3 UTF-8 bytes
+  child.stdout.emit('data', buf.subarray(0, 2)) // partial — must be buffered, not emitted as garbage
+  child.stdout.emit('data', buf.subarray(2))
+  child.emit('close', 0)
+  const res = await p
+  expect(res.stdout).toBe('가')
+  expect(chunks.join('')).toBe('가')
+})
+
 test('spawn error → exitCode null + error', async () => {
   const child = fakeChild()
   const cli = new DevHarnessCli((() => child) as never)

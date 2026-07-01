@@ -81,6 +81,26 @@ test('cancel aborts an active run → failed/cancelled', async () => {
   expect(rows.get(runId)!.status).toBe('failed')
 })
 
+test('transcript dir segment is filesystem-safe (no colons — Windows)', async () => {
+  const { store, rows } = fakeRuns()
+  const cli = cliOf(async () => ({ exitCode: 0, stdout: '', stderr: '' }))
+  const svc = new DevHarnessService({ cli, runs: store as never, registry: okRegistry, runsRoot: '/runs' })
+  await svc.run({ projectId: 'P', taskId: 'T' })
+  const tp = String([...rows.values()][0].transcriptPath)
+  // the path segment(s) under .agent-runs must not contain ':' (illegal in a Windows path component)
+  expect(tp.split('.agent-runs')[1]).not.toContain(':')
+})
+
+test('two same-project runs in the same millisecond get distinct ids (no clobber)', async () => {
+  const { store, rows } = fakeRuns()
+  const cli = cliOf(async () => ({ exitCode: 0, stdout: '', stderr: '' }))
+  const now = () => '2026-07-01T00:00:00.000Z' // identical timestamp for both runs
+  const svc = new DevHarnessService({ cli, runs: store as never, registry: okRegistry, runsRoot: runsRoot(), now })
+  await svc.run({ projectId: 'P', taskId: 'T' })
+  await svc.run({ projectId: 'P', taskId: 'T' })
+  expect(rows.size).toBe(2)
+})
+
 test('cancel of unknown/ended run is a no-op', () => {
   const { store } = fakeRuns()
   const cli = cliOf(async () => ({ exitCode: 0, stdout: '', stderr: '' }))

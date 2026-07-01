@@ -36,8 +36,14 @@ export class DevHarnessService {
     if (!root) return { ok: false, reason: `project not found or has no repoPath: ${input.projectId}` }
 
     const startedAt = this.now()
-    const runId = `run:${input.projectId}:${startedAt.replace(/[:.]/g, '-')}`
-    const transcriptPath = join(this.deps.runsRoot, '.agent-runs', runId, 'transcript.log')
+    // Random suffix: the ISO timestamp alone is not unique — two runs of the same project within one
+    // millisecond would collide, and AgentRunStore.create is INSERT OR REPLACE (clobber + active-map
+    // overwrite → the first run leaks and becomes uncancellable). The suffix makes each id distinct.
+    const runId = `run:${input.projectId}:${startedAt.replace(/[:.]/g, '-')}:${Math.random().toString(36).slice(2, 8)}`
+    // The DB id keeps the `run:project:…` convention, but a filesystem path segment must not contain ':'
+    // (illegal on Windows → mkdir/append silently throw and the transcript is lost). Derive a safe dir.
+    const runDirName = runId.replace(/[^A-Za-z0-9._-]/g, '-')
+    const transcriptPath = join(this.deps.runsRoot, '.agent-runs', runDirName, 'transcript.log')
     try { mkdirSync(dirname(transcriptPath), { recursive: true }) } catch { /* best-effort */ }
 
     this.deps.runs.create({

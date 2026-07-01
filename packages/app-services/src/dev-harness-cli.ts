@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import { join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 
 /** CLI_CONTRACT.md 입력: ROOT(env+cwd), task_id(argv[0]), --workflow/--graph-profile(옵션). */
 export type DevHarnessCliInput = {
@@ -59,10 +60,18 @@ export class DevHarnessCli {
         if (input.signal.aborted) { onAbort(); return }
         input.signal.addEventListener('abort', onAbort)
       }
-      child.stdout?.on('data', (d) => { const t = String(d); stdout += t; input.onChunk?.('stdout', t) })
-      child.stderr?.on('data', (d) => { const t = String(d); stderr += t; input.onChunk?.('stderr', t) })
+      // Decode through StringDecoder so a multibyte char (e.g. Korean, which this codebase emits) split
+      // across two Buffer chunks isn't corrupted — String(buffer) decodes each chunk independently.
+      const outDec = new StringDecoder('utf8'), errDec = new StringDecoder('utf8')
+      const decode = (dec: StringDecoder, d: unknown) => dec.write(Buffer.isBuffer(d) ? d : Buffer.from(String(d)))
+      child.stdout?.on('data', (d) => { const t = decode(outDec, d); if (t) { stdout += t; input.onChunk?.('stdout', t) } })
+      child.stderr?.on('data', (d) => { const t = decode(errDec, d); if (t) { stderr += t; input.onChunk?.('stderr', t) } })
       child.on('error', (e) => finish({ exitCode: null, stdout, stderr, error: String(e) }))
-      child.on('close', (code) => finish({ exitCode: code, stdout, stderr }))
+      child.on('close', (code) => {
+        const to = outDec.end(); if (to) { stdout += to; input.onChunk?.('stdout', to) }
+        const te = errDec.end(); if (te) { stderr += te; input.onChunk?.('stderr', te) }
+        finish({ exitCode: code, stdout, stderr })
+      })
     })
   }
 }
