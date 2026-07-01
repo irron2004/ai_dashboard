@@ -16,12 +16,16 @@ export function DevHarnessPanel({ projectId, tasks }: Props) {
   const [log, setLog] = useState('')
   const runIdRef = useRef<string | null>(null)
 
-  useEffect(() => api.onDevHarnessLog((e) => {
-    // First chunk after a start carries the runId; capture it so cancel can target the live run.
-    if (!runIdRef.current) { runIdRef.current = e.runId; setRunId(e.runId) }
-    if (e.runId !== runIdRef.current) return
-    setLog((prev) => prev + e.chunk)
-  }), [])
+  useEffect(() => {
+    const off = api.onDevHarnessLog((e) => {
+      // First chunk after a start carries the runId; capture it so cancel can target the live run.
+      if (!runIdRef.current) { runIdRef.current = e.runId; setRunId(e.runId) }
+      if (e.runId !== runIdRef.current) return
+      setLog((prev) => prev + e.chunk)
+    })
+    // Guard the cleanup: a stub/proxy api may return a non-function; only a real unsubscribe is callable.
+    return typeof off === 'function' ? off : undefined
+  }, [])
 
   async function start() {
     if (!taskId || running) return

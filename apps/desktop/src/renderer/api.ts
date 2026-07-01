@@ -151,7 +151,9 @@ export const api = {
     return window.apc.invoke(CH.devHarnessCancel, req) as Promise<DevHarnessCancelRes>
   },
   onDevHarnessLog(cb: (e: DevHarnessLogEvent) => void): () => void {
-    return window.apc.onDevHarnessLog(cb)
+    // Tolerate a missing preload bridge (e.g. a component test that renders DevHarnessPanel inside a
+    // larger tree without stubbing window.apc): no bridge → no live logs, but the panel still mounts.
+    return window.apc?.onDevHarnessLog?.(cb) ?? (() => {})
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

@@ -1,12 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { PmHome } from './PmHome.js'
-
-// PmHome now embeds DevHarnessPanel, whose useEffect subscribes via window.apc.onDevHarnessLog.
-beforeEach(() => {
-  ;(window as unknown as { apc: unknown }).apc = { onDevHarnessLog: () => () => {} }
-})
 
 const dashboard: ProjectDashboardRes = {
   project: {
