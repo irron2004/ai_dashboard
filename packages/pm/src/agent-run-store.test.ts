@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb, migrate, type Db } from '@apc/core'
 import { migratePm } from './migrate.js'
 import { AgentRunStore } from './agent-run-store.js'
-import type { AgentRun } from '@apc/shared'
+import { RunAgent, type AgentRun } from '@apc/shared'
 
 const run: AgentRun = {
   id: 'RUN-1', taskId: 'TASK-001', agent: 'codex', repoPath: '/work/apc',
@@ -27,5 +27,19 @@ describe('AgentRunStore', () => {
     store.create(run)
     store.create({ ...run, id: 'RUN-2', startedAt: '2026-06-01T11:00:00Z' })
     expect(store.listByTask('TASK-001').map((r) => r.id)).toEqual(['RUN-2', 'RUN-1'])
+  })
+  test("RunAgent includes 'harness'", () => {
+    expect(RunAgent.parse('harness')).toBe('harness')
+  })
+  test('fail() marks a run failed with endedAt, preserving transcriptPath', () => {
+    store.create({
+      id: 'RUN-H', taskId: 'req:P:s1', agent: 'harness', repoPath: '/r',
+      startedAt: '2026-07-01T00:00:00.000Z', status: 'running', transcriptPath: '/r/t.log',
+    })
+    store.fail('RUN-H', { endedAt: '2026-07-01T00:01:00.000Z' })
+    const r = store.get('RUN-H')!
+    expect(r.status).toBe('failed')
+    expect(r.endedAt).toBe('2026-07-01T00:01:00.000Z')
+    expect(r.transcriptPath).toBe('/r/t.log')
   })
 })

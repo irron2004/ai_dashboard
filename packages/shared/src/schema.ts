@@ -49,10 +49,16 @@ export const TaskSchema = z.object({
 })
 export type Task = z.infer<typeof TaskSchema>
 
+// The actor that performed a run: a single CLI engine (AgentKind) OR 'harness', the multi-agent dev
+// orchestrator the console drives via the harness CLI contract (S3). Kept separate from AgentKind so
+// engine-selection code (panes, ssh ENGINE_CMD, resume, terminals) stays restricted to real CLI engines.
+export const RunAgent = z.enum(['claude', 'codex', 'opencode', 'harness'])
+export type RunAgent = z.infer<typeof RunAgent>
+
 export const AgentRunSchema = z.object({
   id: z.string().min(1),
   taskId: z.string().min(1),
-  agent: AgentKind,
+  agent: RunAgent,
   repoPath: z.string(),
   branch: z.string().optional(),
   worktreePath: z.string().optional(),

@@ -5,6 +5,7 @@ import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq, TasksListReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
+  DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -192,6 +193,8 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = z.object({ projectId: z.string() }).strict().parse(payload)
       return container.harnessExportWiki(req)
     },
+    [CH.devHarnessRun]: async (payload: unknown) => container.devHarnessRun(payload as DevHarnessRunReq),
+    [CH.devHarnessCancel]: async (payload: unknown) => container.devHarnessCancel(payload as DevHarnessCancelReq),
 
     [CH.generateRun]: async (payload: unknown) => {
       const req = payload as GenerateRunReq

@@ -36,6 +36,9 @@ export const CH = {
   harnessListStagedDocs: 'c:harnessListStagedDocs',
   harnessReadGraphEdges: 'c:harnessReadGraphEdges',
   harnessExportWiki: 'c:harnessExportWiki',
+  // dev-harness (S3): console drives the multi-agent coding harness via the CLI contract.
+  devHarnessRun: 'c:devHarnessRun',
+  devHarnessCancel: 'c:devHarnessCancel',
   readProjectWiki: 'c:readProjectWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
@@ -50,6 +53,7 @@ export const CH = {
   harnessProgress: 'harness:progress',
   harnessEngineLog: 'harness:engineLog',
   harnessNodes: 'harness:nodes',
+  devHarnessLog: 'devHarness:log',
   configPreview: 'c:configPreview',
   configApply: 'c:configApply',
   configRollback: 'c:configRollback',
@@ -115,6 +119,13 @@ export type HarnessLiveNode = { id: string; title: string; type: string; scope: 
 export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessLiveNode[] }
 export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
+
+// dev-harness (S3): drive the multi-agent coding harness for one task via the CLI contract.
+export type DevHarnessRunReq = { projectId: string; taskId: string; workflow?: string; graphProfile?: string }
+export type DevHarnessRunRes = { ok: boolean; runId?: string; exitCode?: number | null; reason?: string }
+export type DevHarnessCancelReq = { runId: string }
+export type DevHarnessCancelRes = { ok: boolean }
+export type DevHarnessLogEvent = { runId: string; label: string; stream: 'stdout' | 'stderr'; chunk: string }
 export type HarnessResumeReq = { runId: string }
 export type HarnessConfirmNodesReq = { runId: string; approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> } }
 export type HarnessGetRunReq = { runId: string }

@@ -1,6 +1,7 @@
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { TimelineStrip } from './TimelineStrip.js'
 import { TaskBoard } from './TaskBoard.js'
+import { DevHarnessPanel } from './DevHarnessPanel.js'
 
 type Props = { dashboard: ProjectDashboardRes }
 
@@ -37,6 +38,11 @@ export function PmHome({ dashboard }: Props) {
       <section className="pm-home__board">
         <h2>Task Board</h2>
         <TaskBoard tasks={allTasks} />
+      </section>
+
+      <section className="pm-home__harness">
+        <h2>Run Harness</h2>
+        <DevHarnessPanel key={project.id} projectId={project.id} tasks={allTasks} />
       </section>
 
       <section className="pm-home__review-queue">

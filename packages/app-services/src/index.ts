@@ -6,6 +6,8 @@ export * from './harness-promote-service.js'
 export * from './harness-service.js'
 export * from './staged-docs.js'
 export * from './harness-cli.js'
+export { DevHarnessCli, type DevHarnessCliInput, type DevHarnessCliResult, type SpawnFn } from './dev-harness-cli.js'
+export { DevHarnessService, type DevHarnessRunInput, type DevHarnessRunResult, type DevHarnessLogEvent, type DevHarnessServiceDeps, type ProjectLookup } from './dev-harness-service.js'
 export { materializeProjectDocs, type MaterializeManifest, type RemoteDocFetcher } from './source-materializer.js'
 export {
   type WorkspaceVault, type WorkspaceExportResult, LocalWorkspaceVault,

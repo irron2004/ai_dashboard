@@ -46,14 +46,19 @@ export async function extractTasks(
   const agent = session.agentType
   const reqId = `req:${projectId}:${sid}`
 
-  const todoData = extractTodos(session)
-  const todos = todoData.map((t) =>
-    TaskSchema.parse({
-      id: `todo:${projectId}:${sid}:${slug(t.content)}`,
-      projectId, title: t.content, status: t.status,
+  // Near-duplicate contents can slug to the same todo id (e.g. "Fix the bug" / "Fix the bug!").
+  // Keep the first occurrence so the todo count is stable instead of silently collapsing via
+  // INSERT OR REPLACE downstream (which would let a later dup's status clobber the first).
+  const seenTodoIds = new Set<string>()
+  const todos = extractTodos(session).flatMap((t) => {
+    const id = `todo:${projectId}:${sid}:${slug(t.content)}`
+    if (seenTodoIds.has(id)) return []
+    seenTodoIds.add(id)
+    return [TaskSchema.parse({
+      id, projectId, title: t.content, status: t.status,
       assigneeType: 'agent', assignee: agent, parentTaskId: reqId, contextPackage: sid,
-    }),
-  )
+    })]
+  })
 
   let title = opts.existingTitle
   if (!title) {
