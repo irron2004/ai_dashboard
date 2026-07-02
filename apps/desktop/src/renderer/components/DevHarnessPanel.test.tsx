@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import type { Task } from '@apc/shared'
+import type { Task, AgentRun } from '@apc/shared'
+const run = (id: string): AgentRun => ({
+  id, taskId: 'T1', agent: 'harness', repoPath: '/x', startedAt: '2026-06-01T00:00:00Z', status: 'completed',
+})
 
 const devHarnessRun = vi.fn()
 const devHarnessCancel = vi.fn()
@@ -93,5 +96,13 @@ describe('DevHarnessPanel', () => {
     fireEvent.change(screen.getByLabelText('주입 대상 에이전트'), { target: { value: 'codex' } })
     fireEvent.click(screen.getByRole('button', { name: /터미널에 주입/ }))
     expect(writePty).toHaveBeenCalledWith({ id: 'p1:codex', data: 'PROMPT-BODY' })
+  })
+
+  it('opens a transcript modal for a recent harness run', async () => {
+    devHarnessReadTranscript.mockResolvedValue({ ok: true, content: 'transcript body here' })
+    render(<DevHarnessPanel projectId="p1" tasks={[task('T1', 'do work')]} recentRuns={[run('RUN7')]} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /RUN7/ })) })
+    expect(devHarnessReadTranscript).toHaveBeenCalledWith({ runId: 'RUN7' })
+    expect(screen.getByTestId('transcript-content').textContent).toContain('transcript body here')
   })
 })

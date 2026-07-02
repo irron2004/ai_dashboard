@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Task } from '@apc/shared'
+import type { Task, AgentRun } from '@apc/shared'
 import { api } from '../api.js'
 
-type Props = { projectId: string; tasks: Task[] }
+type Props = { projectId: string; tasks: Task[]; recentRuns?: AgentRun[] }
 
 // dock pty keys are `${projectId}:${agent}` (App.tsx). Order matches App.tsx AGENTS.
 const INJECT_AGENTS = ['claude', 'opencode', 'codex'] as const
@@ -14,7 +14,7 @@ const INJECT_AGENTS = ['claude', 'opencode', 'codex'] as const
  * into a dock agent's terminal (pty write, no trailing newline — the user reviews then hits Enter)
  * or copied.
  */
-export function DevHarnessPanel({ projectId, tasks }: Props) {
+export function DevHarnessPanel({ projectId, tasks, recentRuns = [] }: Props) {
   const [taskId, setTaskId] = useState(tasks[0]?.id ?? '')
   const [runId, setRunId] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
@@ -25,6 +25,9 @@ export function DevHarnessPanel({ projectId, tasks }: Props) {
   const [composing, setComposing] = useState(false)
   const [injectAgent, setInjectAgent] = useState<(typeof INJECT_AGENTS)[number]>('claude')
   const [status, setStatus] = useState('')
+  // transcript modal state
+  const [transcriptRunId, setTranscriptRunId] = useState<string | null>(null)
+  const [transcript, setTranscript] = useState('')
 
   useEffect(() => {
     // Primary runId source: the started ack (fires before any log chunk).
@@ -87,6 +90,12 @@ export function DevHarnessPanel({ projectId, tasks }: Props) {
     catch { setStatus('복사 실패 (클립보드 차단)') }
   }
 
+  async function openTranscript(id: string) {
+    setTranscriptRunId(id); setTranscript('불러오는 중…')
+    const res = await api.devHarnessReadTranscript({ runId: id })
+    setTranscript(res.ok ? (res.content ?? '') : `읽기 실패: ${res.reason ?? 'unknown'}`)
+  }
+
   return (
     <div className="dev-harness">
       <div className="dev-harness__controls">
@@ -116,6 +125,31 @@ export function DevHarnessPanel({ projectId, tasks }: Props) {
         </div>
       )}
       {status && <div className="dev-harness__status" role="status">{status}</div>}
+
+      {(() => {
+        const devRuns = recentRuns.filter((r) => r.agent === 'harness')
+        return devRuns.length > 0 && (
+          <div className="dev-harness__runs">
+            <span className="dev-harness__runs-label">dev-run 트랜스크립트:</span>
+            {devRuns.map((r) => (
+              <button key={r.id} className="dev-harness__run-link" onClick={() => void openTranscript(r.id)}>{r.id}</button>
+            ))}
+          </div>
+        )
+      })()}
+
+      {transcriptRunId && (
+        <div className="transcript-modal" role="dialog" aria-label="dev-run transcript"
+             onClick={() => setTranscriptRunId(null)}>
+          <div className="transcript-modal__body" onClick={(e) => e.stopPropagation()}>
+            <div className="transcript-modal__head">
+              <span>{transcriptRunId}</span>
+              <button aria-label="닫기" onClick={() => setTranscriptRunId(null)}>✕</button>
+            </div>
+            <pre data-testid="transcript-content">{transcript}</pre>
+          </div>
+        </div>
+      )}
 
       <pre className="dev-harness__log" data-testid="dev-harness-log">{log}</pre>
     </div>
