@@ -7,7 +7,7 @@ import type { Task } from '@apc/shared'
 const base: Task = {
   id: 'TASK-001', projectId: 'p1', title: 'first', status: 'todo',
   assigneeType: 'agent', assignee: 'codex', priority: 'high', reviewStatus: 'none',
-  acceptanceCriteria: [], linkedWikiPages: [],
+  acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
 }
 
 describe('TaskStore', () => {
@@ -32,7 +32,7 @@ describe('TaskStore', () => {
     expect(t.status).toBe('review'); expect(t.reviewStatus).toBe('pending')
   })
   test('delete removes a task by id', () => {
-    store.create({ id: 'T-del', projectId: 'p1', title: 'x', status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none' })
+    store.create({ id: 'T-del', projectId: 'p1', title: 'x', status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none' })
     expect(store.get('T-del')).toBeDefined()
     store.delete('T-del')
     expect(store.get('T-del')).toBeUndefined()

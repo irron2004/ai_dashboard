@@ -10,14 +10,14 @@ const dashboard: ProjectDashboardRes = {
   },
   activeTasks: [],
   reviewQueue: [
-    { id: 'T2', projectId: 'p1', title: 'needs review', status: 'review', assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [] },
+    { id: 'T2', projectId: 'p1', title: 'needs review', status: 'review', assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] },
   ],
   recentRuns: [
     { id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/p1', startedAt: '2026-06-01T10:00:00Z', status: 'completed' },
   ],
   allTasks: [
-    { id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress', assigneeType: 'agent', priority: 'high', dueDate: '2026-06-15', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [] },
-    { id: 'T2', projectId: 'p1', title: 'needs review', status: 'review', assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [] },
+    { id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress', assigneeType: 'agent', priority: 'high', dueDate: '2026-06-15', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] },
+    { id: 'T2', projectId: 'p1', title: 'needs review', status: 'review', assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] },
   ],
 }
 

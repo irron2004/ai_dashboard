@@ -25,7 +25,7 @@ describe('IPC handlers (no Electron)', () => {
     container.tasks.create({
       id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress',
       assigneeType: 'agent', priority: 'high', reviewStatus: 'none',
-      acceptanceCriteria: [], linkedWikiPages: [],
+      acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
     })
     container.runs.create({
       id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/work/apc',
@@ -369,7 +369,7 @@ describe('IPC handlers (no Electron)', () => {
   })
 
   test('q:tasksList returns the project tasks', async () => {
-    container.tasks.create({ id: 'req:p1:s1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none' })
+    container.tasks.create({ id: 'req:p1:s1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none' })
     const h = handlers(container)
     const res = (await h[CH.tasksList]({ projectId: 'p1' })) as { id: string }[]
     expect(res.map((t) => t.id)).toContain('req:p1:s1')

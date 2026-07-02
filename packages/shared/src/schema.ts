@@ -44,6 +44,7 @@ export const TaskSchema = z.object({
   parentTaskId: z.string().optional(),
   acceptanceCriteria: z.array(z.string()).default([]),
   linkedWikiPages: z.array(z.string()).default([]),
+  blockedBy: z.array(z.string()).default([]),
   contextPackage: z.string().optional(),
   reviewStatus: ReviewStatus.default('none'),
 })

@@ -5,7 +5,7 @@ import { TaskBoard } from './TaskBoard.js'
 
 const t = (id: string, status: Task['status'], title: string, extra: Partial<Task> = {}): Task => ({
   id, projectId: 'p1', title, status, assigneeType: 'agent', priority: 'medium',
-  reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], ...extra,
+  reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], ...extra,
 })
 
 describe('TaskBoard', () => {

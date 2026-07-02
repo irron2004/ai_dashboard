@@ -94,7 +94,7 @@ describe('reconcileSessionTasks', () => {
       delete: (id: string) => { map.delete(id) },
     }
   }
-  const mk = (id: string, extra: Partial<Task> = {}): Task => ({ id, projectId: 'p1', title: id, status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none', ...extra })
+  const mk = (id: string, extra: Partial<Task> = {}): Task => ({ id, projectId: 'p1', title: id, status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none', ...extra })
 
   it('upserts request + todos and deletes stale todos of the same session', () => {
     const store = fakeStore()
