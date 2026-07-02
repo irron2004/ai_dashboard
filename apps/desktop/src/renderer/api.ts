@@ -14,6 +14,9 @@ import type {
   HarnessReadGraphEdgesReq, HarnessReadGraphEdgesRes,
   HarnessExportWikiReq, HarnessExportWikiRes,
   DevHarnessRunReq, DevHarnessRunRes, DevHarnessCancelReq, DevHarnessCancelRes, DevHarnessLogEvent,
+  ComposeContextReq, ComposeContextRes,
+  DevHarnessStartedEvent,
+  DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
   ReadProjectWikiReq, ReadProjectWikiRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
@@ -39,6 +42,7 @@ declare global {
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
       onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void
       onDevHarnessLog(cb: (e: DevHarnessLogEvent) => void): () => void
+      onDevHarnessStarted(cb: (e: DevHarnessStartedEvent) => void): () => void
       // Workspace session persistence
       paneOpened(p: unknown): void
       paneClosed(p: unknown): void
@@ -154,10 +158,20 @@ export const api = {
   devHarnessCancel(req: DevHarnessCancelReq): Promise<DevHarnessCancelRes> {
     return window.apc.invoke(CH.devHarnessCancel, req) as Promise<DevHarnessCancelRes>
   },
+  composeContext(req: ComposeContextReq): Promise<ComposeContextRes> {
+    return window.apc.invoke(CH.composeContext, req) as Promise<ComposeContextRes>
+  },
+  devHarnessReadTranscript(req: DevHarnessReadTranscriptReq): Promise<DevHarnessReadTranscriptRes> {
+    return window.apc.invoke(CH.devHarnessReadTranscript, req) as Promise<DevHarnessReadTranscriptRes>
+  },
   onDevHarnessLog(cb: (e: DevHarnessLogEvent) => void): () => void {
     // Tolerate a missing preload bridge (e.g. a component test that renders DevHarnessPanel inside a
     // larger tree without stubbing window.apc): no bridge → no live logs, but the panel still mounts.
     return window.apc?.onDevHarnessLog?.(cb) ?? (() => {})
+  },
+  onDevHarnessStarted(cb: (e: DevHarnessStartedEvent) => void): () => void {
+    // Tolerate a missing preload bridge (component tests without a stubbed window.apc).
+    return window.apc?.onDevHarnessStarted?.(cb) ?? (() => {})
   },
   submitReview(req: SubmitReviewReq): Promise<unknown> {
     return window.apc.invoke(CH.submitReview, req)

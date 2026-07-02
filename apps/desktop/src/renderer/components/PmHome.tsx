@@ -87,7 +87,7 @@ export function PmHome({ dashboard }: Props) {
 
       <section className="pm-home__harness">
         <h2>Run Harness</h2>
-        <DevHarnessPanel key={project.id} projectId={project.id} tasks={allTasks} />
+        <DevHarnessPanel key={project.id} projectId={project.id} tasks={allTasks} recentRuns={recentRuns} />
       </section>
 
       <section className="pm-home__review-queue">

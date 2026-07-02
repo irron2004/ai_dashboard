@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('apc', {
     ipcRenderer.on(CH.devHarnessLog, handler)
     return () => ipcRenderer.removeListener(CH.devHarnessLog, handler)
   },
+  onDevHarnessStarted: (cb: (e: { runId: string; taskId: string; projectId: string }) => void) => {
+    const handler = (_e: unknown, ev: { runId: string; taskId: string; projectId: string }) => cb(ev)
+    ipcRenderer.on(CH.devHarnessStarted, handler)
+    return () => ipcRenderer.removeListener(CH.devHarnessStarted, handler)
+  },
 
   // Workspace session persistence
   paneOpened: (p: unknown) => ipcRenderer.send(CH.paneOpened, p),

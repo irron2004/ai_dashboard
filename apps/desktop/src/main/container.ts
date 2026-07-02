@@ -6,18 +6,19 @@ import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceSt
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
-import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
+import { join, resolve, sep } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
+import { readProjectDoc } from './project-files.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -33,6 +34,9 @@ import type {
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
+  ComposeContextReq, ComposeContextRes,
+  DevHarnessStartedEvent,
+  DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
 
@@ -93,6 +97,8 @@ export type Container = {
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
   devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
   devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
+  composeContext: (req: ComposeContextReq) => ComposeContextRes
+  devHarnessReadTranscript: (req: DevHarnessReadTranscriptReq) => DevHarnessReadTranscriptRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
@@ -102,6 +108,23 @@ let _idCounter = 0
 function nextId(): string {
   return `auto-${Date.now()}-${++_idCounter}`
 }
+
+const COMPOSE_WIKI_MAX_FILES = 6
+const COMPOSE_EXCERPT_CAP = 512
+/** Strip a leading YAML frontmatter block (LF or CRLF), then cap to COMPOSE_EXCERPT_CAP bytes. */
+function capExcerpt(raw: string): string {
+  const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
+  return body.length > COMPOSE_EXCERPT_CAP ? body.slice(0, COMPOSE_EXCERPT_CAP) + '…' : body
+}
+
+/** Returns true iff `candidate` resolves to a path inside `root` (or equal to it). Pure string resolution — no filesystem access, so it works even if `root` does not yet exist. */
+function isWithinRoot(root: string, candidate: string): boolean {
+  const r = resolve(root)
+  const c = resolve(candidate)
+  return c === r || c.startsWith(r + sep)
+}
+
+const TRANSCRIPT_CAP = 512 * 1024
 
 const PREFLIGHT_MARKDOWN_SCAN_LIMIT = 2_000
 const PREFLIGHT_MARKDOWN_DEPTH_LIMIT = 12
@@ -146,6 +169,7 @@ export function buildContainer(opts: {
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
   emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
   emitDevHarnessLog?: (e: DevHarnessLogEvent) => void
+  emitDevHarnessStarted?: (e: DevHarnessStartedEvent) => void
   emitHarnessNodes?: (e: HarnessNodesEvent) => void
 }): Container {
   const db = openDb(opts.dbFile)
@@ -323,15 +347,67 @@ export function buildContainer(opts: {
 
   // dev-harness (S3): drives the multi-agent coding harness via the CLI contract, recording runs in
   // AgentRunStore and streaming logs. Independent of the wiki HarnessService above.
+  // Extract to a const so devHarnessReadTranscript's containment guard uses the same root.
+  const devHarnessRunsRoot = opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs')
   const devHarness = new DevHarnessService({
     cli: new DevHarnessCli(),
     runs,
     registry,
-    runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+    runsRoot: devHarnessRunsRoot,
   })
   const devHarnessRun = (req: DevHarnessRunReq): Promise<DevHarnessRunRes> =>
-    devHarness.run(req, opts.emitDevHarnessLog ? (e) => opts.emitDevHarnessLog!(e) : undefined)
+    devHarness.run(
+      req,
+      opts.emitDevHarnessLog ? (e) => opts.emitDevHarnessLog!(e) : undefined,
+      opts.emitDevHarnessStarted ? (e) => opts.emitDevHarnessStarted!(e) : undefined,
+    )
   const devHarnessCancel = (req: DevHarnessCancelReq): DevHarnessCancelRes => devHarness.cancel(req)
+
+  const composeContext = (req: ComposeContextReq): ComposeContextRes => {
+    const project = registry.get(req.projectId)
+    if (!project) return { ok: false, reason: 'project not found' }
+    const task = tasks.get(req.taskId)
+    if (!task || task.projectId !== req.projectId) return { ok: false, reason: 'task not found' }
+    const allTasks = tasks.listByProject(project.id)
+    // Wiki excerpts: reuse the realpath-guarded, size-capped reader (md/mdx/txt only; other links skipped).
+    const roots = [join(opts.vaultRoot, 'projects', project.id), ...project.repoPaths, ...project.vaultPaths]
+    const wikiExcerpts: WikiExcerpt[] = []
+    for (const rel of task.linkedWikiPages.slice(0, COMPOSE_WIKI_MAX_FILES)) {
+      const r = readProjectDoc(roots, rel)
+      if (r.ok) wikiExcerpts.push({ path: rel, excerpt: capExcerpt(r.content) })
+    }
+    // MVP session summary: latest run for this task that has a stored summary doc (see plan notes).
+    let sessionSummary: string | undefined
+    const withSummary = runs.listByTask(task.id).find((run) => run.summaryPath)
+    if (withSummary?.summaryPath) {
+      const summaryFull = join(opts.vaultRoot, withSummary.summaryPath)
+      if (isWithinRoot(opts.vaultRoot, summaryFull)) {
+        try { sessionSummary = capExcerpt(readFileSync(summaryFull, 'utf8')) }
+        catch { /* summary unreadable → omit */ }
+      }
+      // path escapes vaultRoot → skip silently (defence in depth; no error surfaced to caller)
+    }
+    return { ok: true, prompt: composeContextPackage({ task, allTasks, wikiExcerpts, sessionSummary }) }
+  }
+
+  const devHarnessReadTranscript = (req: DevHarnessReadTranscriptReq): DevHarnessReadTranscriptRes => {
+    const run = runs.get(req.runId)
+    if (!run?.transcriptPath) return { ok: false, reason: 'transcript not found' }
+    // Containment guard: transcriptPath must live inside devHarnessRunsRoot (defence in depth).
+    if (!isWithinRoot(devHarnessRunsRoot, run.transcriptPath)) return { ok: false, reason: 'transcript not found' }
+    try {
+      const st = statSync(run.transcriptPath)
+      if (!st.isFile()) return { ok: false, reason: 'transcript not found' }
+      if (st.size <= TRANSCRIPT_CAP) return { ok: true, content: readFileSync(run.transcriptPath, 'utf8') }
+      // Oversized transcript: show the last TRANSCRIPT_CAP bytes (most recent output).
+      const fd = openSync(run.transcriptPath, 'r')
+      try {
+        const buf = Buffer.alloc(TRANSCRIPT_CAP)
+        readSync(fd, buf, 0, TRANSCRIPT_CAP, st.size - TRANSCRIPT_CAP)
+        return { ok: true, content: `…(잘림 · 마지막 ${TRANSCRIPT_CAP / 1024}KB)\n` + buf.toString('utf8') }
+      } finally { closeSync(fd) }
+    } catch { return { ok: false, reason: 'transcript not found' } }
+  }
 
   const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
     const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
@@ -351,7 +427,7 @@ export function buildContainer(opts: {
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
-    devHarnessRun, devHarnessCancel,
+    devHarnessRun, devHarnessCancel, composeContext, devHarnessReadTranscript,
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
     dashboard: getProjectDashboard,

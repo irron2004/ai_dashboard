@@ -39,6 +39,9 @@ export const CH = {
   // dev-harness (S3): console drives the multi-agent coding harness via the CLI contract.
   devHarnessRun: 'c:devHarnessRun',
   devHarnessCancel: 'c:devHarnessCancel',
+  // context package composer (P2): task → LLM-handoff prompt (assembled in main).
+  composeContext: 'q:composeContext',
+  devHarnessReadTranscript: 'q:devHarnessReadTranscript',
   readProjectWiki: 'c:readProjectWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
@@ -55,6 +58,7 @@ export const CH = {
   harnessEngineLog: 'harness:engineLog',
   harnessNodes: 'harness:nodes',
   devHarnessLog: 'devHarness:log',
+  devHarnessStarted: 'devHarness:started',
   configPreview: 'c:configPreview',
   configApply: 'c:configApply',
   configRollback: 'c:configRollback',
@@ -226,3 +230,14 @@ export type WorkspaceRestore = {
   panes: Array<PaneRef & { lastSessionId: string | null }>
   selectedProjectId: string | null
 }
+
+// context package composer (P2)
+export type ComposeContextReq = { projectId: string; taskId: string }
+export type ComposeContextRes = { ok: boolean; prompt?: string; reason?: string }
+
+// dev-harness started ack (P2): fired right after the run is recorded, before any log chunk.
+export type DevHarnessStartedEvent = { runId: string; taskId: string; projectId: string }
+
+// dev-harness transcript viewer (P2)
+export type DevHarnessReadTranscriptReq = { runId: string }
+export type DevHarnessReadTranscriptRes = { ok: boolean; content?: string; reason?: string }

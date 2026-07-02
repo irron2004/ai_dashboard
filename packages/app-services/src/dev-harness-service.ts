@@ -31,7 +31,11 @@ export class DevHarnessService {
     this.now = deps.now ?? (() => new Date().toISOString())
   }
 
-  async run(input: DevHarnessRunInput, onLog?: (e: DevHarnessLogEvent) => void): Promise<DevHarnessRunResult> {
+  async run(
+    input: DevHarnessRunInput,
+    onLog?: (e: DevHarnessLogEvent) => void,
+    onStarted?: (e: { runId: string; taskId: string; projectId: string }) => void,
+  ): Promise<DevHarnessRunResult> {
     const root = this.deps.registry.get(input.projectId)?.repoPaths?.[0]
     if (!root) return { ok: false, reason: `project not found or has no repoPath: ${input.projectId}` }
 
@@ -50,6 +54,7 @@ export class DevHarnessService {
       id: runId, taskId: input.taskId, agent: 'harness', repoPath: root,
       startedAt, status: 'running', transcriptPath,
     })
+    onStarted?.({ runId, taskId: input.taskId, projectId: input.projectId })
 
     const controller = new AbortController()
     this.active.set(runId, controller)

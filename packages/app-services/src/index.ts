@@ -17,3 +17,4 @@ export { type PipelineStep, buildPipelineTranscript, transcriptToJsonl } from '.
 export * from './knowledge-indexer.js'
 export * from './task-extractor.js'
 export * from './session-summarizer.js'
+export { composeContextPackage, type ComposeContextInput, type WikiExcerpt } from './context-composer.js'
