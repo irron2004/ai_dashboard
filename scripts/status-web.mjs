@@ -13,7 +13,7 @@ import { dirname, resolve } from 'node:path'
 const require = createRequire(import.meta.url)
 const here = dirname(fileURLToPath(import.meta.url))
 const config = resolve(here, '../vitest.config.ts')
-const entry = resolve(here, '../packages/status-web/src/cli.ts')
+const entry = resolve(here, '../packages/status-web/src/run.ts')
 const viteNode = require.resolve('vite-node/vite-node.mjs')
 
 const args = [viteNode, '--config', config, entry, '--', ...process.argv.slice(2)]

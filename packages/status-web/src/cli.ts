@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { ProjectRegistry } from '@apc/core'
 import { TaskStore, AgentRunStore } from '@apc/pm'
 import { buildWorkspaceOverview, type WorkspaceOverview } from '@apc/dashboard-api'
@@ -44,7 +43,3 @@ export function main(argv: string[], env: NodeJS.ProcessEnv): void {
   server.listen(cfg.port, cfg.host, () => printStartup(cfg))
 }
 
-// Only auto-start when executed directly (not when imported by a test).
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  main(process.argv.slice(2), process.env)
-}
