@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>APC Status</title>
+  <style>
+    :root { color-scheme: light dark; --gap: 12px; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header { position: sticky; top: 0; display: flex; align-items: center; gap: var(--gap);
+             padding: 12px 16px; background: Canvas; border-bottom: 1px solid color-mix(in srgb, CanvasText 15%, transparent); }
+    header h1 { font-size: 16px; margin: 0; flex: 1; }
+    button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
+             background: Canvas; color: CanvasText; }
+    button:active { opacity: .6; }
+    main { max-width: 640px; margin: 0 auto; padding: var(--gap); display: flex; flex-direction: column; gap: var(--gap); }
+    .meta { font-size: 13px; opacity: .75; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .stale { color: #b26a00; font-weight: 600; }
+    .card { border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); border-radius: 12px; padding: 14px 16px; }
+    .card h2 { font-size: 15px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+    .badge { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: color-mix(in srgb, CanvasText 10%, transparent); }
+    .badge.run { background: color-mix(in srgb, #2e7d32 25%, transparent); }
+    .badge.review { background: color-mix(in srgb, #b26a00 30%, transparent); }
+    ul { margin: 6px 0 0; padding-left: 18px; } li { margin: 2px 0; }
+    .empty { opacity: .6; font-style: italic; }
+    .error { color: #c62828; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>APC Status</h1>
+    <button id="refresh" type="button">새로고침</button>
+  </header>
+  <main>
+    <div class="meta" id="meta">불러오는 중…</div>
+    <div id="content"></div>
+  </main>
+  <script>
+    const API = '/api/overview';
+    const KEY = 'apc.status.token';
+
+    function getToken() {
+      let t = localStorage.getItem(KEY);
+      if (!t) { t = (prompt('상태 대시보드 접근 토큰을 입력하세요') || '').trim(); if (t) localStorage.setItem(KEY, t); }
+      return t;
+    }
+    function ago(iso) {
+      const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+      if (s < 60) return s + '초 전';
+      if (s < 3600) return Math.round(s / 60) + '분 전';
+      return Math.round(s / 3600) + '시간 전';
+    }
+    function esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+    function renderProject(p) {
+      const runs = p.runningRuns || [];
+      const nextUp = p.nextUp || [];
+      return `<section class="card">
+        <h2>${esc(p.project.name)}</h2>
+        <div class="badges">
+          <span class="badge">진행중 ${p.activeTaskCount}</span>
+          <span class="badge run">실행중 ${runs.length}</span>
+          <span class="badge review">리뷰 대기 ${p.reviewQueueCount}</span>
+        </div>
+        <div>다음 할 일</div>
+        ${nextUp.length
+          ? '<ul>' + nextUp.map((t) => `<li>${esc(t.title)} <small>(${esc(t.priority)})</small></li>`).join('') + '</ul>'
+          : '<div class="empty">없음</div>'}
+      </section>`;
+    }
+
+    async function load() {
+      const meta = document.getElementById('meta');
+      const content = document.getElementById('content');
+      const token = getToken();
+      if (!token) { meta.innerHTML = '<span class="error">토큰이 필요합니다.</span>'; return; }
+      try {
+        const res = await fetch(API, { headers: { authorization: 'Bearer ' + token } });
+        if (res.status === 401) { localStorage.removeItem(KEY); meta.innerHTML = '<span class="error">토큰이 올바르지 않습니다. 새로고침하세요.</span>'; return; }
+        if (!res.ok) { meta.innerHTML = '<span class="error">오류 ' + res.status + '</span>'; return; }
+        const data = await res.json();
+        const staleHeader = res.headers.get('x-status-stale') === '1';
+        const stale = staleHeader || (Date.now() - new Date(data.generatedAt).getTime() > 25000);
+        meta.innerHTML = '생성 ' + esc(ago(data.generatedAt)) + (stale ? ' <span class="stale">· 오래됨(stale)</span>' : '');
+        content.innerHTML = (data.projects || []).length
+          ? data.projects.map(renderProject).join('')
+          : '<div class="empty">프로젝트가 없습니다.</div>';
+      } catch (e) {
+        meta.innerHTML = '<span class="error">연결 실패</span>';
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    load();
+    setInterval(load, 10000);
+  </script>
+</body>
+</html>
