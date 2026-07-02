@@ -127,6 +127,16 @@ pnpm graph-web
 
 `scripts/graph-web.mjs`로 `apps/graph-web` Vite 개발 서버를 시작합니다.
 
+### 원격 읽기전용 상태 대시보드
+
+```bash
+pnpm status-web --db /path/to/apc.db          # 127.0.0.1:4319, 토큰 자동 생성
+pnpm status-web --host 0.0.0.0 --token <t>    # 폰/원격 접속(LAN opt-in)
+```
+
+Electron과 같은 `apc.db`를 읽어 전 프로젝트 상태를 웹으로 노출(읽기 전용, 토큰 인증).
+자세한 내용은 `docs/status-web.md` 참고.
+
 ---
 
 ## 패키지 맵 (packages/)
@@ -144,6 +154,7 @@ pnpm graph-web
 | `knowledge` | KnowledgeStore·ProcessedSourceStore·chunker·KnowledgeRetrieval·context-package·migrate |
 | `graph-view` | GraphVisualization(Cytoscape)·build-graph(work↔wiki)·graph-algorithms·graph-style — 브라우저·데스크톱 공용 |
 | `dashboard-api` | `getProjectDashboard` — 프로젝트별 activeTasks·reviewQueue·recentRuns 집계 |
+| `status-web` | 읽기전용 상태 웹 서버 — node:http + 토큰 인증, dashboard-api 집계를 HTTP로 노출, 모바일 페이지 |
 | `search` | SearchIndex — sqlite in-memory FTS, 세션·wiki·knowledge 통합 검색 |
 | `vault` | VaultAdapter — gray-matter 기반 Obsidian 마크다운 읽기/쓰기 |
 | `wiki-substrate` | WikiSubstrate 인터페이스·PythonKernelAdapter(autosci-core 커널 lint·index·ingest)·SubstrateGraphAdapter |
