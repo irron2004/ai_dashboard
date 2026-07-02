@@ -1692,3 +1692,23 @@ textarea {
 .home-strip__warn { color: #facc15; }
 .home-strip button { margin-left: auto; }
 .home-strip__detail { flex: 0 0 auto; max-height: 45%; overflow-y: auto; }
+.workspace-home { display: flex; flex-direction: column; gap: 14px; padding: 12px; }
+.workspace-home__header { display: flex; align-items: center; gap: 12px; }
+.workspace-home__header h2 { font-size: 0.9rem; margin: 0; }
+.workspace-home__header button { padding: 4px 11px; font-size: 0.8rem; }
+.workspace-home__empty { opacity: 0.5; font-size: 0.82rem; }
+.workspace-home__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.workspace-card { background: #232338; border: 1px solid #2c2c2c; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.workspace-card__head { display: flex; align-items: baseline; gap: 8px; }
+.workspace-card__title { background: none; border: none; color: #cfcfff; font-size: 0.92rem; font-weight: 600; cursor: pointer; padding: 0; text-align: left; }
+.workspace-card__title:hover { text-decoration: underline; }
+.workspace-card__domain { font-size: 0.72rem; opacity: 0.55; margin-left: auto; }
+.workspace-card__badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.workspace-card__badge { font-size: 0.72rem; padding: 2px 7px; border-radius: 10px; background: #2a2a40; color: #cfcfff; }
+.workspace-card__badge--running { background: #1f3a24; color: #8fe0a2; }
+.workspace-card__badge--review { background: #3a331f; color: #e6d17a; }
+.workspace-card__runs { margin: 0; padding-left: 16px; font-size: 0.78rem; opacity: 0.85; }
+.workspace-card__next h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.6; margin: 4px 0; }
+.workspace-card__next-list { margin: 0; padding-left: 16px; }
+.workspace-card__task { background: none; border: none; color: #ddd; cursor: pointer; padding: 2px 0; text-align: left; font-size: 0.82rem; }
+.workspace-card__task:hover { color: #fff; text-decoration: underline; }
