@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel any in-flight run for the same ref so pushes to a PR branch don't
+# queue up behind each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # pnpm must be set up before setup-node so the pnpm store path is known
+      # for the cache key.  Pin to the same major.minor.patch used locally so
+      # the lockfileVersion 9.0 is never mismatched.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      # Node 24 is required: node:sqlite is an experimental built-in that
+      # shipped in Node 24 without the --experimental-sqlite flag.  The vitest
+      # configs include a vite plugin shim that re-exports it via createRequire,
+      # but the underlying C++ module must exist in the runtime.
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Run the two tsc passes declared in the root "typecheck" script:
+      #   1. packages/*/src  (tsconfig.typecheck.json)
+      #   2. apps/desktop    (apps/desktop/tsconfig.json --noEmit)
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # vitest.workspace.ts unions the root suite (packages + scripts) and the
+      # apps/desktop suite into a single `vitest run` invocation.
+      - name: Test
+        run: pnpm test
