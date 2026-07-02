@@ -41,6 +41,7 @@ export const CH = {
   devHarnessCancel: 'c:devHarnessCancel',
   // context package composer (P2): task → LLM-handoff prompt (assembled in main).
   composeContext: 'q:composeContext',
+  devHarnessReadTranscript: 'q:devHarnessReadTranscript',
   readProjectWiki: 'c:readProjectWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
@@ -236,3 +237,7 @@ export type ComposeContextRes = { ok: boolean; prompt?: string; reason?: string 
 
 // dev-harness started ack (P2): fired right after the run is recorded, before any log chunk.
 export type DevHarnessStartedEvent = { runId: string; taskId: string; projectId: string }
+
+// dev-harness transcript viewer (P2)
+export type DevHarnessReadTranscriptReq = { runId: string }
+export type DevHarnessReadTranscriptRes = { ok: boolean; content?: string; reason?: string }

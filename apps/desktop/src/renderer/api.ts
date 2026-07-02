@@ -16,6 +16,7 @@ import type {
   DevHarnessRunReq, DevHarnessRunRes, DevHarnessCancelReq, DevHarnessCancelRes, DevHarnessLogEvent,
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
+  DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
   ReadProjectWikiReq, ReadProjectWikiRes,
   StartPtyReq, PtyInputReq, PtyKillReq, PtyResizeReq,
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
@@ -159,6 +160,9 @@ export const api = {
   },
   composeContext(req: ComposeContextReq): Promise<ComposeContextRes> {
     return window.apc.invoke(CH.composeContext, req) as Promise<ComposeContextRes>
+  },
+  devHarnessReadTranscript(req: DevHarnessReadTranscriptReq): Promise<DevHarnessReadTranscriptRes> {
+    return window.apc.invoke(CH.devHarnessReadTranscript, req) as Promise<DevHarnessReadTranscriptRes>
   },
   onDevHarnessLog(cb: (e: DevHarnessLogEvent) => void): () => void {
     // Tolerate a missing preload bridge (e.g. a component test that renders DevHarnessPanel inside a

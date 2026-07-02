@@ -201,6 +201,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.composeContext(req)
     },
 
+    [CH.devHarnessReadTranscript]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string() }).strict().parse(payload)
+      return container.devHarnessReadTranscript(req)
+    },
+
     [CH.generateRun]: async (payload: unknown) => {
       const req = payload as GenerateRunReq
       const run = container.runs.get(req.runId)

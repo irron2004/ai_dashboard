@@ -435,4 +435,26 @@ describe('IPC handlers (no Electron)', () => {
     const res = await h[CH.composeContext]({ projectId: 'p1', taskId: 'nope' }) as { ok: boolean }
     expect(res.ok).toBe(false)
   })
+
+  test('q:devHarnessReadTranscript returns transcript content for a recorded run', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const tp = join(mkdtempSync(join(tmpdir(), 'apc-tr-')), 'transcript.log')
+    writeFileSync(tp, 'build log line')
+    container.runs.create({
+      id: 'RUN9', taskId: 'T1', agent: 'harness', repoPath: '/x',
+      startedAt: '2026-06-01T00:00:00Z', status: 'completed', transcriptPath: tp,
+    })
+    const h = handlers(container)
+    const res = await h[CH.devHarnessReadTranscript]({ runId: 'RUN9' }) as { ok: boolean; content?: string }
+    expect(res.ok).toBe(true)
+    expect(res.content).toContain('build log line')
+  })
+
+  test('q:devHarnessReadTranscript ok:false when the run or transcript is missing', async () => {
+    const h = handlers(container)
+    const res = await h[CH.devHarnessReadTranscript]({ runId: 'missing' }) as { ok: boolean }
+    expect(res.ok).toBe(false)
+  })
 })

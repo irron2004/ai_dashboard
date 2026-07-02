@@ -12,7 +12,7 @@ import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
-import { readdirSync, statSync, readFileSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import { readProjectWiki } from '@apc/graph-view/node'
@@ -36,6 +36,7 @@ import type {
   TaskSetBlockedByReq, TaskSetBlockedByRes,
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
+  DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
 
@@ -97,6 +98,7 @@ export type Container = {
   devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
   devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
   composeContext: (req: ComposeContextReq) => ComposeContextRes
+  devHarnessReadTranscript: (req: DevHarnessReadTranscriptReq) => DevHarnessReadTranscriptRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
@@ -114,6 +116,8 @@ function capExcerpt(raw: string): string {
   const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '')
   return body.length > COMPOSE_EXCERPT_CAP ? body.slice(0, COMPOSE_EXCERPT_CAP) + '…' : body
 }
+
+const TRANSCRIPT_CAP = 512 * 1024
 
 const PREFLIGHT_MARKDOWN_SCAN_LIMIT = 2_000
 const PREFLIGHT_MARKDOWN_DEPTH_LIMIT = 12
@@ -373,6 +377,23 @@ export function buildContainer(opts: {
     return { ok: true, prompt: composeContextPackage({ task, allTasks, wikiExcerpts, sessionSummary }) }
   }
 
+  const devHarnessReadTranscript = (req: DevHarnessReadTranscriptReq): DevHarnessReadTranscriptRes => {
+    const run = runs.get(req.runId)
+    if (!run?.transcriptPath) return { ok: false, reason: 'transcript not found' }
+    try {
+      const st = statSync(run.transcriptPath)
+      if (!st.isFile()) return { ok: false, reason: 'transcript not found' }
+      if (st.size <= TRANSCRIPT_CAP) return { ok: true, content: readFileSync(run.transcriptPath, 'utf8') }
+      // Oversized transcript: show the last TRANSCRIPT_CAP bytes (most recent output).
+      const fd = openSync(run.transcriptPath, 'r')
+      try {
+        const buf = Buffer.alloc(TRANSCRIPT_CAP)
+        readSync(fd, buf, 0, TRANSCRIPT_CAP, st.size - TRANSCRIPT_CAP)
+        return { ok: true, content: `…(잘림 · 마지막 ${TRANSCRIPT_CAP / 1024}KB)\n` + buf.toString('utf8') }
+      } finally { closeSync(fd) }
+    } catch { return { ok: false, reason: 'transcript not found' } }
+  }
+
   const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
     const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
     return readProjectWiki(repoPaths)
@@ -391,7 +412,7 @@ export function buildContainer(opts: {
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
-    devHarnessRun, devHarnessCancel, composeContext,
+    devHarnessRun, devHarnessCancel, composeContext, devHarnessReadTranscript,
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
