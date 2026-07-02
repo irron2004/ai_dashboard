@@ -9,6 +9,7 @@ vi.mock('./KnowledgeView.js', () => ({ KnowledgeView: () => <div>KNOWLEDGE-STUB<
 vi.mock('./WikiGenDashboard.js', () => ({
   WikiGenDashboard: () => <div>WIKIGEN-STUB</div>,
 }))
+vi.mock('./WorkspaceHome.js', () => ({ WorkspaceHome: () => <div>WORKSPACE-STUB</div> }))
 
 const dashboard: ProjectDashboardRes = {
   project: { id: 'p1', name: 'APC', status: 'active', goal: 'ship MVP', projectType: 'git', domain: 'project-docs', repoPaths: [], vaultPaths: [], sourcePaths: [] },
@@ -50,5 +51,15 @@ describe('MainPanel', () => {
   test('wiki gen tab shows running badge when wikiGenRunning', () => {
     render(<MainPanel tab="home" onTab={vi.fn()} dashboard={dashboard} wikiGenRunning />)
     expect(screen.getByTestId('wikigen-running-dot')).toBeDefined()
+  })
+
+  test('shows the 전체 (workspace) tab', () => {
+    render(<MainPanel tab="home" onTab={vi.fn()} dashboard={dashboard} />)
+    expect(screen.getByRole('button', { name: /전체/ })).toBeDefined()
+  })
+
+  test('workspace tab renders WorkspaceHome', () => {
+    render(<MainPanel tab="workspace" onTab={vi.fn()} dashboard={dashboard} />)
+    expect(screen.getByText('WORKSPACE-STUB')).toBeDefined()
   })
 })
