@@ -27,6 +27,7 @@ import type {
   TaskSetBlockedByReq, TaskSetBlockedByRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse, Task } from '@apc/shared'
+import type { WorkspaceOverview } from '@apc/dashboard-api'
 
 declare global {
   interface Window {
@@ -88,6 +89,9 @@ export const api = {
   },
   tasksList(projectId: string): Promise<Task[]> {
     return window.apc.invoke(CH.tasksList, { projectId }) as Promise<Task[]>
+  },
+  workspaceOverview(): Promise<WorkspaceOverview> {
+    return window.apc.invoke(CH.workspaceOverview) as Promise<WorkspaceOverview>
   },
   taskSetBlockedBy(req: TaskSetBlockedByReq): Promise<TaskSetBlockedByRes> {
     return window.apc.invoke(CH.taskSetBlockedBy, req) as Promise<TaskSetBlockedByRes>

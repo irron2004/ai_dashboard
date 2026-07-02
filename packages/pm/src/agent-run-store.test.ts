@@ -42,4 +42,10 @@ describe('AgentRunStore', () => {
     expect(r.endedAt).toBe('2026-07-01T00:01:00.000Z')
     expect(r.transcriptPath).toBe('/r/t.log')
   })
+  test('listRunning returns only running runs across tasks, newest first', () => {
+    store.create(run)                                                                     // RUN-1 running @10:00
+    store.create({ ...run, id: 'RUN-2', taskId: 'TASK-002', startedAt: '2026-06-01T12:00:00Z' }) // running @12:00
+    store.create({ ...run, id: 'RUN-3', startedAt: '2026-06-01T09:00:00Z', status: 'completed', endedAt: '2026-06-01T09:30:00Z' })
+    expect(store.listRunning().map((r) => r.id)).toEqual(['RUN-2', 'RUN-1'])
+  })
 })

@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
+import type { WorkspaceOverview } from '@apc/dashboard-api'
 import { HomeView } from './HomeView.js'
 import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
+import { WorkspaceHome } from './WorkspaceHome.js'
 
-export type MainTab = 'home' | 'knowledge' | 'wikigen'
+export type MainTab = 'home' | 'knowledge' | 'wikigen' | 'workspace'
 
 type Props = {
   tab: MainTab
@@ -14,15 +16,19 @@ type Props = {
   actions?: ReactNode
   /** True while a wiki generation run is in flight — shows a pulsing dot on the Wiki Gen tab. */
   wikiGenRunning?: boolean
+  overview?: WorkspaceOverview | null
+  onRefreshWorkspace?: () => void
+  onOpenProject?: (projectId: string) => void
 }
 
 const TABS: { id: MainTab; label: string }[] = [
   { id: 'home', label: '🏠 Home' },
   { id: 'knowledge', label: '📖 Knowledge' },
   { id: 'wikigen', label: '⚙ Wiki Gen' },
+  { id: 'workspace', label: '🌐 전체' },
 ]
 
-export function MainPanel({ tab, onTab, dashboard, actions, wikiGenRunning }: Props) {
+export function MainPanel({ tab, onTab, dashboard, actions, wikiGenRunning, overview, onRefreshWorkspace, onOpenProject }: Props) {
   return (
     <div className="main-panel">
       <nav className="main-panel__tabs">
@@ -46,6 +52,13 @@ export function MainPanel({ tab, onTab, dashboard, actions, wikiGenRunning }: Pr
         {tab === 'home' && <HomeView dashboard={dashboard} />}
         {tab === 'knowledge' && <KnowledgeView />}
         {tab === 'wikigen' && <WikiGenDashboard />}
+        {tab === 'workspace' && (
+          <WorkspaceHome
+            overview={overview ?? null}
+            onRefresh={onRefreshWorkspace ?? (() => {})}
+            onOpenProject={onOpenProject ?? (() => {})}
+          />
+        )}
       </div>
     </div>
   )

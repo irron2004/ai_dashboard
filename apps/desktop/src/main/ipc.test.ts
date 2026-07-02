@@ -368,6 +368,15 @@ describe('IPC handlers (no Electron)', () => {
     expect((res as { ok: boolean }).ok).toBe(true)
   })
 
+  test('q:workspaceOverview aggregates active count + running runs across projects', async () => {
+    const h = handlers(container)
+    const res = await h[CH.workspaceOverview]({}) as import('@apc/dashboard-api').WorkspaceOverview
+    const p1 = res.projects.find((p) => p.project.id === 'p1')!
+    expect(p1.activeTaskCount).toBe(1)
+    expect(p1.runningRuns.map((r) => r.id)).toEqual(['R1'])
+    expect(typeof res.generatedAt).toBe('string')
+  })
+
   test('q:tasksList returns the project tasks', async () => {
     container.tasks.create({ id: 'req:p1:s1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none' })
     const h = handlers(container)

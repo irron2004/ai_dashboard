@@ -5,7 +5,7 @@ import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
-import { getProjectDashboard } from '@apc/dashboard-api'
+import { getProjectDashboard, buildWorkspaceOverview, type WorkspaceOverview } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
@@ -102,6 +102,7 @@ export type Container = {
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
+  workspaceOverview: () => WorkspaceOverview
 }
 
 let _idCounter = 0
@@ -431,5 +432,6 @@ export function buildContainer(opts: {
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
+    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs }),
   }
 }

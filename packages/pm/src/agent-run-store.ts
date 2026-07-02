@@ -51,4 +51,12 @@ export class AgentRunStore {
     const rows = this.db.prepare('SELECT * FROM agent_runs WHERE task_id = ? ORDER BY started_at DESC').all(taskId) as Row[]
     return rows.map(toRun)
   }
+
+  /** All in-flight runs across every task, newest first. Powers the cross-project workspace overview. */
+  listRunning(): AgentRun[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM agent_runs WHERE status = 'running' ORDER BY started_at DESC",
+    ).all() as Row[]
+    return rows.map(toRun)
+  }
 }

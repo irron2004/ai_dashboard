@@ -83,6 +83,10 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.tasks.listByProject(req.projectId)
     },
 
+    [CH.workspaceOverview]: async (_payload: unknown) => {
+      return container.workspaceOverview()
+    },
+
     [CH.configPreview]: async (payload: unknown) => {
       const req = payload as ConfigEditReq
       const { AgentConfigEditor } = await import('@apc/harness')
