@@ -1,0 +1,13 @@
+{
+  "name": "@apc/status-web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@apc/shared": "workspace:*",
+    "@apc/core": "workspace:*",
+    "@apc/pm": "workspace:*",
+    "@apc/dashboard-api": "workspace:*"
+  }
+}
