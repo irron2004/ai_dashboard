@@ -1,4 +1,4 @@
-import { render, screen, within, fireEvent } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { CH } from '../../shared/ipc-contract.js'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
@@ -53,6 +53,23 @@ describe('PmHome', () => {
     expect(within(nextUp).getByText('do work')).toBeDefined()
     expect(within(nextUp).queryByText('needs review')).toBeNull()
   })
+  test('reverts the optimistic overlay when the bridge rejects the dependency', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ ok: false, reason: 'cycle' }))
+    ;(window as unknown as { apc: unknown }).apc = { invoke, onDevHarnessLog: () => () => {} }
+    try {
+      render(<PmHome dashboard={dashboard} />)
+      fireEvent.click(screen.getByLabelText('의존성 편집 do work'))
+      const select = screen.getByLabelText('차단 작업 선택 do work') as HTMLSelectElement
+      ;(within(select).getByText('needs review') as HTMLOptionElement).selected = true
+      fireEvent.change(select)
+      await waitFor(() => {
+        expect(screen.queryByText('🚫 차단')).toBeNull()
+      })
+    } finally {
+      delete (window as unknown as { apc?: unknown }).apc
+    }
+  })
+
   test('editing a dependency persists via the bridge and marks the task blocked', () => {
     const invoke = vi.fn(() => Promise.resolve({ ok: true }))
     ;(window as unknown as { apc: unknown }).apc = { invoke, onDevHarnessLog: () => () => {} }

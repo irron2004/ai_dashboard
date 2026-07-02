@@ -77,16 +77,23 @@ export async function extractTasks(
 
 export type TaskSink = {
   create(t: Task): void
+  get(id: string): Task | undefined
   listByProject(projectId: string): Task[]
   delete(id: string): void
+}
+
+/** Carry over a non-empty blockedBy from a previously stored task onto a freshly extracted one. */
+function mergeBlockedBy(incoming: Task, existing: Task | undefined): Task {
+  if (existing && existing.blockedBy.length > 0) return { ...incoming, blockedBy: existing.blockedBy }
+  return incoming
 }
 
 /** Upsert the session's request + todos, then delete this session's prior todo-Tasks that vanished. */
 export function reconcileSessionTasks(
   store: TaskSink, projectId: string, sessionId: string, request: Task, todos: Task[],
 ): void {
-  store.create(request)
-  for (const t of todos) store.create(t)
+  store.create(mergeBlockedBy(request, store.get(request.id)))
+  for (const t of todos) store.create(mergeBlockedBy(t, store.get(t.id)))
   const keep = new Set(todos.map((t) => t.id))
   const prefix = `todo:${projectId}:${sessionId}:`
   for (const existing of store.listByProject(projectId)) {
