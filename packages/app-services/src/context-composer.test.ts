@@ -39,3 +39,22 @@ test('omits optional sections and shows a placeholder when acceptance criteria a
   expect(out).not.toContain('## 직전 세션 요약')      // 요약 없음
   expect(out).toContain('## 지시')
 })
+
+test('wraps wiki excerpt with a longer fence when excerpt contains triple-backtick (F3)', () => {
+  const task = mk({ id: 'todo:p:s2:1', title: 'fence test', linkedWikiPages: ['docs/api.md'] })
+  const excerpt = 'intro\n```json\n{"key": "val"}\n```\nend'
+  const out = composeContextPackage({
+    task, allTasks: [task],
+    wikiExcerpts: [{ path: 'docs/api.md', excerpt }],
+  })
+  // Inner triple-backtick block must appear intact in the output
+  expect(out).toContain('```json')
+  expect(out).toContain('{"key": "val"}')
+  // The wrapper fence must be strictly longer than any inner backtick run (inner max is 3).
+  // Check that the output contains at least one pure-backtick line longer than 3.
+  const lines = out.split('\n')
+  const pureFences = lines.filter((l) => /^`{3,}$/.test(l.trim()))
+  // Wrappers should exist; the longest pure fence (the wrapper) must beat the inner ``` (3 ticks)
+  const longestFence = Math.max(...pureFences.map((f) => f.trim().length))
+  expect(longestFence).toBeGreaterThan(3)
+})

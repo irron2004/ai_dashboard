@@ -111,9 +111,9 @@ function nextId(): string {
 
 const COMPOSE_WIKI_MAX_FILES = 6
 const COMPOSE_EXCERPT_CAP = 512
-/** Strip a leading YAML frontmatter block, then cap to COMPOSE_EXCERPT_CAP bytes. */
+/** Strip a leading YAML frontmatter block (LF or CRLF), then cap to COMPOSE_EXCERPT_CAP bytes. */
 function capExcerpt(raw: string): string {
-  const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '')
+  const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
   return body.length > COMPOSE_EXCERPT_CAP ? body.slice(0, COMPOSE_EXCERPT_CAP) + '…' : body
 }
 

@@ -436,6 +436,29 @@ describe('IPC handlers (no Electron)', () => {
     expect(res.ok).toBe(false)
   })
 
+  test('q:composeContext strips CRLF frontmatter from wiki excerpt (F1)', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'apc-crlf-'))
+    mkdirSync(join(repo, 'docs'), { recursive: true })
+    // File uses CRLF line endings in the YAML frontmatter block
+    writeFileSync(join(repo, 'docs', 'crlf.md'), '---\r\nkey: val\r\n---\r\nBODY text here')
+    container.registry.register({
+      id: 'pcrlf', name: 'CRLFTest', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: [repo], vaultPaths: [], sourcePaths: [],
+    })
+    container.tasks.create({
+      id: 'crlf:pcrlf:1', projectId: 'pcrlf', title: 'crlf task', status: 'todo', assigneeType: 'agent',
+      priority: 'medium', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: ['docs/crlf.md'], blockedBy: [],
+    })
+    const h = handlers(container)
+    const res = await h[CH.composeContext]({ projectId: 'pcrlf', taskId: 'crlf:pcrlf:1' }) as { ok: boolean; prompt?: string }
+    expect(res.ok).toBe(true)
+    // Body must appear in the excerpt
+    expect(res.prompt).toContain('BODY text here')
+    // Frontmatter key must NOT leak into the composed prompt
+    expect(res.prompt).not.toContain('key: val')
+    rmSync(repo, { recursive: true, force: true })
+  })
+
   test('q:devHarnessReadTranscript returns transcript content for a recorded run', async () => {
     const { mkdtempSync, writeFileSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
