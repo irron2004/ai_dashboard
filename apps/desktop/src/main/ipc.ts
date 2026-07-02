@@ -240,6 +240,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return { ok: true }
     },
 
+    [CH.taskSetBlockedBy]: async (payload: unknown) => {
+      const req = z.object({ taskId: z.string(), blockedBy: z.array(z.string()) }).strict().parse(payload)
+      return container.taskSetBlockedBy(req)
+    },
+
     [CH.fsReadDoc]: async (payload: unknown) => {
       const req = z.object({ projectId: z.string(), relPath: z.string() }).strict().parse(payload)
       const project = container.registry.get(req.projectId)

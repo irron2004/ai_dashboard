@@ -43,6 +43,7 @@ export const CH = {
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
+  taskSetBlockedBy: 'c:taskSetBlockedBy',
   // pty: renderer → main = ptyStart/ptyInput/ptyKill; main → renderer events = ptyData/ptyExit
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
@@ -82,6 +83,8 @@ export type TasksListReq = { projectId: string }
 export type SubmitReviewReq = { review: Review }
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
+export type TaskSetBlockedByReq = { taskId: string; blockedBy: string[] }
+export type TaskSetBlockedByRes = { ok: boolean; reason?: string }
 export type GeneratePreflightReq = { projectId: string }
 export type GeneratePreflightCategoryId = 'agent-conversations' | 'project-docs' | 'tasks' | 'review-runs'
 export type GeneratePreflightCategory = {

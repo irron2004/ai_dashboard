@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
-import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter } from '@apc/pm'
+import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
@@ -32,6 +32,7 @@ import type {
   ReadProjectWikiReq, ReadProjectWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
+  TaskSetBlockedByReq, TaskSetBlockedByRes,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
 
@@ -93,6 +94,7 @@ export type Container = {
   devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
   devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
+  taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
 }
 
@@ -336,6 +338,13 @@ export function buildContainer(opts: {
     return readProjectWiki(repoPaths)
   }
 
+  const taskSetBlockedBy = (req: TaskSetBlockedByReq): TaskSetBlockedByRes => {
+    const check = validateBlockedBy((id) => tasks.get(id), req.taskId, req.blockedBy)
+    if (!check.ok) return { ok: false, reason: check.reason }
+    tasks.setBlockedBy(req.taskId, req.blockedBy)
+    return { ok: true }
+  }
+
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
@@ -344,6 +353,7 @@ export function buildContainer(opts: {
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
     devHarnessRun, devHarnessCancel,
     readProjectWiki: readProjectWikiQuery,
+    taskSetBlockedBy,
     dashboard: getProjectDashboard,
   }
 }
