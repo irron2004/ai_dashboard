@@ -72,6 +72,15 @@ describe('extractTasks', () => {
     const { request } = await extractTasks(s, 'p1', { summarize })
     expect(request.linkedWikiPages).toEqual(['/abs/proj/vault/a.md', '/abs/proj/src/x.py'])
   })
+  it('defaults blockedBy to [] on the request and every todo', async () => {
+    const s = session({ turns: [
+      { role: 'user', text: 'do the thing', toolCalls: [] },
+      { role: 'assistant', text: '', toolCalls: [todoCall([{ content: 'A', status: 'pending' }])] },
+    ] as NormalizedSession['turns'] })
+    const { request, todos } = await extractTasks(s, 'p1', { summarize })
+    expect(request.blockedBy).toEqual([])
+    expect(todos.every((t) => Array.isArray(t.blockedBy) && t.blockedBy.length === 0)).toBe(true)
+  })
   it('drops near-duplicate todos that collapse to the same slug id (keeps first)', async () => {
     const s = session({ turns: [{ role: 'assistant', text: '', toolCalls: [todoCall([
       { content: 'Fix the bug', status: 'pending' },
