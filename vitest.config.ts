@@ -57,6 +57,7 @@ export default defineConfig({
       '@apc/wiki-substrate': `${root}packages/wiki-substrate/src/index.ts`,
       '@apc/graph-view': `${root}packages/graph-view/src/index.ts`,
       '@apc/graph-view/node': `${root}packages/graph-view/src/node/index.ts`,
+      '@apc/status-web': `${root}packages/status-web/src/index.ts`,
     },
   },
   test: {

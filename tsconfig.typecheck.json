@@ -23,7 +23,8 @@
       "@apc/harness": ["./packages/harness/src/index.ts"],
       "@apc/dashboard-api": ["./packages/dashboard-api/src/index.ts"],
       "@apc/workflow": ["./packages/workflow/src/index.ts"],
-      "@apc/knowledge": ["./packages/knowledge/src/index.ts"]
+      "@apc/knowledge": ["./packages/knowledge/src/index.ts"],
+      "@apc/status-web": ["./packages/status-web/src/index.ts"]
     }
   },
   "include": ["packages/*/src/**/*.ts", "packages/*/src/**/*.tsx"],
