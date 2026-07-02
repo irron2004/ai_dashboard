@@ -460,10 +460,11 @@ describe('IPC handlers (no Electron)', () => {
   })
 
   test('q:devHarnessReadTranscript returns transcript content for a recorded run', async () => {
-    const { mkdtempSync, writeFileSync } = await import('node:fs')
-    const { tmpdir } = await import('node:os')
-    const { join } = await import('node:path')
-    const tp = join(mkdtempSync(join(tmpdir(), 'apc-tr-')), 'transcript.log')
+    // Transcript must live inside the harnessRunsRoot (default: sibling of vaultDir named apc-harness-runs).
+    // The containment guard rejects paths outside it, so we compute the default root and write there.
+    const runsRoot = join(vaultDir, '..', 'apc-harness-runs')
+    mkdirSync(join(runsRoot, 'RUN9'), { recursive: true })
+    const tp = join(runsRoot, 'RUN9', 'transcript.log')
     writeFileSync(tp, 'build log line')
     container.runs.create({
       id: 'RUN9', taskId: 'T1', agent: 'harness', repoPath: '/x',
@@ -473,11 +474,42 @@ describe('IPC handlers (no Electron)', () => {
     const res = await h[CH.devHarnessReadTranscript]({ runId: 'RUN9' }) as { ok: boolean; content?: string }
     expect(res.ok).toBe(true)
     expect(res.content).toContain('build log line')
+    rmSync(runsRoot, { recursive: true, force: true })
   })
 
   test('q:devHarnessReadTranscript ok:false when the run or transcript is missing', async () => {
     const h = handlers(container)
     const res = await h[CH.devHarnessReadTranscript]({ runId: 'missing' }) as { ok: boolean }
     expect(res.ok).toBe(false)
+  })
+
+  test('q:composeContext skips summary when summaryPath traverses outside vault (F4)', async () => {
+    // Write a "sensitive" file just outside the vault root
+    const secretFile = join(vaultDir, '..', 'f4-secret.txt')
+    writeFileSync(secretFile, 'F4 SECRET CONTENT')
+    // Complete R1 with a traversal summaryPath
+    container.runs.complete('R1', { endedAt: '2026-06-01T11:00:00Z', summaryPath: '../f4-secret.txt' })
+    const h = handlers(container)
+    const res = await h[CH.composeContext]({ projectId: 'p1', taskId: 'T1' }) as { ok: boolean; prompt?: string }
+    // compose must succeed (summary skipped, not an error)
+    expect(res.ok).toBe(true)
+    // Sensitive content must NOT appear in the composed prompt
+    expect(res.prompt).not.toContain('F4 SECRET CONTENT')
+    rmSync(secretFile)
+  })
+
+  test('q:devHarnessReadTranscript rejects transcriptPath outside runsRoot (F5)', async () => {
+    // Write a "sensitive" file outside the harnessRunsRoot
+    const secretFile = join(vaultDir, '..', 'f5-secret.txt')
+    writeFileSync(secretFile, 'F5 SECRET CONTENT')
+    container.runs.create({
+      id: 'EVIL_RUN', taskId: 'T1', agent: 'harness', repoPath: '/x',
+      startedAt: '2026-06-01T00:00:00Z', status: 'completed', transcriptPath: secretFile,
+    })
+    const h = handlers(container)
+    const res = await h[CH.devHarnessReadTranscript]({ runId: 'EVIL_RUN' }) as { ok: boolean; content?: string }
+    expect(res.ok).toBe(false)
+    expect(res.content).toBeUndefined()
+    rmSync(secretFile)
   })
 })

@@ -13,7 +13,7 @@ import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
@@ -115,6 +115,13 @@ const COMPOSE_EXCERPT_CAP = 512
 function capExcerpt(raw: string): string {
   const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
   return body.length > COMPOSE_EXCERPT_CAP ? body.slice(0, COMPOSE_EXCERPT_CAP) + '…' : body
+}
+
+/** Returns true iff `candidate` resolves to a path inside `root` (or equal to it). Pure string resolution — no filesystem access, so it works even if `root` does not yet exist. */
+function isWithinRoot(root: string, candidate: string): boolean {
+  const r = resolve(root)
+  const c = resolve(candidate)
+  return c === r || c.startsWith(r + sep)
 }
 
 const TRANSCRIPT_CAP = 512 * 1024
@@ -340,11 +347,13 @@ export function buildContainer(opts: {
 
   // dev-harness (S3): drives the multi-agent coding harness via the CLI contract, recording runs in
   // AgentRunStore and streaming logs. Independent of the wiki HarnessService above.
+  // Extract to a const so devHarnessReadTranscript's containment guard uses the same root.
+  const devHarnessRunsRoot = opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs')
   const devHarness = new DevHarnessService({
     cli: new DevHarnessCli(),
     runs,
     registry,
-    runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
+    runsRoot: devHarnessRunsRoot,
   })
   const devHarnessRun = (req: DevHarnessRunReq): Promise<DevHarnessRunRes> =>
     devHarness.run(
@@ -371,8 +380,12 @@ export function buildContainer(opts: {
     let sessionSummary: string | undefined
     const withSummary = runs.listByTask(task.id).find((run) => run.summaryPath)
     if (withSummary?.summaryPath) {
-      try { sessionSummary = capExcerpt(readFileSync(join(opts.vaultRoot, withSummary.summaryPath), 'utf8')) }
-      catch { /* summary unreadable → omit */ }
+      const summaryFull = join(opts.vaultRoot, withSummary.summaryPath)
+      if (isWithinRoot(opts.vaultRoot, summaryFull)) {
+        try { sessionSummary = capExcerpt(readFileSync(summaryFull, 'utf8')) }
+        catch { /* summary unreadable → omit */ }
+      }
+      // path escapes vaultRoot → skip silently (defence in depth; no error surfaced to caller)
     }
     return { ok: true, prompt: composeContextPackage({ task, allTasks, wikiExcerpts, sessionSummary }) }
   }
@@ -380,6 +393,8 @@ export function buildContainer(opts: {
   const devHarnessReadTranscript = (req: DevHarnessReadTranscriptReq): DevHarnessReadTranscriptRes => {
     const run = runs.get(req.runId)
     if (!run?.transcriptPath) return { ok: false, reason: 'transcript not found' }
+    // Containment guard: transcriptPath must live inside devHarnessRunsRoot (defence in depth).
+    if (!isWithinRoot(devHarnessRunsRoot, run.transcriptPath)) return { ok: false, reason: 'transcript not found' }
     try {
       const st = statSync(run.transcriptPath)
       if (!st.isFile()) return { ok: false, reason: 'transcript not found' }
