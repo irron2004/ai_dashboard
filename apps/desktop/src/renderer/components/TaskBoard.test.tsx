@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 import type { Task } from '@apc/shared'
 import { TaskBoard } from './TaskBoard.js'
@@ -36,5 +36,38 @@ describe('TaskBoard', () => {
     render(<TaskBoard tasks={[t('T1', 'todo', 'only todo')]} />)
     expect(screen.queryByTestId('col-rejected')).toBeNull()
     expect(within(screen.getByTestId('col-done')).getByText('—')).toBeDefined()
+  })
+
+  test('shows a 차단 badge whose tooltip lists unresolved blocker titles', () => {
+    const list: Task[] = [
+      t('B1', 'todo', 'blocked one', { blockedBy: ['B2'] }),
+      t('B2', 'in_progress', 'blocker task'),
+    ]
+    render(<TaskBoard tasks={list} />)
+    const card = within(screen.getByTestId('col-todo')).getByText('blocked one').closest('.pm-board__card')!
+    const badge = within(card as HTMLElement).getByText('🚫 차단')
+    expect(badge.getAttribute('title')).toContain('blocker task')
+  })
+  test('no 차단 badge once the blocker is done', () => {
+    const list: Task[] = [
+      t('B1', 'todo', 'now free', { blockedBy: ['B2'] }),
+      t('B2', 'done', 'finished'),
+    ]
+    render(<TaskBoard tasks={list} />)
+    expect(screen.queryByText('🚫 차단')).toBeNull()
+  })
+  test('the ⛓ editor calls onSetBlockedBy with the selected ids', () => {
+    const calls: Array<[string, string[]]> = []
+    const list: Task[] = [t('E1', 'todo', 'pick deps'), t('E2', 'todo', 'other task')]
+    render(<TaskBoard tasks={list} onSetBlockedBy={(id, deps) => calls.push([id, deps])} />)
+    fireEvent.click(screen.getByLabelText('의존성 편집 pick deps'))
+    const select = screen.getByLabelText('차단 작업 선택 pick deps') as HTMLSelectElement
+    ;(within(select).getByText('other task') as HTMLOptionElement).selected = true
+    fireEvent.change(select)
+    expect(calls).toEqual([['E1', ['E2']]])
+  })
+  test('no ⛓ editor button when onSetBlockedBy is absent', () => {
+    render(<TaskBoard tasks={[t('X', 'todo', 'solo')]} />)
+    expect(screen.queryByLabelText('의존성 편집 solo')).toBeNull()
   })
 })
