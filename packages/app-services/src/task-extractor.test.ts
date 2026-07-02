@@ -72,6 +72,15 @@ describe('extractTasks', () => {
     const { request } = await extractTasks(s, 'p1', { summarize })
     expect(request.linkedWikiPages).toEqual(['/abs/proj/vault/a.md', '/abs/proj/src/x.py'])
   })
+  it('defaults blockedBy to [] on the request and every todo', async () => {
+    const s = session({ turns: [
+      { role: 'user', text: 'do the thing', toolCalls: [] },
+      { role: 'assistant', text: '', toolCalls: [todoCall([{ content: 'A', status: 'pending' }])] },
+    ] as NormalizedSession['turns'] })
+    const { request, todos } = await extractTasks(s, 'p1', { summarize })
+    expect(request.blockedBy).toEqual([])
+    expect(todos.every((t) => Array.isArray(t.blockedBy) && t.blockedBy.length === 0)).toBe(true)
+  })
   it('drops near-duplicate todos that collapse to the same slug id (keeps first)', async () => {
     const s = session({ turns: [{ role: 'assistant', text: '', toolCalls: [todoCall([
       { content: 'Fix the bug', status: 'pending' },
@@ -90,11 +99,29 @@ describe('reconcileSessionTasks', () => {
     return {
       map,
       create: (t: Task) => { map.set(t.id, t) },
+      get: (id: string) => map.get(id),
       listByProject: (pid: string) => [...map.values()].filter((t) => t.projectId === pid),
       delete: (id: string) => { map.delete(id) },
     }
   }
-  const mk = (id: string, extra: Partial<Task> = {}): Task => ({ id, projectId: 'p1', title: id, status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none', ...extra })
+  const mk = (id: string, extra: Partial<Task> = {}): Task => ({ id, projectId: 'p1', title: id, status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none', ...extra })
+
+  it('preserves blockedBy on the request task when re-ingesting', () => {
+    const store = fakeStore()
+    store.create(mk('req:p1:s1', { blockedBy: ['X'] }))
+    const request = mk('req:p1:s1') // fresh extract: blockedBy []
+    reconcileSessionTasks(store, 'p1', 's1', request, [])
+    expect(store.map.get('req:p1:s1')!.blockedBy).toEqual(['X'])
+  })
+
+  it('preserves blockedBy on a todo task when re-ingesting', () => {
+    const store = fakeStore()
+    store.create(mk('todo:p1:s1:a', { blockedBy: ['Y'] }))
+    const request = mk('req:p1:s1')
+    const todos = [mk('todo:p1:s1:a')] // fresh extract: blockedBy []
+    reconcileSessionTasks(store, 'p1', 's1', request, todos)
+    expect(store.map.get('todo:p1:s1:a')!.blockedBy).toEqual(['Y'])
+  })
 
   it('upserts request + todos and deletes stale todos of the same session', () => {
     const store = fakeStore()

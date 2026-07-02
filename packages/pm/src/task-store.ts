@@ -5,7 +5,7 @@ type Row = {
   id: string; project_id: string; title: string; status: string
   assignee_type: string; assignee: string | null; priority: string
   due_date: string | null; estimate: string | null; parent_task_id: string | null
-  acceptance_criteria: string; linked_wiki_pages: string
+  acceptance_criteria: string; linked_wiki_pages: string; blocked_by: string
   context_package: string | null; review_status: string
 }
 
@@ -17,6 +17,7 @@ function toTask(r: Row): Task {
     parentTaskId: r.parent_task_id ?? undefined,
     acceptanceCriteria: JSON.parse(r.acceptance_criteria),
     linkedWikiPages: JSON.parse(r.linked_wiki_pages),
+    blockedBy: JSON.parse(r.blocked_by),
     contextPackage: r.context_package ?? undefined, reviewStatus: r.review_status,
   })
 }
@@ -29,15 +30,15 @@ export class TaskStore {
     this.db.prepare(
       `INSERT OR REPLACE INTO tasks
        (id, project_id, title, status, assignee_type, assignee, priority, due_date,
-        estimate, parent_task_id, acceptance_criteria, linked_wiki_pages, context_package, review_status)
+        estimate, parent_task_id, acceptance_criteria, linked_wiki_pages, context_package, review_status, blocked_by)
        VALUES (:id, :projectId, :title, :status, :assigneeType, :assignee, :priority, :dueDate,
-        :estimate, :parentTaskId, :acceptanceCriteria, :linkedWikiPages, :contextPackage, :reviewStatus)`,
+        :estimate, :parentTaskId, :acceptanceCriteria, :linkedWikiPages, :contextPackage, :reviewStatus, :blockedBy)`,
     ).run({
       id: t.id, projectId: t.projectId, title: t.title, status: t.status,
       assigneeType: t.assigneeType, assignee: t.assignee ?? null, priority: t.priority,
       dueDate: t.dueDate ?? null, estimate: t.estimate ?? null, parentTaskId: t.parentTaskId ?? null,
       acceptanceCriteria: JSON.stringify(t.acceptanceCriteria), linkedWikiPages: JSON.stringify(t.linkedWikiPages),
-      contextPackage: t.contextPackage ?? null, reviewStatus: t.reviewStatus,
+      contextPackage: t.contextPackage ?? null, reviewStatus: t.reviewStatus, blockedBy: JSON.stringify(t.blockedBy),
     })
   }
 
@@ -53,6 +54,10 @@ export class TaskStore {
     return rows.map(toTask)
   }
 
+  setBlockedBy(id: string, blockedBy: string[]): void {
+    this.db.prepare('UPDATE tasks SET blocked_by = ? WHERE id = ?').run(JSON.stringify(blockedBy), id)
+  }
+
   updateStatus(id: string, status: TaskStatus, reviewStatus?: ReviewStatus): void {
     if (reviewStatus) this.db.prepare('UPDATE tasks SET status = ?, review_status = ? WHERE id = ?').run(status, reviewStatus, id)
     else this.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(status, id)
@@ -61,4 +66,22 @@ export class TaskStore {
   delete(id: string): void {
     this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
   }
+}
+
+/**
+ * Guard for a proposed blockedBy edit. Rejects a self-reference and a DIRECT 2-cycle
+ * (the proposed blocker already lists `taskId` among its own blockers). Deep/transitive
+ * cycle detection (A→B→C→A) is intentionally out of scope for this MVP.
+ */
+export function validateBlockedBy(
+  getTask: (id: string) => Task | undefined,
+  taskId: string,
+  blockedBy: string[],
+): { ok: true } | { ok: false; reason: 'self-reference' | 'cycle' } {
+  if (blockedBy.includes(taskId)) return { ok: false, reason: 'self-reference' }
+  for (const blockerId of blockedBy) {
+    const blocker = getTask(blockerId)
+    if (blocker?.blockedBy.includes(taskId)) return { ok: false, reason: 'cycle' }
+  }
+  return { ok: true }
 }

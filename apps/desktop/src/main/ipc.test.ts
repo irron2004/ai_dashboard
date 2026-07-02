@@ -25,7 +25,7 @@ describe('IPC handlers (no Electron)', () => {
     container.tasks.create({
       id: 'T1', projectId: 'p1', title: 'do work', status: 'in_progress',
       assigneeType: 'agent', priority: 'high', reviewStatus: 'none',
-      acceptanceCriteria: [], linkedWikiPages: [],
+      acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
     })
     container.runs.create({
       id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/work/apc',
@@ -369,9 +369,34 @@ describe('IPC handlers (no Electron)', () => {
   })
 
   test('q:tasksList returns the project tasks', async () => {
-    container.tasks.create({ id: 'req:p1:s1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none' })
+    container.tasks.create({ id: 'req:p1:s1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none' })
     const h = handlers(container)
     const res = (await h[CH.tasksList]({ projectId: 'p1' })) as { id: string }[]
     expect(res.map((t) => t.id)).toContain('req:p1:s1')
+  })
+
+  test('c:taskSetBlockedBy persists deps, and rejects self-reference + direct cycle', async () => {
+    const h = handlers(container)
+    container.tasks.create({
+      id: 'T2', projectId: 'p1', title: 'dep', status: 'todo',
+      assigneeType: 'agent', priority: 'medium', reviewStatus: 'none',
+      acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
+    })
+    expect(await h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: ['T2'] })).toEqual({ ok: true })
+    expect(container.tasks.get('T1')?.blockedBy).toEqual(['T2'])
+
+    expect(await h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: ['T1'] }))
+      .toMatchObject({ ok: false, reason: 'self-reference' })
+
+    await h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: [] })      // clear
+    await h[CH.taskSetBlockedBy]({ taskId: 'T2', blockedBy: ['T1'] })  // T2 now blocked by T1
+    expect(await h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: ['T2'] }))
+      .toMatchObject({ ok: false, reason: 'cycle' })
+  })
+  test('c:taskSetBlockedBy strict-parses its payload', async () => {
+    const h = handlers(container)
+    await expect(h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: 'nope' })).rejects.toThrow()   // non-array
+    await expect(h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: [], extra: 1 })).rejects.toThrow() // unknown key
+    await expect(h[CH.taskSetBlockedBy]({ blockedBy: [] })).rejects.toThrow()                     // missing taskId
   })
 })

@@ -5,7 +5,7 @@ import { TimelineStrip, timelineAxis, datePct } from './TimelineStrip.js'
 
 const t = (id: string, dueDate?: string): Task => ({
   id, projectId: 'p1', title: `task ${id}`, status: 'todo', assigneeType: 'agent',
-  priority: 'medium', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], dueDate,
+  priority: 'medium', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], dueDate,
 })
 
 describe('timelineAxis', () => {

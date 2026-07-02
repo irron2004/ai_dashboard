@@ -9,9 +9,9 @@ describe('getProjectDashboard', () => {
     db = openDb(':memory:'); migrate(db); migratePm(db)
     registry = new ProjectRegistry(db); tasks = new TaskStore(db); runs = new AgentRunStore(db)
     registry.register({ id: 'p1', name: 'P1', status: 'active', projectType: 'git', repoPaths: ['/p1'], vaultPaths: [], sourcePaths: [], domain: 'project-docs' })
-    tasks.create({ id: 'T1', projectId: 'p1', title: 'active', status: 'in_progress', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [] })
-    tasks.create({ id: 'T2', projectId: 'p1', title: 'needs review', status: 'review', assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [] })
-    tasks.create({ id: 'T3', projectId: 'p1', title: 'done', status: 'done', assigneeType: 'agent', priority: 'low', reviewStatus: 'approved', acceptanceCriteria: [], linkedWikiPages: [] })
+    tasks.create({ id: 'T1', projectId: 'p1', title: 'active', status: 'in_progress', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] })
+    tasks.create({ id: 'T2', projectId: 'p1', title: 'needs review', status: 'review', assigneeType: 'agent', priority: 'medium', reviewStatus: 'pending', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] })
+    tasks.create({ id: 'T3', projectId: 'p1', title: 'done', status: 'done', assigneeType: 'agent', priority: 'low', reviewStatus: 'approved', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] })
     runs.create({ id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/p1', startedAt: '2026-06-01T10:00:00Z', status: 'completed' })
   })
 

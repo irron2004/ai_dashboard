@@ -17,7 +17,7 @@ import { DevHarnessPanel } from './DevHarnessPanel.js'
 
 const task = (id: string, title: string): Task => ({
   id, projectId: 'p1', title, status: 'todo', assigneeType: 'agent', priority: 'medium',
-  reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [],
+  reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
 })
 const runBtn = () => screen.getByRole('button', { name: /run harness/i }) as HTMLButtonElement
 const cancelBtn = () => screen.getByRole('button', { name: /cancel/i }) as HTMLButtonElement

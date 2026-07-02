@@ -75,7 +75,7 @@ export function buildWikiGraphData(nodes: WikiNodeInput[], edges: PaperGraphEdge
   return { nodes: [...nodeMap.values()], links }
 }
 
-export type WorkTaskInput = { id: string; title: string; status: string; linkedWikiPages: string[]; data?: unknown }
+export type WorkTaskInput = { id: string; title: string; status: string; linkedWikiPages: string[]; blockedBy?: string[]; data?: unknown }
 
 /** True if the wiki relPath is the tail of an edited file path (session literally edited that wiki file). */
 function touchedWikiNode(touched: string[], relPath: string): boolean {
@@ -99,6 +99,17 @@ export function buildWorkGraphData(tasks: WorkTaskInput[], wikiNodes: WikiNodeIn
         shape: 'circle', color: entityColor(w.type), details: w.type, data: { path: w.relPath },
       })
       addLink(links, { id: `work:${task.id}->${w.ref}`, source: task.id, target: w.ref, kind: 'work', label: 'touched' })
+    }
+  }
+  // task→task dependency edges: X blocks T when T.blockedBy contains X. Only draw when both
+  // endpoints are task nodes already in this graph (avoid ghost dependency nodes).
+  for (const task of tasks) {
+    for (const blockerId of task.blockedBy ?? []) {
+      if (!nodeMap.has(blockerId) || !nodeMap.has(task.id)) continue
+      addLink(links, {
+        id: `blocks:${blockerId}->${task.id}`, source: blockerId, target: task.id,
+        kind: 'blocks', label: 'blocks', direction: 'directed',
+      })
     }
   }
   return { nodes: [...nodeMap.values()], links }

@@ -15,7 +15,7 @@ describe('RunService.completeRun', () => {
     db = openDb(':memory:'); migrate(db); migratePm(db)
     dir = mkdtempSync(join(tmpdir(), 'apc-run-'))
     tasks = new TaskStore(db); runs = new AgentRunStore(db)
-    tasks.create({ id: 'T1', projectId: 'p1', title: 't', status: 'in_progress', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [] })
+    tasks.create({ id: 'T1', projectId: 'p1', title: 't', status: 'in_progress', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] })
     runs.create({ id: 'R1', taskId: 'T1', agent: 'codex', repoPath: '/p1', startedAt: '2026-06-01T10:00:00Z', status: 'running' })
     const wiki = new WikiEngine(new FakeAgentRunner([JSON.stringify({
       workSummary: 'did the thing', filesTouched: ['a.ts'], openProblems: [],

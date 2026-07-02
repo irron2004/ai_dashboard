@@ -46,6 +46,16 @@ describe('TaskSchema', () => {
     expect(t.assignee).toBe('codex')
     expect(t.reviewStatus).toBe('pending')
   })
+  test('defaults blockedBy to [] and preserves given ids', () => {
+    const d = TaskSchema.parse({
+      id: 'T1', projectId: 'p1', title: 'x', status: 'todo',
+    })
+    expect(d.blockedBy).toEqual([])
+    const b = TaskSchema.parse({
+      id: 'T2', projectId: 'p1', title: 'y', status: 'todo', blockedBy: ['T1'],
+    })
+    expect(b.blockedBy).toEqual(['T1'])
+  })
 })
 
 describe('AgentRunSchema', () => {

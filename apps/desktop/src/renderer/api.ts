@@ -21,6 +21,7 @@ import type {
   ChangesListReq, ChangesListRes, ChangesDiffReq, ChangesDiffRes,
   HarnessNodesEvent,
   PaneRef, WorkspaceRestore,
+  TaskSetBlockedByReq, TaskSetBlockedByRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse, Task } from '@apc/shared'
 
@@ -83,6 +84,9 @@ export const api = {
   },
   tasksList(projectId: string): Promise<Task[]> {
     return window.apc.invoke(CH.tasksList, { projectId }) as Promise<Task[]>
+  },
+  taskSetBlockedBy(req: TaskSetBlockedByReq): Promise<TaskSetBlockedByRes> {
+    return window.apc.invoke(CH.taskSetBlockedBy, req) as Promise<TaskSetBlockedByRes>
   },
   ingestAll(): Promise<{ sources: number; sessions: number; documents: number }> {
     return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number; documents: number }>

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb, migrate, type Db } from '@apc/core'
 import { migratePm } from './migrate.js'
-import { TaskStore } from './task-store.js'
+import { TaskStore, validateBlockedBy } from './task-store.js'
 import type { Task } from '@apc/shared'
 
 const base: Task = {
   id: 'TASK-001', projectId: 'p1', title: 'first', status: 'todo',
   assigneeType: 'agent', assignee: 'codex', priority: 'high', reviewStatus: 'none',
-  acceptanceCriteria: [], linkedWikiPages: [],
+  acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
 }
 
 describe('TaskStore', () => {
@@ -32,7 +32,7 @@ describe('TaskStore', () => {
     expect(t.status).toBe('review'); expect(t.reviewStatus).toBe('pending')
   })
   test('delete removes a task by id', () => {
-    store.create({ id: 'T-del', projectId: 'p1', title: 'x', status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], reviewStatus: 'none' })
+    store.create({ id: 'T-del', projectId: 'p1', title: 'x', status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none' })
     expect(store.get('T-del')).toBeDefined()
     store.delete('T-del')
     expect(store.get('T-del')).toBeUndefined()
@@ -56,5 +56,33 @@ describe('TaskStore', () => {
     const t = store.get('TASK-011')!
     expect(t.acceptanceCriteria).toEqual([])
     expect(t.linkedWikiPages).toEqual([])
+  })
+
+  test('round-trips blockedBy and defaults to []', () => {
+    store.create(base)
+    expect(store.get('TASK-001')?.blockedBy).toEqual([])
+    store.create({ ...base, id: 'TASK-020', blockedBy: ['TASK-001', 'TASK-002'] })
+    expect(store.get('TASK-020')?.blockedBy).toEqual(['TASK-001', 'TASK-002'])
+  })
+  test('setBlockedBy updates only the blocked_by column', () => {
+    store.create({ ...base, id: 'TASK-021', priority: 'low' })
+    store.setBlockedBy('TASK-021', ['TASK-009'])
+    const t = store.get('TASK-021')!
+    expect(t.blockedBy).toEqual(['TASK-009'])
+    expect(t.priority).toBe('low') // other columns untouched
+  })
+})
+
+describe('validateBlockedBy', () => {
+  const get = (map: Record<string, Task>) => (id: string) => map[id]
+  test('rejects self-reference', () => {
+    expect(validateBlockedBy(get({}), 'A', ['A'])).toEqual({ ok: false, reason: 'self-reference' })
+  })
+  test('rejects a direct 2-cycle (B already blocks A)', () => {
+    const B: Task = { ...base, id: 'B', blockedBy: ['A'] }
+    expect(validateBlockedBy(get({ B }), 'A', ['B'])).toEqual({ ok: false, reason: 'cycle' })
+  })
+  test('accepts a fresh edge and ignores unknown blockers', () => {
+    expect(validateBlockedBy(get({}), 'A', ['B', 'ghost'])).toEqual({ ok: true })
   })
 })

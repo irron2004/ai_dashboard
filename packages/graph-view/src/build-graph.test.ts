@@ -50,6 +50,20 @@ describe('buildWorkGraphData', () => {
     expect(g.nodes.find((n) => n.id === 'req:p1:s1')!.data).toEqual({ sessionId: 's1' })
     expect(g.links).toEqual([{ id: 'work:req:p1:s1->concepts/a', source: 'req:p1:s1', target: 'concepts/a', kind: 'work', label: 'touched' }])
   })
+  it('adds a blocks edge (blocker -> blocked) between two task nodes from blockedBy', () => {
+    const tasks = [
+      { id: 'req:p1:a', title: 'A', status: 'done', linkedWikiPages: [] },
+      { id: 'req:p1:b', title: 'B', status: 'todo', linkedWikiPages: [], blockedBy: ['req:p1:a'] },
+    ]
+    const g = buildWorkGraphData(tasks, [])
+    const link = g.links.find((l) => l.kind === 'blocks')
+    expect(link).toMatchObject({ source: 'req:p1:a', target: 'req:p1:b', kind: 'blocks', label: 'blocks', direction: 'directed' })
+  })
+  it('does not add a blocks edge when the blocker is not a node in the graph', () => {
+    const tasks = [{ id: 'req:p1:b', title: 'B', status: 'todo', linkedWikiPages: [], blockedBy: ['ghost'] }]
+    const g = buildWorkGraphData(tasks, [])
+    expect(g.links.some((l) => l.kind === 'blocks')).toBe(false)
+  })
   it('dedups a wiki node touched by two tasks (1 node, 2 edges); basename-only does not match', () => {
     const tasks = [
       { id: 'req:p1:s1', title: 't1', status: 'done', linkedWikiPages: ['/x/vault/a.md'] },
