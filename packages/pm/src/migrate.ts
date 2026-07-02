@@ -22,7 +22,8 @@ export function migratePm(db: Db): void {
       acceptance_criteria TEXT NOT NULL DEFAULT '[]',
       linked_wiki_pages   TEXT NOT NULL DEFAULT '[]',
       context_package TEXT,
-      review_status TEXT NOT NULL DEFAULT 'none'
+      review_status TEXT NOT NULL DEFAULT 'none',
+      blocked_by    TEXT NOT NULL DEFAULT '[]'
     );
     CREATE TABLE IF NOT EXISTS agent_runs (
       id            TEXT PRIMARY KEY,
@@ -55,4 +56,5 @@ export function migratePm(db: Db): void {
   addColumnIfMissing(db, 'tasks', 'parent_task_id', 'parent_task_id TEXT')
   addColumnIfMissing(db, 'tasks', 'acceptance_criteria', "acceptance_criteria TEXT NOT NULL DEFAULT '[]'")
   addColumnIfMissing(db, 'tasks', 'linked_wiki_pages', "linked_wiki_pages TEXT NOT NULL DEFAULT '[]'")
+  addColumnIfMissing(db, 'tasks', 'blocked_by', "blocked_by TEXT NOT NULL DEFAULT '[]'")
 }

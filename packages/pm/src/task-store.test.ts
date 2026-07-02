@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from 'vitest'
 import { openDb, migrate, type Db } from '@apc/core'
 import { migratePm } from './migrate.js'
-import { TaskStore } from './task-store.js'
+import { TaskStore, validateBlockedBy } from './task-store.js'
 import type { Task } from '@apc/shared'
 
 const base: Task = {
@@ -56,5 +56,33 @@ describe('TaskStore', () => {
     const t = store.get('TASK-011')!
     expect(t.acceptanceCriteria).toEqual([])
     expect(t.linkedWikiPages).toEqual([])
+  })
+
+  test('round-trips blockedBy and defaults to []', () => {
+    store.create(base)
+    expect(store.get('TASK-001')?.blockedBy).toEqual([])
+    store.create({ ...base, id: 'TASK-020', blockedBy: ['TASK-001', 'TASK-002'] })
+    expect(store.get('TASK-020')?.blockedBy).toEqual(['TASK-001', 'TASK-002'])
+  })
+  test('setBlockedBy updates only the blocked_by column', () => {
+    store.create({ ...base, id: 'TASK-021', priority: 'low' })
+    store.setBlockedBy('TASK-021', ['TASK-009'])
+    const t = store.get('TASK-021')!
+    expect(t.blockedBy).toEqual(['TASK-009'])
+    expect(t.priority).toBe('low') // other columns untouched
+  })
+})
+
+describe('validateBlockedBy', () => {
+  const get = (map: Record<string, Task>) => (id: string) => map[id]
+  test('rejects self-reference', () => {
+    expect(validateBlockedBy(get({}), 'A', ['A'])).toEqual({ ok: false, reason: 'self-reference' })
+  })
+  test('rejects a direct 2-cycle (B already blocks A)', () => {
+    const B: Task = { ...base, id: 'B', blockedBy: ['A'] }
+    expect(validateBlockedBy(get({ B }), 'A', ['B'])).toEqual({ ok: false, reason: 'cycle' })
+  })
+  test('accepts a fresh edge and ignores unknown blockers', () => {
+    expect(validateBlockedBy(get({}), 'A', ['B', 'ghost'])).toEqual({ ok: true })
   })
 })
