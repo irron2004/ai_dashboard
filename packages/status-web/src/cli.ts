@@ -26,12 +26,19 @@ function printStartup(cfg: StatusConfig): void {
   const url = `http://${cfg.host}:${cfg.port}`
   console.log(`[status-web] serving read-only overview at ${url}`)
   console.log(`[status-web] db: ${cfg.db}`)
-  if (cfg.tokenGenerated) console.log(`[status-web] generated token (pass via ?/prompt): ${cfg.token}`)
-  else console.log(`[status-web] token: (from --token / APC_STATUS_TOKEN)`)
-  if (cfg.host !== '127.0.0.1' && cfg.host !== 'localhost') {
-    console.log(`[status-web] WARNING: bound to ${cfg.host} — reachable on the LAN. Token auth is the only guard.`)
+  if (cfg.tokenGenerated) {
+    console.log(`[status-web] generated token — open the URL below; the page will prompt you to paste it once.`)
+    console.log(`[status-web]   Token is stored in localStorage and sent via Authorization header automatically.`)
+    console.log(`[status-web]   ${cfg.token}`)
+  } else {
+    console.log(`[status-web] token: (from --token / APC_STATUS_TOKEN)`)
   }
-  console.log(`[status-web] open ${url}/ on your phone (same network) and paste the token when prompted.`)
+  if (cfg.host !== '127.0.0.1' && cfg.host !== 'localhost') {
+    console.log(`[status-web] ⚠ WARNING: bound to ${cfg.host} — traffic is plain HTTP, NOT encrypted.`)
+    console.log(`[status-web]   The bearer token AND all response data travel in cleartext.`)
+    console.log(`[status-web]   Anyone on the same network can sniff both. Use on a trusted LAN only.`)
+  }
+  console.log(`[status-web] open ${url}/ in a browser and paste the token when the page prompts you.`)
 }
 
 export function main(argv: string[], env: NodeJS.ProcessEnv): void {
