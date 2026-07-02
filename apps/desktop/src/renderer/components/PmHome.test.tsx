@@ -1,5 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { render, screen, within, fireEvent } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
+import { CH } from '../../shared/ipc-contract.js'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import { PmHome } from './PmHome.js'
 
@@ -43,5 +44,28 @@ describe('PmHome', () => {
     render(<PmHome dashboard={dashboard} />)
     expect(screen.getByText(/R1/)).toBeDefined()
     expect(screen.getByText('completed')).toBeDefined()
+  })
+
+  test('renders the 다음 할 일 widget with unblocked actionable tasks', () => {
+    render(<PmHome dashboard={dashboard} />)
+    const nextUp = screen.getByTestId('next-up')
+    // T1 (in_progress) is actionable; T2 (review) is not listed here
+    expect(within(nextUp).getByText('do work')).toBeDefined()
+    expect(within(nextUp).queryByText('needs review')).toBeNull()
+  })
+  test('editing a dependency persists via the bridge and marks the task blocked', () => {
+    const invoke = vi.fn(() => Promise.resolve({ ok: true }))
+    ;(window as unknown as { apc: unknown }).apc = { invoke, onDevHarnessLog: () => () => {} }
+    try {
+      render(<PmHome dashboard={dashboard} />)
+      fireEvent.click(screen.getByLabelText('의존성 편집 do work'))
+      const select = screen.getByLabelText('차단 작업 선택 do work') as HTMLSelectElement
+      ;(within(select).getByText('needs review') as HTMLOptionElement).selected = true
+      fireEvent.change(select)
+      expect(invoke).toHaveBeenCalledWith(CH.taskSetBlockedBy, { taskId: 'T1', blockedBy: ['T2'] })
+      expect(screen.getByText('🚫 차단')).toBeDefined() // optimistic overlay reflects blockage
+    } finally {
+      delete (window as unknown as { apc?: unknown }).apc
+    }
   })
 })
