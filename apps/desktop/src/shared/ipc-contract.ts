@@ -7,6 +7,7 @@ export const CH = {
   search: 'q:search',
   listProfiles: 'q:listProfiles',
   tasksList: 'q:tasksList',
+  workspaceOverview: 'q:workspaceOverview',
   // dialogs
   selectFolder: 'd:selectFolder',
   testSsh: 'd:testSsh',
