@@ -100,7 +100,7 @@ export function KnowledgeView() {
   const workGraph = useMemo(() => {
     const reqs = tasks.filter((t) => t.id.startsWith('req:'))
     const items = reqs.map((t) => ({
-      id: t.id, title: t.title, status: t.status, linkedWikiPages: t.linkedWikiPages,
+      id: t.id, title: t.title, status: t.status, linkedWikiPages: t.linkedWikiPages, blockedBy: t.blockedBy,
       data: { sessionId: t.contextPackage, todos: tasks.filter((c) => c.parentTaskId === t.id).map((c) => ({ title: c.title, status: c.status })) },
     }))
     return buildWorkGraphData(items, projectWiki?.available ? projectWiki.nodes : [])
