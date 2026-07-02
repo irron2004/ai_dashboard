@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Task, TaskStatus } from '@apc/shared'
-import { unresolvedBlockers } from '../task-deps.js'
+import { unresolvedBlockers } from '@apc/dashboard-api'
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'todo', label: 'To Do' },
