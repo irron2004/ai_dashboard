@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
 import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
+import type { WorkspaceOverview } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
   appendTailLines,
@@ -24,6 +25,7 @@ type ApcStore = {
   projects: Project[]
   selectedProjectId: string | null
   dashboard: ProjectDashboardRes | null
+  workspaceOverview: WorkspaceOverview | null
   profiles: AgentProfile[]
   ingesting: boolean
   lastIngest: { sources: number; sessions: number; documents: number } | null
@@ -86,6 +88,7 @@ type ApcStore = {
   updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string): Promise<void>
   deleteProject(id: string): Promise<void>
   selectProject(projectId: string): Promise<void>
+  loadWorkspaceOverview(): Promise<void>
   loadProfiles(projectPath: string): Promise<void>
   ingest(): Promise<void>
   clearError(): void
@@ -140,6 +143,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   projects: [],
   selectedProjectId: null,
   dashboard: null,
+  workspaceOverview: null,
   profiles: [],
   ingesting: false,
   lastIngest: null,
@@ -288,6 +292,15 @@ export const useStore = create<ApcStore>((set, get) => ({
     } catch (e) {
       if (get().selectedProjectId !== projectId) return
       set({ error: `Failed to load dashboard: ${e}` })
+    }
+  },
+
+  async loadWorkspaceOverview() {
+    try {
+      const workspaceOverview = await api.workspaceOverview()
+      set({ workspaceOverview })
+    } catch (e) {
+      set({ error: `Failed to load workspace overview: ${e}` })
     }
   },
 

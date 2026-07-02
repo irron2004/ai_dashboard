@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentType } from '@apc/shared'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
@@ -28,8 +28,8 @@ const STATUS_COLOR: Record<AgentRunStatus, string> = {
 export function App() {
   const {
     projects, selectedProjectId, dashboard, error, agentStatus, openPanes,
-    harnessLoading,
-    loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus,
+    harnessLoading, workspaceOverview,
+    loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus, loadWorkspaceOverview,
   } = useStore()
   const restartAgent = useStore((s) => s.restartAgent)
   const stopAgent = useStore((s) => s.stopAgent)
@@ -40,7 +40,7 @@ export function App() {
   const [mainTab, setMainTab] = useState<MainTab>(() => {
     try {
       const saved = localStorage.getItem('apc:mainTab')
-      if (saved === 'home' || saved === 'knowledge' || saved === 'wikigen') return saved
+      if (saved === 'home' || saved === 'knowledge' || saved === 'wikigen' || saved === 'workspace') return saved
     } catch { /* ignore */ }
     return 'home'
   })
@@ -179,6 +179,19 @@ export function App() {
 
   useEffect(() => { loadProjects() }, [loadProjects])
 
+  // Cross-project overview: fetch when the 전체 tab is opened (MVP — no polling/websocket; manual refresh in WorkspaceHome).
+  useEffect(() => {
+    if (mainTab === 'workspace') void loadWorkspaceOverview()
+  }, [mainTab, loadWorkspaceOverview])
+
+  const projectBadges = useMemo(() => {
+    const m: Record<string, { running: number; review: number }> = {}
+    for (const p of workspaceOverview?.projects ?? []) {
+      m[p.project.id] = { running: p.runningRuns.length, review: p.reviewQueueCount }
+    }
+    return m
+  }, [workspaceOverview])
+
   // Keyboard: Ctrl+1..9 → project by index; Shift+1/2/3 → agent.
   // Use e.code (Digit1..) because Shift turns e.key '1' into '!'. Capture phase + stopPropagation
   // so a focused terminal doesn't also receive the keystroke.
@@ -269,6 +282,7 @@ export function App() {
           onAdd={addProject}
           onUpdate={updateProject}
           onDelete={deleteProject}
+          badges={projectBadges}
         />
       </aside>
 
@@ -289,6 +303,9 @@ export function App() {
             dashboard={dashboard}
             actions={toolbarActions}
             wikiGenRunning={harnessLoading}
+            overview={workspaceOverview}
+            onRefreshWorkspace={() => void loadWorkspaceOverview()}
+            onOpenProject={(pid) => { void selectProject(pid); handleMainTab('home') }}
           />
         ) : (
           <>
