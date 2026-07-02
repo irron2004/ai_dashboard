@@ -13,9 +13,26 @@ export function PmHome({ dashboard }: Props) {
   const { project, reviewQueue, recentRuns, allTasks } = dashboard
   const [depOverrides, setDepOverrides] = useState<Record<string, string[]>>({})
   const tasks: Task[] = allTasks.map((t) => (depOverrides[t.id] ? { ...t, blockedBy: depOverrides[t.id] } : t))
-  const handleSetBlockedBy = (taskId: string, blockedBy: string[]) => {
+  const handleSetBlockedBy = async (taskId: string, blockedBy: string[]) => {
+    const prevOverride = depOverrides[taskId]
     setDepOverrides((prev) => ({ ...prev, [taskId]: blockedBy }))
-    void api.taskSetBlockedBy({ taskId, blockedBy })
+    const revert = () =>
+      setDepOverrides((prev) => {
+        const next = { ...prev }
+        if (prevOverride !== undefined) next[taskId] = prevOverride
+        else delete next[taskId]
+        return next
+      })
+    try {
+      const res = await api.taskSetBlockedBy({ taskId, blockedBy })
+      if (!res.ok) {
+        console.warn('taskSetBlockedBy rejected:', res.reason)
+        revert()
+      }
+    } catch (err) {
+      console.warn('taskSetBlockedBy failed:', err)
+      revert()
+    }
   }
   const upNext = nextUp(tasks)
 
