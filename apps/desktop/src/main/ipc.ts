@@ -196,6 +196,11 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.devHarnessRun]: async (payload: unknown) => container.devHarnessRun(payload as DevHarnessRunReq),
     [CH.devHarnessCancel]: async (payload: unknown) => container.devHarnessCancel(payload as DevHarnessCancelReq),
 
+    [CH.composeContext]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), taskId: z.string() }).strict().parse(payload)
+      return container.composeContext(req)
+    },
+
     [CH.generateRun]: async (payload: unknown) => {
       const req = payload as GenerateRunReq
       const run = container.runs.get(req.runId)

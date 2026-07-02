@@ -39,6 +39,8 @@ export const CH = {
   // dev-harness (S3): console drives the multi-agent coding harness via the CLI contract.
   devHarnessRun: 'c:devHarnessRun',
   devHarnessCancel: 'c:devHarnessCancel',
+  // context package composer (P2): task → LLM-handoff prompt (assembled in main).
+  composeContext: 'q:composeContext',
   readProjectWiki: 'c:readProjectWiki',
   submitReview: 'c:submitReview',
   promoteCurrent: 'c:promoteCurrent',
@@ -226,3 +228,7 @@ export type WorkspaceRestore = {
   panes: Array<PaneRef & { lastSessionId: string | null }>
   selectedProjectId: string | null
 }
+
+// context package composer (P2)
+export type ComposeContextReq = { projectId: string; taskId: string }
+export type ComposeContextRes = { ok: boolean; prompt?: string; reason?: string }

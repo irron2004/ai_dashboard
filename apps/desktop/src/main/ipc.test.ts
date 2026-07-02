@@ -399,4 +399,40 @@ describe('IPC handlers (no Electron)', () => {
     await expect(h[CH.taskSetBlockedBy]({ taskId: 'T1', blockedBy: [], extra: 1 })).rejects.toThrow() // unknown key
     await expect(h[CH.taskSetBlockedBy]({ blockedBy: [] })).rejects.toThrow()                     // missing taskId
   })
+
+  test('q:composeContext assembles a prompt from task + parent + acceptance criteria + wiki excerpt', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const repo = mkdtempSync(join(tmpdir(), 'apc-cc-repo-'))
+    mkdirSync(join(repo, 'docs'), { recursive: true })
+    writeFileSync(join(repo, 'docs', 'spec.md'), '# Spec\nimportant detail here')
+    container.registry.register({
+      id: 'p2', name: 'X', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: [repo], vaultPaths: [], sourcePaths: [],
+    })
+    container.tasks.create({
+      id: 'req:p2:s1', projectId: 'p2', title: '상위 요청', status: 'todo', assigneeType: 'agent',
+      priority: 'medium', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
+    })
+    container.tasks.create({
+      id: 'todo:p2:s1:1', projectId: 'p2', title: '하위 작업', status: 'todo', assigneeType: 'agent',
+      priority: 'medium', reviewStatus: 'none', parentTaskId: 'req:p2:s1',
+      acceptanceCriteria: ['빌드 통과', '테스트 green'], linkedWikiPages: ['docs/spec.md'], blockedBy: [],
+    })
+    const h = handlers(container)
+    const res = await h[CH.composeContext]({ projectId: 'p2', taskId: 'todo:p2:s1:1' }) as { ok: boolean; prompt?: string }
+    expect(res.ok).toBe(true)
+    expect(res.prompt).toContain('하위 작업')
+    expect(res.prompt).toContain('상위 요청')
+    expect(res.prompt).toContain('빌드 통과')
+    expect(res.prompt).toContain('docs/spec.md')
+    expect(res.prompt).toContain('important detail here')
+  })
+
+  test('q:composeContext returns ok:false for an unknown task', async () => {
+    const h = handlers(container)
+    const res = await h[CH.composeContext]({ projectId: 'p1', taskId: 'nope' }) as { ok: boolean }
+    expect(res.ok).toBe(false)
+  })
 })

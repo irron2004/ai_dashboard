@@ -6,18 +6,19 @@ import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceSt
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
 import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
-import { readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { generateRemote } from './remote-generate.js'
 import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
+import { readProjectDoc } from './project-files.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -33,6 +34,7 @@ import type {
   HarnessEngineLogEvent, HarnessNodesEvent,
   SearchReq,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
+  ComposeContextReq, ComposeContextRes,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
 
@@ -93,6 +95,7 @@ export type Container = {
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
   devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
   devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
+  composeContext: (req: ComposeContextReq) => ComposeContextRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
@@ -101,6 +104,14 @@ export type Container = {
 let _idCounter = 0
 function nextId(): string {
   return `auto-${Date.now()}-${++_idCounter}`
+}
+
+const COMPOSE_WIKI_MAX_FILES = 6
+const COMPOSE_EXCERPT_CAP = 512
+/** Strip a leading YAML frontmatter block, then cap to COMPOSE_EXCERPT_CAP bytes. */
+function capExcerpt(raw: string): string {
+  const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '')
+  return body.length > COMPOSE_EXCERPT_CAP ? body.slice(0, COMPOSE_EXCERPT_CAP) + '…' : body
 }
 
 const PREFLIGHT_MARKDOWN_SCAN_LIMIT = 2_000
@@ -333,6 +344,29 @@ export function buildContainer(opts: {
     devHarness.run(req, opts.emitDevHarnessLog ? (e) => opts.emitDevHarnessLog!(e) : undefined)
   const devHarnessCancel = (req: DevHarnessCancelReq): DevHarnessCancelRes => devHarness.cancel(req)
 
+  const composeContext = (req: ComposeContextReq): ComposeContextRes => {
+    const project = registry.get(req.projectId)
+    if (!project) return { ok: false, reason: 'project not found' }
+    const task = tasks.get(req.taskId)
+    if (!task || task.projectId !== req.projectId) return { ok: false, reason: 'task not found' }
+    const allTasks = tasks.listByProject(project.id)
+    // Wiki excerpts: reuse the realpath-guarded, size-capped reader (md/mdx/txt only; other links skipped).
+    const roots = [join(opts.vaultRoot, 'projects', project.id), ...project.repoPaths, ...project.vaultPaths]
+    const wikiExcerpts: WikiExcerpt[] = []
+    for (const rel of task.linkedWikiPages.slice(0, COMPOSE_WIKI_MAX_FILES)) {
+      const r = readProjectDoc(roots, rel)
+      if (r.ok) wikiExcerpts.push({ path: rel, excerpt: capExcerpt(r.content) })
+    }
+    // MVP session summary: latest run for this task that has a stored summary doc (see plan notes).
+    let sessionSummary: string | undefined
+    const withSummary = runs.listByTask(task.id).find((run) => run.summaryPath)
+    if (withSummary?.summaryPath) {
+      try { sessionSummary = capExcerpt(readFileSync(join(opts.vaultRoot, withSummary.summaryPath), 'utf8')) }
+      catch { /* summary unreadable → omit */ }
+    }
+    return { ok: true, prompt: composeContextPackage({ task, allTasks, wikiExcerpts, sessionSummary }) }
+  }
+
   const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
     const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
     return readProjectWiki(repoPaths)
@@ -351,7 +385,7 @@ export function buildContainer(opts: {
     ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
-    devHarnessRun, devHarnessCancel,
+    devHarnessRun, devHarnessCancel, composeContext,
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
