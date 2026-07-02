@@ -99,11 +99,29 @@ describe('reconcileSessionTasks', () => {
     return {
       map,
       create: (t: Task) => { map.set(t.id, t) },
+      get: (id: string) => map.get(id),
       listByProject: (pid: string) => [...map.values()].filter((t) => t.projectId === pid),
       delete: (id: string) => { map.delete(id) },
     }
   }
   const mk = (id: string, extra: Partial<Task> = {}): Task => ({ id, projectId: 'p1', title: id, status: 'todo', assigneeType: 'agent', priority: 'medium', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none', ...extra })
+
+  it('preserves blockedBy on the request task when re-ingesting', () => {
+    const store = fakeStore()
+    store.create(mk('req:p1:s1', { blockedBy: ['X'] }))
+    const request = mk('req:p1:s1') // fresh extract: blockedBy []
+    reconcileSessionTasks(store, 'p1', 's1', request, [])
+    expect(store.map.get('req:p1:s1')!.blockedBy).toEqual(['X'])
+  })
+
+  it('preserves blockedBy on a todo task when re-ingesting', () => {
+    const store = fakeStore()
+    store.create(mk('todo:p1:s1:a', { blockedBy: ['Y'] }))
+    const request = mk('req:p1:s1')
+    const todos = [mk('todo:p1:s1:a')] // fresh extract: blockedBy []
+    reconcileSessionTasks(store, 'p1', 's1', request, todos)
+    expect(store.map.get('todo:p1:s1:a')!.blockedBy).toEqual(['Y'])
+  })
 
   it('upserts request + todos and deletes stale todos of the same session', () => {
     const store = fakeStore()
