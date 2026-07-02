@@ -35,6 +35,7 @@ import type {
   SearchReq,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
   ComposeContextReq, ComposeContextRes,
+  DevHarnessStartedEvent,
 } from '../shared/ipc-contract.js'
 import type { UnifiedSearchResponse } from '@apc/shared'
 
@@ -157,6 +158,7 @@ export function buildContainer(opts: {
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
   emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
   emitDevHarnessLog?: (e: DevHarnessLogEvent) => void
+  emitDevHarnessStarted?: (e: DevHarnessStartedEvent) => void
   emitHarnessNodes?: (e: HarnessNodesEvent) => void
 }): Container {
   const db = openDb(opts.dbFile)
@@ -341,7 +343,11 @@ export function buildContainer(opts: {
     runsRoot: opts.harnessRunsRoot ?? join(opts.vaultRoot, '..', 'apc-harness-runs'),
   })
   const devHarnessRun = (req: DevHarnessRunReq): Promise<DevHarnessRunRes> =>
-    devHarness.run(req, opts.emitDevHarnessLog ? (e) => opts.emitDevHarnessLog!(e) : undefined)
+    devHarness.run(
+      req,
+      opts.emitDevHarnessLog ? (e) => opts.emitDevHarnessLog!(e) : undefined,
+      opts.emitDevHarnessStarted ? (e) => opts.emitDevHarnessStarted!(e) : undefined,
+    )
   const devHarnessCancel = (req: DevHarnessCancelReq): DevHarnessCancelRes => devHarness.cancel(req)
 
   const composeContext = (req: ComposeContextReq): ComposeContextRes => {

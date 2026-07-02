@@ -33,6 +33,7 @@ function createWindow(): void {
     emitHarnessEngineLog: (e) => win.webContents.send(CH.harnessEngineLog, e),
     emitHarnessNodes: (e) => win.webContents.send(CH.harnessNodes, e),
     emitDevHarnessLog: (e) => win.webContents.send(CH.devHarnessLog, e),
+    emitDevHarnessStarted: (e) => win.webContents.send(CH.devHarnessStarted, e),
   })
 
   const sessions = new SessionStore(container.db)

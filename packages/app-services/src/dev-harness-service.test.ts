@@ -107,3 +107,13 @@ test('cancel of unknown/ended run is a no-op', () => {
   const svc = new DevHarnessService({ cli, runs: store as never, registry: okRegistry, runsRoot: runsRoot() })
   expect(svc.cancel({ runId: 'nope' }).ok).toBe(false)
 })
+
+test('emits onStarted with runId/taskId/projectId right after recording the run', async () => {
+  const { store } = fakeRuns()
+  const cli = cliOf(async () => ({ exitCode: 0, stdout: '', stderr: '' }))
+  const started: Array<{ runId: string; taskId: string; projectId: string }> = []
+  const svc = new DevHarnessService({ cli, runs: store as never, registry: okRegistry, runsRoot: runsRoot() })
+  const res = await svc.run({ projectId: 'P', taskId: 'req:P:s1' }, undefined, (e) => started.push(e))
+  expect(started).toHaveLength(1)
+  expect(started[0]).toMatchObject({ taskId: 'req:P:s1', projectId: 'P', runId: res.runId })
+})

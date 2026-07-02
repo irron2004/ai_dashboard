@@ -57,6 +57,7 @@ export const CH = {
   harnessEngineLog: 'harness:engineLog',
   harnessNodes: 'harness:nodes',
   devHarnessLog: 'devHarness:log',
+  devHarnessStarted: 'devHarness:started',
   configPreview: 'c:configPreview',
   configApply: 'c:configApply',
   configRollback: 'c:configRollback',
@@ -232,3 +233,6 @@ export type WorkspaceRestore = {
 // context package composer (P2)
 export type ComposeContextReq = { projectId: string; taskId: string }
 export type ComposeContextRes = { ok: boolean; prompt?: string; reason?: string }
+
+// dev-harness started ack (P2): fired right after the run is recorded, before any log chunk.
+export type DevHarnessStartedEvent = { runId: string; taskId: string; projectId: string }
