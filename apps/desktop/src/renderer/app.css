@@ -1712,3 +1712,6 @@ textarea {
 .workspace-card__next-list { margin: 0; padding-left: 16px; }
 .workspace-card__task { background: none; border: none; color: #ddd; cursor: pointer; padding: 2px 0; text-align: left; font-size: 0.82rem; }
 .workspace-card__task:hover { color: #fff; text-decoration: underline; }
+.project-sidebar__badge { display: inline-block; margin-left: 6px; font-size: 0.68rem; line-height: 1; padding: 2px 6px; border-radius: 9px; vertical-align: middle; }
+.project-sidebar__badge--running { background: #1f3a24; color: #8fe0a2; }
+.project-sidebar__badge--review { background: #3a331f; color: #e6d17a; }

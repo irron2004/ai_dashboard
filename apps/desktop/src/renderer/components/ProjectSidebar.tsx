@@ -11,6 +11,7 @@ type Props = {
   onAdd: (name: string, projectType: string, repoPath: string, domain: string) => void
   onUpdate: (id: string, name: string, projectType: string, repoPath: string, domain: string) => void
   onDelete: (id: string) => void
+  badges?: Record<string, { running: number; review: number }>
 }
 
 function groupByStatus(projects: Project[]): Record<string, Project[]> {
@@ -25,7 +26,7 @@ function groupByStatus(projects: Project[]): Record<string, Project[]> {
 type PathMode = 'local' | 'ssh'
 type Menu = { id: string; x: number; y: number }
 
-export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggleCollapse, onSelect, onAdd, onUpdate, onDelete }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggleCollapse, onSelect, onAdd, onUpdate, onDelete, badges = {} }: Props) {
   const groups = groupByStatus(projects)
   const [showDialog, setShowDialog] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -198,6 +199,12 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
                       title="우클릭: 편집 / 삭제"
                     >
                       {p.name}
+                      {(badges[p.id]?.running ?? 0) > 0 && (
+                        <span className="project-sidebar__badge project-sidebar__badge--running" title="실행중">{badges[p.id].running}</span>
+                      )}
+                      {(badges[p.id]?.review ?? 0) > 0 && (
+                        <span className="project-sidebar__badge project-sidebar__badge--review" title="리뷰 대기">{badges[p.id].review}</span>
+                      )}
                     </button>
                   </li>
                 ))}
