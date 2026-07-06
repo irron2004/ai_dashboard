@@ -48,12 +48,12 @@ function shouldSkip(rel: string): boolean {
   return false
 }
 
-function nodeTypeAndRef(rootRel: string, body: string): { type: string; ref: string } {
+function nodeTypeAndRef(rootRel: string, body: string): { type: string; ref: string; slug: string } {
   const withoutExt = rootRel.replace(/\.(md|mdx)$/i, '')
   const parts = withoutExt.split('/').filter(Boolean)
   const slug = FRONT(body, 'slug') ?? parts.at(-1) ?? withoutExt
-  if (parts.length >= 2) return { type: parts[0], ref: `${parts[0]}/${slug}` }
-  return { type: 'document', ref: `document/${slug}` }
+  if (parts.length >= 2) return { type: parts[0], ref: `${parts[0]}/${slug}`, slug }
+  return { type: 'document', ref: `document/${slug}`, slug }
 }
 
 function wikiLinks(body: string): string[] {
@@ -100,7 +100,7 @@ function readWikiRoot(root: string, relPrefix: string): ReadWikiResult {
       const abs = join(root, rel)
       if (!statSync(abs).isFile()) continue
       const body = readFileSync(abs, 'utf8')
-      const { type, ref } = nodeTypeAndRef(rel, body)
+      const { type, ref, slug } = nodeTypeAndRef(rel, body)
       const title = FRONT(body, 'title') ?? FRONT(body, 'node_id') ?? basename(rel).replace(/\.(md|mdx)$/i, '')
       const relPath = `${relPrefix}/${rel}`.replace(/\\/g, '/')
       nodes.push({ ref, type, title, relPath })
@@ -112,10 +112,16 @@ function readWikiRoot(root: string, relPrefix: string): ReadWikiResult {
       addAlias(targetToRef, FRONT(body, 'slug'), ref)
       addAlias(targetToRef, FRONT(body, 'title'), ref)
       addAlias(targetToRef, FRONT(body, 'node_id'), ref)
+      addAlias(targetToRef, `${type}:${slug}`, ref)
+      const fmType = FRONT(body, 'type')
+      if (fmType && fmType !== type) addAlias(targetToRef, `${fmType}:${slug}`, ref)
     } catch { /* skip unreadable node file */ }
   }
 
+  const resolveRef = (value: string): string =>
+    targetToRef.get(value.replace(/\\/g, '/').replace(/\.(md|mdx)$/i, '').trim()) ?? value
   const edges = readEdges(join(root, 'graph', 'edges.jsonl'))
+    .map((e) => ({ ...e, from: resolveRef(e.from), to: resolveRef(e.to) }))
   const seen = new Set(edges.map((e) => `${e.from}->${e.to}:${e.type}`))
   for (const node of nodes) {
     const body = bodies.get(node.ref) ?? ''

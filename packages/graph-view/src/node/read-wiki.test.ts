@@ -71,4 +71,40 @@ describe('readProjectWiki', () => {
     expect(res.nodes).toHaveLength(1)
     expect(res.nodes[0]).toMatchObject({ ref: 'concepts/engine', relPath: '.apc-wiki/concepts/engine.md' })
   })
+
+  test('resolves kernel-style colon refs in edges.jsonl to file nodes', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'pw-colon-'))
+    const wiki = join(repo, 'wiki')
+    mkdirSync(join(wiki, 'modules'), { recursive: true })
+    mkdirSync(join(wiki, 'pipelines'), { recursive: true })
+    mkdirSync(join(wiki, 'graph'), { recursive: true })
+    writeFileSync(join(wiki, 'modules', 'attention-embedding.md'), '---\ntitle: AE\nslug: attention-embedding\n---\n')
+    writeFileSync(join(wiki, 'pipelines', 'p1.md'), '---\ntitle: P1\n---\n')
+    writeFileSync(join(wiki, 'graph', 'edges.jsonl'),
+      JSON.stringify({ from: 'pipelines:p1', to: 'modules:attention-embedding', type: 'uses_module' }) + '\n' +
+      JSON.stringify({ from: 'pipelines:p1', to: 'papers:unknown', type: 'pipeline_from_paper' }) + '\n')
+
+    const res = readProjectWiki([repo])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.edges).toContainEqual(expect.objectContaining({ from: 'pipelines/p1', to: 'modules/attention-embedding', type: 'uses_module' }))
+    // 해석 실패한 ref는 원본 유지 → 다운스트림에서 유령 노드로 표시
+    expect(res.edges).toContainEqual(expect.objectContaining({ from: 'pipelines/p1', to: 'papers:unknown' }))
+  })
+
+  test('resolves colon refs whose type prefix comes from frontmatter type (coin company_graph style)', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'pw-fmtype-'))
+    const wiki = join(repo, 'wiki')
+    mkdirSync(join(wiki, 'company_graph'), { recursive: true })
+    mkdirSync(join(wiki, 'graph'), { recursive: true })
+    writeFileSync(join(wiki, 'company_graph', '000660.KS.md'), '---\ntype: company_graph_node\nticker: "000660.KS"\n---\n')
+    writeFileSync(join(wiki, 'company_graph', '005930.KS.md'), '---\ntype: company_graph_node\n---\n')
+    writeFileSync(join(wiki, 'graph', 'edges.jsonl'),
+      JSON.stringify({ from: 'company_graph_node:000660.KS', to: 'company_graph_node:005930.KS', type: 'candidate_comention' }) + '\n')
+
+    const res = readProjectWiki([repo])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.edges).toContainEqual(expect.objectContaining({ from: 'company_graph/000660.KS', to: 'company_graph/005930.KS', type: 'candidate_comention' }))
+  })
 })
