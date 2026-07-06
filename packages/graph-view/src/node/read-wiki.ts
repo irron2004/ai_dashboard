@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { basename, join, relative, sep } from 'node:path'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
 
 export type WikiGraphNode = { ref: string; type: string; title: string; relPath: string }
 export type WikiGraphEdge = { from: string; to: string; type: string } & Record<string, unknown>
@@ -138,9 +138,27 @@ function readWikiRoot(root: string, relPrefix: string): ReadWikiResult {
   return nodes.length || edges.length ? { available: true, wikiDir: root, nodes, edges } : { available: false }
 }
 
-/** Read a project's wiki into graph data. Prefer the published `<repo>/wiki`, then fall back to
- *  internal generated docs in `<repo>/.apc-wiki`. Never throws — returns {available:false} on failure. */
-export function readProjectWiki(repoPaths: readonly string[]): ReadWikiResult {
+/** vaultPath가 repoPath 내부면 repo-상대 prefix(파일 미리보기 fsReadDoc 호환), 아니면 디렉터리명. */
+function vaultRelPrefix(repoPaths: readonly string[], vault: string): string {
+  for (const repo of repoPaths) {
+    if (!repo || repo.startsWith('ssh://')) continue
+    const rel = relative(repo, vault)
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) return rel.split(sep).join('/')
+  }
+  return basename(vault)
+}
+
+/** Read a project's wiki into graph data. Explicit registry vaultPaths (direct wiki roots) win;
+ *  then the published `<repo>/wiki`; then internal generated docs in `<repo>/.apc-wiki`.
+ *  Never throws — returns {available:false} on failure. */
+export function readProjectWiki(repoPaths: readonly string[], vaultPaths: readonly string[] = []): ReadWikiResult {
+  for (const vault of vaultPaths) {
+    if (!vault || vault.startsWith('ssh://')) continue
+    try {
+      const direct = readWikiRoot(vault, vaultRelPrefix(repoPaths, vault))
+      if (direct.available) return direct
+    } catch { /* try next root */ }
+  }
   for (const repo of repoPaths) {
     if (!repo || repo.startsWith('ssh://')) continue
     try {

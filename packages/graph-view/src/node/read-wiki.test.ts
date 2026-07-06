@@ -107,4 +107,30 @@ describe('readProjectWiki', () => {
     if (!res.available) return
     expect(res.edges).toContainEqual(expect.objectContaining({ from: 'company_graph/000660.KS', to: 'company_graph/005930.KS', type: 'candidate_comention' }))
   })
+
+  test('vaultPaths are read directly as wiki roots with repo-relative relPath', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'pw-vault-'))
+    const vault = join(repo, 'research', 'wiki')
+    mkdirSync(join(vault, 'modules'), { recursive: true })
+    writeFileSync(join(vault, 'modules', 'm1.md'), '---\ntitle: M1\n---\n')
+
+    const res = readProjectWiki([repo], [vault])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.nodes[0]).toMatchObject({ ref: 'modules/m1', relPath: 'research/wiki/modules/m1.md' })
+  })
+
+  test('vaultPaths take precedence over <repo>/wiki and tolerate ssh/missing entries', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'pw-vault2-'))
+    mkdirSync(join(repo, 'wiki', 'a'), { recursive: true })
+    writeFileSync(join(repo, 'wiki', 'a', 'x.md'), '# X')
+    const vault = join(repo, 'data', 'wiki')
+    mkdirSync(join(vault, 'b'), { recursive: true })
+    writeFileSync(join(vault, 'b', 'y.md'), '# Y')
+
+    const res = readProjectWiki([repo], ['ssh://host/x', join(repo, 'no-such-dir'), vault])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.nodes.map((n) => n.ref)).toEqual(['b/y'])
+  })
 })

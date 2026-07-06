@@ -411,8 +411,8 @@ export function buildContainer(opts: {
   }
 
   const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
-    const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
-    return readProjectWiki(repoPaths)
+    const project = registry.get(req.projectId)
+    return readProjectWiki(project?.repoPaths ?? [], project?.vaultPaths ?? [])
   }
 
   const taskSetBlockedBy = (req: TaskSetBlockedByReq): TaskSetBlockedByRes => {
