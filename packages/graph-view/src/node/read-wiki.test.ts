@@ -37,9 +37,38 @@ describe('readProjectWiki', () => {
     expect(res.nodes.some((n) => n.ref.startsWith('index'))).toBe(false)
   })
 
-  test('available:false when no wiki/graph/edges.jsonl, and skips ssh repos — never throws', () => {
+  test('available:false when no wiki docs exist, and skips ssh repos — never throws', () => {
     expect(readProjectWiki([mkdtempSync(join(tmpdir(), 'pw-empty-'))]).available).toBe(false)
     expect(readProjectWiki(['ssh://me@host/home/me/proj']).available).toBe(false)
     expect(readProjectWiki([]).available).toBe(false)
+  })
+
+  test('reads a published LLM wiki without edges.jsonl and derives wiki-link edges', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'pw-llm-'))
+    const wiki = join(repo, 'wiki')
+    mkdirSync(join(wiki, 'concepts'), { recursive: true })
+    writeFileSync(join(wiki, 'current.md'), '# Current\n\nSee [[concepts/router]] and [[Router]].')
+    writeFileSync(join(wiki, 'concepts', 'router.md'), '---\ntitle: Router\n---\n# Router\n')
+
+    const res = readProjectWiki([repo])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.nodes.map((n) => n.ref).sort()).toEqual(['concepts/router', 'document/current'])
+    expect(res.edges).toContainEqual({ from: 'document/current', to: 'concepts/router', type: 'wiki' })
+    expect(res.nodes.find((n) => n.ref === 'document/current')?.relPath).toBe('wiki/current.md')
+  })
+
+  test('falls back to internal .apc-wiki docs but skips raw source copies', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'pw-internal-'))
+    mkdirSync(join(repo, '.apc-wiki', 'concepts'), { recursive: true })
+    mkdirSync(join(repo, '.apc-wiki', 'raw', 'project-docs', '0'), { recursive: true })
+    writeFileSync(join(repo, '.apc-wiki', 'concepts', 'engine.md'), '---\ntitle: Engine\n---\n# Engine\n')
+    writeFileSync(join(repo, '.apc-wiki', 'raw', 'project-docs', '0', 'source.md'), '# Source copy')
+
+    const res = readProjectWiki([repo])
+    expect(res.available).toBe(true)
+    if (!res.available) return
+    expect(res.nodes).toHaveLength(1)
+    expect(res.nodes[0]).toMatchObject({ ref: 'concepts/engine', relPath: '.apc-wiki/concepts/engine.md' })
   })
 })
