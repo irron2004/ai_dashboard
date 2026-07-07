@@ -36,7 +36,10 @@ export async function buildResumeCard(deps: ResumeDeps, projectId: string): Prom
   const nextNotes = deps.nextNotes.listByProject(projectId)
   const repoPath = project.repoPaths[0]
   const latest = repoPath ? await deps.latestSession(repoPath).catch(() => null) : null
-  const lastSummary = lastRequestSummary(tasks)
+  const reqId = latest ? `req:${projectId}:${latest.sessionId}` : null
+  const lastSummary =
+    (reqId ? tasks.find((t) => t.id === reqId)?.title : undefined)
+    ?? lastRequestSummary(tasks)
   const lastQuestion = latest?.lastUserTurn
     ? { text: latest.lastUserTurn.text, ts: latest.lastUserTurn.ts, agent: latest.agent }
     : null

@@ -52,4 +52,12 @@ describe('buildResumeCard', () => {
     const card = await buildResumeCard(deps({ registry: { get: () => undefined } }), 'nope')
     expect(card).toBeNull()
   })
+
+  test('lastSummary comes from the latest session req: task, not the last id', async () => {
+    const card = await buildResumeCard(deps({
+      tasks: { listByProject: () => [task('req:p1:aaa', '최신 세션 요약'), task('req:p1:zzz', 'id상 마지막(오래됨)')] },
+      latestSession: async () => ({ agent: 'claude', sessionId: 'aaa', lastUserTurn: { text: 'Q', ts: '2026-07-07T10:00:00Z' } }),
+    }), 'p1')
+    expect(card?.lastSummary).toBe('최신 세션 요약')
+  })
 })
