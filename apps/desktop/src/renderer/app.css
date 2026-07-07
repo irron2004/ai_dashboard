@@ -1715,3 +1715,21 @@ textarea {
 .project-sidebar__badge { display: inline-block; margin-left: 6px; font-size: 0.68rem; line-height: 1; padding: 2px 6px; border-radius: 9px; vertical-align: middle; }
 .project-sidebar__badge--running { background: #1f3a24; color: #8fe0a2; }
 .project-sidebar__badge--review { background: #3a331f; color: #e6d17a; }
+
+.resume-banner {
+  position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 200; width: min(560px, 92vw);
+  background: #1b1b1b; border: 1px solid #3a5a3a; border-radius: 8px;
+  padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+  animation: resume-slide-in 180ms ease-out;
+}
+@keyframes resume-slide-in { from { transform: translate(-50%, -12px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
+.resume-banner__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.resume-banner__title { font-weight: 600; color: #cfe8cf; }
+.resume-banner__close { background: none; border: none; color: #999; cursor: pointer; }
+.resume-banner__row { font-size: 0.82rem; color: #ddd; margin: 3px 0; }
+.resume-banner__agent { font-size: 0.7rem; opacity: 0.7; }
+.resume-banner__notes { margin: 4px 0; padding-left: 4px; list-style: none; font-size: 0.82rem; color: #e8d9a0; }
+.resume-banner__addnote input { width: 100%; margin: 6px 0; padding: 4px 6px; background: #111; border: 1px solid #333; border-radius: 4px; color: #eee; }
+.resume-banner__actions { display: flex; gap: 8px; }
+.resume-banner__actions button { background: #2a4a2a; border: 1px solid #4a8a4a; color: #dfe; border-radius: 4px; padding: 4px 10px; cursor: pointer; }

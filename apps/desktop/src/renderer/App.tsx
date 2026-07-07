@@ -8,6 +8,7 @@ import { AgentTerminal } from './components/AgentTerminal.js'
 import { AgentDockHeader } from './components/AgentDockHeader.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
+import { ResumeBanner } from './components/ResumeBanner.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import './app.css'
 
@@ -29,6 +30,7 @@ export function App() {
   const {
     projects, selectedProjectId, dashboard, error, agentStatus, openPanes,
     harnessLoading, workspaceOverview,
+    resumeCard, resumeBannerOpen, loadResumeCard, openResumeBanner, dismissResumeBanner, addNextNote,
     loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus, loadWorkspaceOverview,
   } = useStore()
   const restartAgent = useStore((s) => s.restartAgent)
@@ -224,6 +226,16 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === 'KeyN') {
+        e.preventDefault(); if (selectedProjectId) openResumeBanner()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedProjectId, openResumeBanner])
+
   // The active agent pane grows; the others shrink. Focus/typing in a pane makes it active.
   useEffect(() => {
     setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
@@ -251,6 +263,15 @@ export function App() {
     if (selectedProjectId) api.selectProject(selectedProjectId)
   }, [selectedProjectId])
 
+  // Resume banner trigger: fires only when the selected project actually CHANGES (not on every re-render).
+  const prevProjectRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedProjectId) return
+    if (prevProjectRef.current === selectedProjectId) return
+    prevProjectRef.current = selectedProjectId
+    void loadResumeCard(selectedProjectId)
+  }, [selectedProjectId, loadResumeCard])
+
   const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
   const runUpdate = async () => {
@@ -272,6 +293,20 @@ export function App() {
 
   return (
     <div className="app-layout" style={appLayoutStyle}>
+      {resumeBannerOpen && resumeCard && (
+        <ResumeBanner
+          card={resumeCard}
+          onDismiss={dismissResumeBanner}
+          onResume={(t) => {
+            dismissResumeBanner()
+            toggleDock(false)
+            setAgent(t.agent)
+            restartAgent(`${selectedProjectId}:${t.agent}`)
+          }}
+          onOpenHistory={() => { dismissResumeBanner(); handleMainTab('workspace') }}
+          onAddNote={(text) => void addNextNote(text)}
+        />
+      )}
       <aside className={`app-layout__sidebar${sidebarCollapsed ? ' app-layout__sidebar--rail' : ''}`}>
         <ProjectSidebar
           projects={projects}

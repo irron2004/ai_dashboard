@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
 import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
-import type { WorkspaceOverview } from '@apc/dashboard-api'
+import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
   appendTailLines,
@@ -26,6 +26,12 @@ type ApcStore = {
   selectedProjectId: string | null
   dashboard: ProjectDashboardRes | null
   workspaceOverview: WorkspaceOverview | null
+  resumeCard: ResumeCard | null
+  resumeBannerOpen: boolean
+  loadResumeCard: (projectId: string) => Promise<void>
+  openResumeBanner: () => void
+  dismissResumeBanner: () => void
+  addNextNote: (text: string) => Promise<void>
   profiles: AgentProfile[]
   ingesting: boolean
   lastIngest: { sources: number; sessions: number; documents: number } | null
@@ -144,6 +150,8 @@ export const useStore = create<ApcStore>((set, get) => ({
   selectedProjectId: null,
   dashboard: null,
   workspaceOverview: null,
+  resumeCard: null,
+  resumeBannerOpen: false,
   profiles: [],
   ingesting: false,
   lastIngest: null,
@@ -301,6 +309,22 @@ export const useStore = create<ApcStore>((set, get) => ({
       set({ workspaceOverview })
     } catch (e) {
       set({ error: `Failed to load workspace overview: ${e}` })
+    }
+  },
+
+  async loadResumeCard(projectId) {
+    const card = await api.resumeCard(projectId)
+    set({ resumeCard: card, resumeBannerOpen: Boolean(card?.hasHistory) })
+  },
+  openResumeBanner() { set({ resumeBannerOpen: true }) },
+  dismissResumeBanner() { set({ resumeBannerOpen: false }) },
+  async addNextNote(text) {
+    const pid = get().selectedProjectId
+    if (!pid) return
+    const res = await api.nextNoteAdd({ projectId: pid, text })
+    if (res.ok && res.note) {
+      const card = get().resumeCard
+      if (card && card.project.id === pid) set({ resumeCard: { ...card, nextNotes: [res.note, ...card.nextNotes], hasHistory: true } })
     }
   },
 
