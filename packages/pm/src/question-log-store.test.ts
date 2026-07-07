@@ -45,4 +45,20 @@ describe('QuestionLogStore', () => {
     store.record(session({ projectId: undefined }))
     expect(store.listRecent()).toHaveLength(0)
   })
+
+  test('rows sharing the same fallback ts (no per-turn timestamp) still order deterministically via rowid', () => {
+    // Neither turn has its own `timestamp`, so both fall back to the same `startedAt` — without a
+    // rowid tiebreaker, ORDER BY ts DESC alone would leave sqlite free to return either order.
+    store.record(session({
+      id: 's1', projectId: 'p1', startedAt: '2026-07-07T09:00:00Z',
+      turns: [
+        { role: 'user', text: '먼저 기록된 질문', toolCalls: [] },
+        { role: 'user', text: '나중에 기록된 질문', toolCalls: [] },
+      ],
+    }))
+    const first = store.listRecent({ projectId: 'p1' })
+    const second = store.listRecent({ projectId: 'p1' })
+    expect(first.map((r) => r.text)).toEqual(['나중에 기록된 질문', '먼저 기록된 질문'])
+    expect(second.map((r) => r.text)).toEqual(first.map((r) => r.text)) // stable across repeated calls
+  })
 })

@@ -582,6 +582,48 @@ describe('IPC handlers (no Electron)', () => {
     expect(card?.resumeTarget).toEqual({ agent: 'codex', sessionId: 's9' })
   })
 
+  test('q:resumeCard caches per project — a second read for the same project skips latestSessionDetail', async () => {
+    const h = handlers(container)
+    const before = vi.mocked(latestSessionDetail).mock.calls.length
+    await h[CH.resumeCard]({ projectId: 'p1' })
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(before + 1) // cache miss → builds, calls once
+    await h[CH.resumeCard]({ projectId: 'p1' })
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(before + 1) // cache hit → no additional call
+  })
+
+  test('c:nextNoteAdd invalidates the resumeCard cache so the new note shows up on the next read', async () => {
+    const h = handlers(container)
+    const before = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(before?.nextNotes.map((n) => n.text)).not.toContain('캐시 무효화 확인 노트')
+    const callsAfterFirstRead = vi.mocked(latestSessionDetail).mock.calls.length
+
+    await h[CH.nextNoteAdd]({ projectId: 'p1', text: '캐시 무효화 확인 노트' })
+    const after = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(after?.nextNotes.map((n) => n.text)).toContain('캐시 무효화 확인 노트')
+    // the cache was cleared by nextNoteAdd, so this read had to rebuild (not served stale from cache)
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(callsAfterFirstRead + 1)
+  })
+
+  test('c:ingestAll invalidates the resumeCard cache for all projects', async () => {
+    // Use a fresh container with NO ingest adapters so ingestAll is a fast no-op — the default
+    // ClaudeAdapter/CodexAdapter/OpenCodeAdapter would otherwise scan this machine's real ~/.claude etc.
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    const h = handlers(c2)
+
+    const before = vi.mocked(latestSessionDetail).mock.calls.length
+    await h[CH.resumeCard]({ projectId: 'p1' })
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(before + 1)
+    await h[CH.resumeCard]({ projectId: 'p1' })
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(before + 1) // cache hit, still
+
+    const res = await h[CH.ingestAll](undefined) as { sources: number; sessions: number; documents: number }
+    expect(res).toEqual({ sources: 0, sessions: 0, documents: 0 })
+
+    await h[CH.resumeCard]({ projectId: 'p1' })
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(before + 2) // ingest cleared the cache → rebuilt
+  })
+
   test('q:questionLog surfaces recorded user turns after ingest', async () => {
     const session: NormalizedSession = {
       id: 'qs1', agentType: 'claude', repoPath: '/work/apc',

@@ -105,7 +105,9 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.ingestAll]: async (_payload: unknown) => {
-      return container.ingest.ingestAll(container.ingestAdapters)
+      const r = await container.ingest.ingestAll(container.ingestAdapters)
+      container.invalidateResumeCards()
+      return r
     },
 
     [CH.generatePreflight]: async (payload: unknown) => {

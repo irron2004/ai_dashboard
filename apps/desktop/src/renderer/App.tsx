@@ -35,6 +35,7 @@ export function App() {
     loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus, loadWorkspaceOverview,
   } = useStore()
   const restartAgent = useStore((s) => s.restartAgent)
+  const resumeAgentSession = useStore((s) => s.resumeAgentSession)
   const stopAgent = useStore((s) => s.stopAgent)
   const restartNonce = useStore((s) => s.restartNonce)
   const [agent, setAgent] = useState<AgentType>('claude')
@@ -276,6 +277,10 @@ export function App() {
 
   const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
+  // Stable identity so QuestionHistory's fetch effect (deps include fetchLog) doesn't re-fire on every
+  // App re-render while the panel is open.
+  const fetchQuestionLog = useCallback((req: { projectId?: string; limit?: number }) => api.questionLog(req), [])
+
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
     try {
@@ -303,7 +308,7 @@ export function App() {
             dismissResumeBanner()
             toggleDock(false)
             setAgent(t.agent)
-            restartAgent(`${selectedProjectId}:${t.agent}`)
+            resumeAgentSession(`${selectedProjectId}:${t.agent}`, t.sessionId)
           }}
           onOpenHistory={() => { dismissResumeBanner(); setHistoryScope({ open: true, scope: selectedProjectId }) }}
           onAddNote={(text) => void addNextNote(text)}
@@ -492,7 +497,7 @@ export function App() {
       <QuestionHistory
         open={historyScope.open}
         scope={historyScope.scope}
-        fetchLog={(req) => api.questionLog(req)}
+        fetchLog={fetchQuestionLog}
         onClose={() => setHistoryScope((s) => ({ ...s, open: false }))}
         onPick={(entry) => {
           setHistoryScope((s) => ({ ...s, open: false }))

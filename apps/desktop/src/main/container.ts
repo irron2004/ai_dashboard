@@ -105,6 +105,9 @@ export type Container = {
   dashboard: typeof getProjectDashboard
   workspaceOverview: () => WorkspaceOverview
   resumeCard: (req: ResumeCardReq) => Promise<ResumeCard | null>
+  /** Clears the per-project resumeCard cache (see `resumeCard`). Call after anything that changes what
+   *  the card would show: ingest (new sessions/questions/req: tasks) or a nextNote mutation. */
+  invalidateResumeCards: () => void
   questionLog: (req: QuestionLogReq) => QuestionLogEntry[]
   nextNoteAdd: (req: NextNoteAddReq) => NextNoteAddRes
   nextNoteToggle: (req: NextNoteToggleReq) => NextNoteMutRes
@@ -192,6 +195,9 @@ export function buildContainer(opts: {
   const nextNotes = new NextNoteStore(db)
   const questionLog = new QuestionLogStore(db)
   const runs = new AgentRunStore(db)
+  // resumeCard is expensive: latestSessionDetail re-discovers + parses ALL sessions for 3 engines on
+  // every call (no incremental cursor). Cache per project; invalidated on ingest + note mutations below.
+  const resumeCardCache = new Map<string, ResumeCard | null>()
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
   const searchIndex = new SearchIndex(searchDb)
@@ -442,22 +448,31 @@ export function buildContainer(opts: {
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
     workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs, nextNotes }),
-    resumeCard: (req) => buildResumeCard({
-      registry, tasks, nextNotes,
-      latestSession: async (repoPath) => {
-        const found = await latestSessionDetail(['claude', 'codex', 'opencode'], repoPath)
-        if (!found) return null
-        const lastUser = [...found.session.turns].reverse().find((t) => t.role === 'user' && t.text.trim())
-        return {
-          agent: found.agent,
-          sessionId: found.session.id,
-          lastUserTurn: lastUser ? { text: lastUser.text, ts: lastUser.timestamp ?? found.session.startedAt ?? '' } : undefined,
-        }
-      },
-    }, req.projectId),
+    resumeCard: async (req) => {
+      if (resumeCardCache.has(req.projectId)) return resumeCardCache.get(req.projectId)!
+      const card = await buildResumeCard({
+        registry, tasks, nextNotes,
+        latestSession: async (repoPath) => {
+          const found = await latestSessionDetail(['claude', 'codex', 'opencode'], repoPath)
+          if (!found) return null
+          const lastUser = [...found.session.turns].reverse().find((t) => t.role === 'user' && t.text.trim())
+          return {
+            agent: found.agent,
+            sessionId: found.session.id,
+            lastUserTurn: lastUser ? { text: lastUser.text, ts: lastUser.timestamp ?? found.session.startedAt ?? '' } : undefined,
+          }
+        },
+      }, req.projectId)
+      resumeCardCache.set(req.projectId, card)
+      return card
+    },
+    invalidateResumeCards: () => resumeCardCache.clear(),
     questionLog: (req) => questionLog.listRecent(req),
-    nextNoteAdd: (req) => ({ ok: true, note: nextNotes.add(req.projectId, req.text) }),
-    nextNoteToggle: (req) => { nextNotes.toggleDone(req.id, req.done); return { ok: true } },
-    nextNoteDelete: (req) => { nextNotes.delete(req.id); return { ok: true } },
+    // nextNotes are embedded in resumeCard; clear the whole cache rather than tracking projectId from
+    // the note id (toggle/delete only have the note id, format note:${projectId}:${ISO}:${rand}) — cache
+    // is cheap to rebuild, so correctness over a micro-optimized single-project invalidation.
+    nextNoteAdd: (req) => { const note = nextNotes.add(req.projectId, req.text); resumeCardCache.clear(); return { ok: true, note } },
+    nextNoteToggle: (req) => { nextNotes.toggleDone(req.id, req.done); resumeCardCache.clear(); return { ok: true } },
+    nextNoteDelete: (req) => { nextNotes.delete(req.id); resumeCardCache.clear(); return { ok: true } },
   }
 }

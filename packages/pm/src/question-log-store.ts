@@ -27,8 +27,8 @@ export class QuestionLogStore {
   listRecent(opts: { projectId?: string; limit?: number } = {}): QuestionLogEntry[] {
     const limit = opts.limit ?? 50
     const rows = (opts.projectId
-      ? this.db.prepare('SELECT * FROM question_log WHERE project_id = ? ORDER BY ts DESC LIMIT ?').all(opts.projectId, limit)
-      : this.db.prepare('SELECT * FROM question_log ORDER BY ts DESC LIMIT ?').all(limit)) as Row[]
+      ? this.db.prepare('SELECT * FROM question_log WHERE project_id = ? ORDER BY ts DESC, rowid DESC LIMIT ?').all(opts.projectId, limit)
+      : this.db.prepare('SELECT * FROM question_log ORDER BY ts DESC, rowid DESC LIMIT ?').all(limit)) as Row[]
     return rows.map((r) => ({
       projectId: r.project_id, sessionId: r.session_id, ts: r.ts,
       agent: r.agent as QuestionLogEntry['agent'], text: r.text,

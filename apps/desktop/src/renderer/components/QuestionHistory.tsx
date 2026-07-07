@@ -30,8 +30,8 @@ export function QuestionHistory({ open, scope, fetchLog, onClose, onPick }: Prop
         <h2>질문 히스토리{scope ? ' (이 프로젝트)' : ' (전체)'}</h2>
         {rows.length === 0 ? <p className="question-history__empty">기록 없음</p> : (
           <ul className="question-history__list">
-            {rows.map((r) => (
-              <li key={`${r.sessionId}:${r.ts}:${r.text.slice(0, 12)}`}>
+            {rows.map((r, i) => (
+              <li key={`${r.sessionId}:${r.ts}:${i}`}>
                 <button type="button" onClick={() => onPick(r)}>
                   <span className="question-history__when">{hhmm(r.ts)}</span>
                   <span className="question-history__agent">[{r.agent}]</span>
