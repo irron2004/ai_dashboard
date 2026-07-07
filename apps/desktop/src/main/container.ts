@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
-import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy } from '@apc/pm'
+import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy, NextNoteStore, QuestionLogStore } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
@@ -183,6 +183,8 @@ export function buildContainer(opts: {
 
   const registry = new ProjectRegistry(db)
   const tasks = new TaskStore(db)
+  const nextNotes = new NextNoteStore(db)
+  const questionLog = new QuestionLogStore(db)
   const runs = new AgentRunStore(db)
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
@@ -203,6 +205,7 @@ export function buildContainer(opts: {
     registry,
     cursors,
     index: searchIndex,
+    questionLog,
     knowledge: new KnowledgeIndexer({ registry, store: knowledgeStore, vaultRoot: opts.vaultRoot }),
     onSessionParsed: async (session, projectId) => {
       if (!projectId) return
