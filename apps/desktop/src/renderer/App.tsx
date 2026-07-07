@@ -9,6 +9,7 @@ import { AgentDockHeader } from './components/AgentDockHeader.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
 import { ResumeBanner } from './components/ResumeBanner.js'
+import { QuestionHistory } from './components/QuestionHistory.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import './app.css'
 
@@ -47,6 +48,7 @@ export function App() {
     return 'home'
   })
   const [searchOpen, setSearchOpen] = useState(false)
+  const [historyScope, setHistoryScope] = useState<{ open: boolean; scope: string | null }>({ open: false, scope: null })
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -303,7 +305,7 @@ export function App() {
             setAgent(t.agent)
             restartAgent(`${selectedProjectId}:${t.agent}`)
           }}
-          onOpenHistory={() => { dismissResumeBanner(); handleMainTab('workspace') }}
+          onOpenHistory={() => { dismissResumeBanner(); setHistoryScope({ open: true, scope: selectedProjectId }) }}
           onAddNote={(text) => void addNextNote(text)}
         />
       )}
@@ -486,6 +488,17 @@ export function App() {
       )}
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
+
+      <QuestionHistory
+        open={historyScope.open}
+        scope={historyScope.scope}
+        fetchLog={(req) => api.questionLog(req)}
+        onClose={() => setHistoryScope((s) => ({ ...s, open: false }))}
+        onPick={(entry) => {
+          setHistoryScope((s) => ({ ...s, open: false }))
+          void selectProject(entry.projectId)
+        }}
+      />
 
       {error && (
         <div className="error-toast" onClick={clearError}>

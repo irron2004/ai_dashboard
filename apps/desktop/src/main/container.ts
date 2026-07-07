@@ -441,7 +441,7 @@ export function buildContainer(opts: {
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
-    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs }),
+    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs, nextNotes }),
     resumeCard: (req) => buildResumeCard({
       registry, tasks, nextNotes,
       latestSession: async (repoPath) => {
