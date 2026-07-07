@@ -54,9 +54,18 @@ export function migratePm(db: Db): void {
       created_at TEXT NOT NULL,
       done       INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS question_log (
+      session_id TEXT NOT NULL,
+      project_id TEXT NOT NULL,
+      ts         TEXT NOT NULL,
+      agent      TEXT NOT NULL,
+      text       TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_runs_task ON agent_runs(task_id);
     CREATE INDEX IF NOT EXISTS idx_next_notes_project ON next_notes(project_id);
+    CREATE INDEX IF NOT EXISTS idx_qlog_project_ts ON question_log(project_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_qlog_session ON question_log(session_id);
   `)
 
   // Upgrade path for DBs created before these columns existed.
