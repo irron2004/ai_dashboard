@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -48,6 +48,11 @@ export const CH = {
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
   taskSetBlockedBy: 'c:taskSetBlockedBy',
+  resumeCard: 'q:resumeCard',
+  questionLog: 'q:questionLog',
+  nextNoteAdd: 'c:nextNoteAdd',
+  nextNoteToggle: 'c:nextNoteToggle',
+  nextNoteDelete: 'c:nextNoteDelete',
   // pty: renderer → main = ptyStart/ptyInput/ptyKill; main → renderer events = ptyData/ptyExit
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
@@ -90,6 +95,17 @@ export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
 export type TaskSetBlockedByReq = { taskId: string; blockedBy: string[] }
 export type TaskSetBlockedByRes = { ok: boolean; reason?: string }
+
+// Resume card / question log / next-note surface (P3): ResumeCard and QuestionLogEntry are the
+// response types — ResumeCard is exported from @apc/dashboard-api, QuestionLogEntry from @apc/shared.
+// Renderer imports them from there (see api.ts), so no duplicate definition here.
+export type ResumeCardReq = { projectId: string }
+export type QuestionLogReq = { projectId?: string; limit?: number }
+export type NextNoteAddReq = { projectId: string; text: string }
+export type NextNoteAddRes = { ok: boolean; note?: NextNote }
+export type NextNoteToggleReq = { id: string; done: boolean }
+export type NextNoteDeleteReq = { id: string }
+export type NextNoteMutRes = { ok: boolean }
 export type GeneratePreflightReq = { projectId: string }
 export type GeneratePreflightCategoryId = 'agent-conversations' | 'project-docs' | 'tasks' | 'review-runs'
 export type GeneratePreflightCategory = {

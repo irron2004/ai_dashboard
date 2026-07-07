@@ -5,13 +5,13 @@ import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
-import { getProjectDashboard, buildWorkspaceOverview, type WorkspaceOverview } from '@apc/dashboard-api'
+import { getProjectDashboard, buildWorkspaceOverview, buildResumeCard, type WorkspaceOverview, type ResumeCard } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
-import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
+import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, latestSessionDetail, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { generateRemote } from './remote-generate.js'
@@ -37,8 +37,9 @@ import type {
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
   DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
+  ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
 } from '../shared/ipc-contract.js'
-import type { UnifiedSearchResponse } from '@apc/shared'
+import type { UnifiedSearchResponse, QuestionLogEntry } from '@apc/shared'
 
 /** Coalesces chunks for the same label/stream into 50ms batches so a chatty engine cannot flood the renderer. */
 function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: HarnessEngineLogEvent) => void) | undefined {
@@ -103,6 +104,11 @@ export type Container = {
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
   workspaceOverview: () => WorkspaceOverview
+  resumeCard: (req: ResumeCardReq) => Promise<ResumeCard | null>
+  questionLog: (req: QuestionLogReq) => QuestionLogEntry[]
+  nextNoteAdd: (req: NextNoteAddReq) => NextNoteAddRes
+  nextNoteToggle: (req: NextNoteToggleReq) => NextNoteMutRes
+  nextNoteDelete: (req: NextNoteDeleteReq) => NextNoteMutRes
 }
 
 let _idCounter = 0
@@ -436,5 +442,22 @@ export function buildContainer(opts: {
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
     workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs }),
+    resumeCard: (req) => buildResumeCard({
+      registry, tasks, nextNotes,
+      latestSession: async (repoPath) => {
+        const found = await latestSessionDetail(['claude', 'codex', 'opencode'], repoPath)
+        if (!found) return null
+        const lastUser = [...found.session.turns].reverse().find((t) => t.role === 'user' && t.text.trim())
+        return {
+          agent: found.agent,
+          sessionId: found.session.id,
+          lastUserTurn: lastUser ? { text: lastUser.text, ts: lastUser.timestamp ?? found.session.startedAt ?? '' } : undefined,
+        }
+      },
+    }, req.projectId),
+    questionLog: (req) => questionLog.listRecent(req),
+    nextNoteAdd: (req) => ({ ok: true, note: nextNotes.add(req.projectId, req.text) }),
+    nextNoteToggle: (req) => { nextNotes.toggleDone(req.id, req.done); return { ok: true } },
+    nextNoteDelete: (req) => { nextNotes.delete(req.id); return { ok: true } },
   }
 }

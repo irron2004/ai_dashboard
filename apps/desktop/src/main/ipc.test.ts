@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,9 +6,21 @@ import { join } from 'node:path'
 import { handlers } from './ipc.js'
 import { buildContainer } from './container.js'
 import { CH } from '../shared/ipc-contract.js'
-import type { ProjectDashboardReq, SubmitReviewReq, ListProfilesReq } from '../shared/ipc-contract.js'
-import type { AgentIngestAdapter } from '@apc/agents'
-import type { AgentSource, NormalizedSession, SourceCursor } from '@apc/shared'
+import type { ProjectDashboardReq, SubmitReviewReq, ListProfilesReq, NextNoteAddRes } from '../shared/ipc-contract.js'
+import { latestSessionDetail, type AgentIngestAdapter } from '@apc/agents'
+import type { AgentSource, NormalizedSession, SourceCursor, QuestionLogEntry } from '@apc/shared'
+import type { ResumeCard } from '@apc/dashboard-api'
+
+// resumeCard's container impl calls the REAL latestSessionDetail, which scans this machine's actual
+// ~/.claude, ~/.codex, ~/.opencode session history (no per-project scoping at discovery time — see
+// packages/agents/src/latest-session.ts). On a dev box with real CLI history that makes an unmocked
+// call scan thousands of real files (~15s, non-hermetic). Keep the real adapter classes (ClaudeAdapter
+// etc. — buildContainer's default ingestAdapters need them) but stub latestSessionDetail so resumeCard
+// tests are fast and deterministic; individual tests below override it via mockResolvedValueOnce.
+vi.mock('@apc/agents', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@apc/agents')>()
+  return { ...actual, latestSessionDetail: vi.fn(async () => null) }
+})
 
 describe('IPC handlers (no Electron)', () => {
   let vaultDir: string
@@ -520,5 +532,78 @@ describe('IPC handlers (no Electron)', () => {
     expect(res.ok).toBe(false)
     expect(res.content).toBeUndefined()
     rmSync(secretFile)
+  })
+
+  test('c:nextNoteAdd → q:resumeCard surfaces it; c:nextNoteToggle/Delete manage its lifecycle', async () => {
+    const h = handlers(container)
+    const add = await h[CH.nextNoteAdd]({ projectId: 'p1', text: '7/10 상장 반영' }) as NextNoteAddRes
+    expect(add.ok).toBe(true)
+    const noteId = add.note!.id
+
+    const card = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(card?.nextNotes.map((n) => n.text)).toContain('7/10 상장 반영')
+    expect(card?.hasHistory).toBe(true)
+
+    const toggled = await h[CH.nextNoteToggle]({ id: noteId, done: true })
+    expect(toggled).toEqual({ ok: true })
+    // listByProject defaults to excluding done notes, so a toggled-done note drops out of the card.
+    const afterToggle = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(afterToggle?.nextNotes.map((n) => n.text)).not.toContain('7/10 상장 반영')
+
+    const deleted = await h[CH.nextNoteDelete]({ id: noteId })
+    expect(deleted).toEqual({ ok: true })
+  })
+
+  test('q:resumeCard returns null for an unknown project', async () => {
+    const h = handlers(container)
+    const res = await h[CH.resumeCard]({ projectId: 'nope' })
+    expect(res).toBeNull()
+  })
+
+  test('q:resumeCard extracts the last non-empty user turn from the latest session', async () => {
+    vi.mocked(latestSessionDetail).mockResolvedValueOnce({
+      agent: 'codex',
+      session: {
+        id: 's9', agentType: 'codex', repoPath: '/work/apc',
+        sourceMeta: { provider: 'codex', sourceKind: 'jsonl-file', rawLocator: '/x', sessionHeader: {} },
+        startedAt: '2026-07-01T00:00:00Z',
+        turns: [
+          { role: 'user', text: '첫 질문', timestamp: '2026-07-01T00:00:01Z', toolCalls: [] },
+          { role: 'assistant', text: '답변', toolCalls: [] },
+          { role: 'user', text: '   ', toolCalls: [] }, // whitespace-only → must be skipped
+          { role: 'user', text: '마지막 질문', timestamp: '2026-07-01T00:05:00Z', toolCalls: [] },
+        ],
+        filesTouched: [],
+      },
+    })
+    const h = handlers(container)
+    const card = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(card?.lastQuestion).toEqual({ text: '마지막 질문', ts: '2026-07-01T00:05:00Z', agent: 'codex' })
+    expect(card?.resumeTarget).toEqual({ agent: 'codex', sessionId: 's9' })
+  })
+
+  test('q:questionLog surfaces recorded user turns after ingest', async () => {
+    const session: NormalizedSession = {
+      id: 'qs1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x/qs1.jsonl', sessionHeader: {} },
+      turns: [{ role: 'user', text: '질문 있어요?', toolCalls: [] }], filesTouched: [],
+    }
+    const fake: AgentIngestAdapter = {
+      agentKind: 'claude',
+      async discoverSources(cursorFor: (id: string) => SourceCursor | undefined): Promise<AgentSource[]> {
+        if (cursorFor('claude:qs1')) return []
+        return [{ id: 'claude:qs1', agentKind: 'claude', kind: 'jsonl-file', locator: '/x/qs1.jsonl', repoPath: '/work/apc' }]
+      },
+      async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+        return { session, position: JSON.stringify({ sizeBytes: 1, mtimeMs: 1 }) }
+      },
+    }
+    const { FakeAgentRunner } = await import('@apc/llm-wiki')
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake], agentRunner: new FakeAgentRunner(['{"title":"질문 있어요"}']) })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    const h = handlers(c2)
+    await h[CH.ingestAll](undefined)
+    const log = await h[CH.questionLog]({ projectId: 'p1' }) as QuestionLogEntry[]
+    expect(log.map((e) => e.text)).toContain('질문 있어요?')
   })
 })
