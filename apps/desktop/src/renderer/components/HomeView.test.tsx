@@ -14,12 +14,28 @@ const changesList = vi.fn(async () => ({
   ],
 }))
 const changesDiff = vi.fn(async () => ({ ok: true, patch: 'diff --git a/src/x.ts b/src/x.ts\n+x' }))
+const gitStatus = vi.fn(async () => ({
+  ok: true,
+  repoPath: '/r',
+  root: '/r',
+  branch: 'main',
+  upstream: 'origin/main',
+  detached: false,
+  ahead: 0,
+  behind: 0,
+  hasChanges: true,
+  files: [{ path: 'src/x.ts', status: 'modified', staged: false, unstaged: true, conflict: false }],
+  warnings: [],
+}))
+const gitCommitPush = vi.fn(async () => ({ ok: true, status: { ok: true, detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] } }))
 vi.mock('../api.js', () => ({
   api: new Proxy({}, {
     get: (_t, prop) => {
       if (prop === 'fsReadDoc') return (...a: unknown[]) => fsReadDoc(...a as [never])
       if (prop === 'changesList') return (...a: unknown[]) => changesList(...a as [])
       if (prop === 'changesDiff') return (...a: unknown[]) => changesDiff(...a as [])
+      if (prop === 'gitStatus') return (...a: unknown[]) => gitStatus(...a as [])
+      if (prop === 'gitCommitPush') return (...a: unknown[]) => gitCommitPush(...a as [])
       return vi.fn(async () => ({ ok: true, sources: 0, sessions: 0, documents: 0 }))
     },
   }),
@@ -54,7 +70,8 @@ describe('HomeView', () => {
 
   test('clicking a code file fetches its diff', async () => {
     render(<HomeView dashboard={dashboard} />)
-    fireEvent.click(await screen.findByText('src/x.ts'))
+    const rows = await screen.findAllByText('src/x.ts')
+    fireEvent.click(rows[rows.length - 1])
     await waitFor(() => expect(changesDiff).toHaveBeenCalledWith({ projectId: 'p1', relPath: 'src/x.ts' }))
   })
 
@@ -66,5 +83,14 @@ describe('HomeView', () => {
     expect(screen.getByText(/ship MVP/)).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: /자세히/ }))
     expect(screen.getByText('Task Board')).toBeDefined()
+  })
+
+  test('Git sync panel commits only selected files with a message', async () => {
+    render(<HomeView dashboard={dashboard} />)
+    expect(await screen.findByText('Git 동기화')).toBeDefined()
+    fireEvent.click((await screen.findAllByText('src/x.ts'))[0])
+    fireEvent.change(screen.getByPlaceholderText(/feat: add git sync panel/), { target: { value: 'test: sync selected file' } })
+    fireEvent.click(screen.getByRole('button', { name: /Commit & Push/ }))
+    await waitFor(() => expect(gitCommitPush).toHaveBeenCalledWith({ projectId: 'p1', files: ['src/x.ts'], message: 'test: sync selected file' }))
   })
 })

@@ -6,6 +6,7 @@ import { MarkdownContent } from './MarkdownContent.js'
 import { DiffViewer } from './DiffViewer.js'
 import { PmHome } from './PmHome.js'
 import { GeneratePreflightModal } from './GeneratePreflightModal.js'
+import { GitSyncPanel } from './GitSyncPanel.js'
 
 type ChangedFile = { path: string; status: 'new' | 'modified' | 'deleted'; isMarkdown: boolean; mtimeMs: number; unreflected?: boolean }
 type Viewer =
@@ -124,7 +125,9 @@ export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
           </div>
         </main>
 
-        <aside className="home-feed panel">
+        <aside className="home-side">
+          <GitSyncPanel projectId={selectedProjectId} repoPath={dashboard.project.repoPaths[0]} onSynced={loadChanges} />
+        <section className="home-feed panel">
           <header className="panel__header home-feed__header">
             <h2>변경분</h2>
             <span className="home-feed__meta">git · {changes?.files?.length ?? 0} files{lastIngest ? ` · ingested ${lastIngest.sessions} session(s)` : ''}</span>
@@ -143,6 +146,7 @@ export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
             {groups.code.map(feedRow)}
             {changes && !changes.reason && (changes.files?.length ?? 0) === 0 && <div className="home-feed__empty">변경분 없음 — working tree clean</div>}
           </div>
+        </section>
         </aside>
       </div>
 
