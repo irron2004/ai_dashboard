@@ -50,6 +50,15 @@ export const TaskSchema = z.object({
 })
 export type Task = z.infer<typeof TaskSchema>
 
+export const NextNoteSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  text: z.string().min(1),
+  createdAt: z.string(),
+  done: z.boolean().default(false),
+})
+export type NextNote = z.infer<typeof NextNoteSchema>
+
 // The actor that performed a run: a single CLI engine (AgentKind) OR 'harness', the multi-agent dev
 // orchestrator the console drives via the harness CLI contract (S3). Kept separate from AgentKind so
 // engine-selection code (panes, ssh ENGINE_CMD, resume, terminals) stays restricted to real CLI engines.
