@@ -260,7 +260,9 @@ export class HarnessService {
     }
     const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
     const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    const substrate = buildVenvSubstrate(process.cwd())
+    // Prefer the selected project's autosci-core/core.lock so Wiki Gen validates/indexes against the
+    // project's own structured-document runtime. Fall back to the dashboard repo cwd for legacy dev setups.
+    const substrate = buildVenvSubstrate(input.repoPaths?.[0] ?? '') ?? buildVenvSubstrate(process.cwd())
     const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen, input.interactive, pack, substrate)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const result = await this.advanceSafely(runId, runner, store, onProgress)
