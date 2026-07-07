@@ -25,9 +25,10 @@ import type {
   HarnessNodesEvent,
   PaneRef, WorkspaceRestore,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
+  NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
 } from '../shared/ipc-contract.js'
-import type { Project, AgentProfile, UnifiedSearchResponse, Task } from '@apc/shared'
-import type { WorkspaceOverview } from '@apc/dashboard-api'
+import type { Project, AgentProfile, UnifiedSearchResponse, Task, NextNote, QuestionLogEntry } from '@apc/shared'
+import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 
 declare global {
   interface Window {
@@ -95,6 +96,21 @@ export const api = {
   },
   taskSetBlockedBy(req: TaskSetBlockedByReq): Promise<TaskSetBlockedByRes> {
     return window.apc.invoke(CH.taskSetBlockedBy, req) as Promise<TaskSetBlockedByRes>
+  },
+  resumeCard(projectId: string): Promise<ResumeCard | null> {
+    return window.apc.invoke(CH.resumeCard, { projectId }) as Promise<ResumeCard | null>
+  },
+  questionLog(req: { projectId?: string; limit?: number } = {}): Promise<QuestionLogEntry[]> {
+    return window.apc.invoke(CH.questionLog, req) as Promise<QuestionLogEntry[]>
+  },
+  nextNoteAdd(req: NextNoteAddReq): Promise<NextNoteAddRes> {
+    return window.apc.invoke(CH.nextNoteAdd, req) as Promise<NextNoteAddRes>
+  },
+  nextNoteToggle(req: NextNoteToggleReq): Promise<NextNoteMutRes> {
+    return window.apc.invoke(CH.nextNoteToggle, req) as Promise<NextNoteMutRes>
+  },
+  nextNoteDelete(req: NextNoteDeleteReq): Promise<NextNoteMutRes> {
+    return window.apc.invoke(CH.nextNoteDelete, req) as Promise<NextNoteMutRes>
   },
   ingestAll(): Promise<{ sources: number; sessions: number; documents: number }> {
     return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number; documents: number }>

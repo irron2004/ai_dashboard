@@ -52,4 +52,12 @@ describe('WorkspaceHome', () => {
     fireEvent.click(screen.getByLabelText('전체 새로고침'))
     expect(onRefresh).toHaveBeenCalled()
   })
+
+  test('renders a project topNote when present', () => {
+    const overview = { generatedAt: '', projects: [{
+      project: { id: 'p1', name: 'coin', domain: 'prediction' }, activeTaskCount: 0, runningRuns: [], reviewQueueCount: 0, nextUp: [], topNote: '7/10 상장 반영',
+    }] } as never
+    render(<WorkspaceHome overview={overview} onRefresh={() => {}} onOpenProject={() => {}} />)
+    expect(screen.getByText(/7\/10 상장 반영/)).toBeTruthy()
+  })
 })

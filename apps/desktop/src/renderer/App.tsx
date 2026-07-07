@@ -8,6 +8,8 @@ import { AgentTerminal } from './components/AgentTerminal.js'
 import { AgentDockHeader } from './components/AgentDockHeader.js'
 import { SearchModal } from './components/SearchModal.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
+import { ResumeBanner } from './components/ResumeBanner.js'
+import { QuestionHistory } from './components/QuestionHistory.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import './app.css'
 
@@ -29,9 +31,11 @@ export function App() {
   const {
     projects, selectedProjectId, dashboard, error, agentStatus, openPanes,
     harnessLoading, workspaceOverview,
+    resumeCard, resumeBannerOpen, loadResumeCard, openResumeBanner, dismissResumeBanner, addNextNote,
     loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus, loadWorkspaceOverview,
   } = useStore()
   const restartAgent = useStore((s) => s.restartAgent)
+  const resumeAgentSession = useStore((s) => s.resumeAgentSession)
   const stopAgent = useStore((s) => s.stopAgent)
   const restartNonce = useStore((s) => s.restartNonce)
   const [agent, setAgent] = useState<AgentType>('claude')
@@ -45,6 +49,7 @@ export function App() {
     return 'home'
   })
   const [searchOpen, setSearchOpen] = useState(false)
+  const [historyScope, setHistoryScope] = useState<{ open: boolean; scope: string | null }>({ open: false, scope: null })
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -224,6 +229,16 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === 'KeyN') {
+        e.preventDefault(); if (selectedProjectId) openResumeBanner()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedProjectId, openResumeBanner])
+
   // The active agent pane grows; the others shrink. Focus/typing in a pane makes it active.
   useEffect(() => {
     setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
@@ -251,7 +266,20 @@ export function App() {
     if (selectedProjectId) api.selectProject(selectedProjectId)
   }, [selectedProjectId])
 
+  // Resume banner trigger: fires only when the selected project actually CHANGES (not on every re-render).
+  const prevProjectRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedProjectId) return
+    if (prevProjectRef.current === selectedProjectId) return
+    prevProjectRef.current = selectedProjectId
+    void loadResumeCard(selectedProjectId)
+  }, [selectedProjectId, loadResumeCard])
+
   const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
+
+  // Stable identity so QuestionHistory's fetch effect (deps include fetchLog) doesn't re-fire on every
+  // App re-render while the panel is open.
+  const fetchQuestionLog = useCallback((req: { projectId?: string; limit?: number }) => api.questionLog(req), [])
 
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
@@ -272,6 +300,20 @@ export function App() {
 
   return (
     <div className="app-layout" style={appLayoutStyle}>
+      {resumeBannerOpen && resumeCard && (
+        <ResumeBanner
+          card={resumeCard}
+          onDismiss={dismissResumeBanner}
+          onResume={(t) => {
+            dismissResumeBanner()
+            toggleDock(false)
+            setAgent(t.agent)
+            resumeAgentSession(`${selectedProjectId}:${t.agent}`, t.sessionId)
+          }}
+          onOpenHistory={() => { dismissResumeBanner(); setHistoryScope({ open: true, scope: selectedProjectId }) }}
+          onAddNote={(text) => void addNextNote(text)}
+        />
+      )}
       <aside className={`app-layout__sidebar${sidebarCollapsed ? ' app-layout__sidebar--rail' : ''}`}>
         <ProjectSidebar
           projects={projects}
@@ -451,6 +493,17 @@ export function App() {
       )}
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
+
+      <QuestionHistory
+        open={historyScope.open}
+        scope={historyScope.scope}
+        fetchLog={fetchQuestionLog}
+        onClose={() => setHistoryScope((s) => ({ ...s, open: false }))}
+        onPick={(entry) => {
+          setHistoryScope((s) => ({ ...s, open: false }))
+          void selectProject(entry.projectId)
+        }}
+      />
 
       {error && (
         <div className="error-toast" onClick={clearError}>

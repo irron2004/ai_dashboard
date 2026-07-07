@@ -1,17 +1,17 @@
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
-import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy } from '@apc/pm'
+import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy, NextNoteStore, QuestionLogStore } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
-import { getProjectDashboard, buildWorkspaceOverview, type WorkspaceOverview } from '@apc/dashboard-api'
+import { getProjectDashboard, buildWorkspaceOverview, buildResumeCard, type WorkspaceOverview, type ResumeCard } from '@apc/dashboard-api'
 import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
-import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, type AgentIngestAdapter } from '@apc/agents'
+import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, latestSessionDetail, type AgentIngestAdapter } from '@apc/agents'
 import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { generateRemote } from './remote-generate.js'
@@ -37,8 +37,9 @@ import type {
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
   DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
+  ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
 } from '../shared/ipc-contract.js'
-import type { UnifiedSearchResponse } from '@apc/shared'
+import type { UnifiedSearchResponse, QuestionLogEntry } from '@apc/shared'
 
 /** Coalesces chunks for the same label/stream into 50ms batches so a chatty engine cannot flood the renderer. */
 function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: HarnessEngineLogEvent) => void) | undefined {
@@ -103,6 +104,14 @@ export type Container = {
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
   dashboard: typeof getProjectDashboard
   workspaceOverview: () => WorkspaceOverview
+  resumeCard: (req: ResumeCardReq) => Promise<ResumeCard | null>
+  /** Clears the per-project resumeCard cache (see `resumeCard`). Call after anything that changes what
+   *  the card would show: ingest (new sessions/questions/req: tasks) or a nextNote mutation. */
+  invalidateResumeCards: () => void
+  questionLog: (req: QuestionLogReq) => QuestionLogEntry[]
+  nextNoteAdd: (req: NextNoteAddReq) => NextNoteAddRes
+  nextNoteToggle: (req: NextNoteToggleReq) => NextNoteMutRes
+  nextNoteDelete: (req: NextNoteDeleteReq) => NextNoteMutRes
 }
 
 let _idCounter = 0
@@ -183,7 +192,12 @@ export function buildContainer(opts: {
 
   const registry = new ProjectRegistry(db)
   const tasks = new TaskStore(db)
+  const nextNotes = new NextNoteStore(db)
+  const questionLog = new QuestionLogStore(db)
   const runs = new AgentRunStore(db)
+  // resumeCard is expensive: latestSessionDetail re-discovers + parses ALL sessions for 3 engines on
+  // every call (no incremental cursor). Cache per project; invalidated on ingest + note mutations below.
+  const resumeCardCache = new Map<string, ResumeCard | null>()
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
   const searchIndex = new SearchIndex(searchDb)
@@ -203,6 +217,7 @@ export function buildContainer(opts: {
     registry,
     cursors,
     index: searchIndex,
+    questionLog,
     knowledge: new KnowledgeIndexer({ registry, store: knowledgeStore, vaultRoot: opts.vaultRoot }),
     onSessionParsed: async (session, projectId) => {
       if (!projectId) return
@@ -411,8 +426,8 @@ export function buildContainer(opts: {
   }
 
   const readProjectWikiQuery = (req: ReadProjectWikiReq): ReadProjectWikiRes => {
-    const repoPaths = registry.get(req.projectId)?.repoPaths ?? []
-    return readProjectWiki(repoPaths)
+    const project = registry.get(req.projectId)
+    return readProjectWiki(project?.repoPaths ?? [], project?.vaultPaths ?? [])
   }
 
   const taskSetBlockedBy = (req: TaskSetBlockedByReq): TaskSetBlockedByRes => {
@@ -432,6 +447,32 @@ export function buildContainer(opts: {
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
     dashboard: getProjectDashboard,
-    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs }),
+    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs, nextNotes }),
+    resumeCard: async (req) => {
+      if (resumeCardCache.has(req.projectId)) return resumeCardCache.get(req.projectId)!
+      const card = await buildResumeCard({
+        registry, tasks, nextNotes,
+        latestSession: async (repoPath) => {
+          const found = await latestSessionDetail(['claude', 'codex', 'opencode'], repoPath)
+          if (!found) return null
+          const lastUser = [...found.session.turns].reverse().find((t) => t.role === 'user' && t.text.trim())
+          return {
+            agent: found.agent,
+            sessionId: found.session.id,
+            lastUserTurn: lastUser ? { text: lastUser.text, ts: lastUser.timestamp ?? found.session.startedAt ?? '' } : undefined,
+          }
+        },
+      }, req.projectId)
+      resumeCardCache.set(req.projectId, card)
+      return card
+    },
+    invalidateResumeCards: () => resumeCardCache.clear(),
+    questionLog: (req) => questionLog.listRecent(req),
+    // nextNotes are embedded in resumeCard; clear the whole cache rather than tracking projectId from
+    // the note id (toggle/delete only have the note id, format note:${projectId}:${ISO}:${rand}) — cache
+    // is cheap to rebuild, so correctness over a micro-optimized single-project invalidation.
+    nextNoteAdd: (req) => { const note = nextNotes.add(req.projectId, req.text); resumeCardCache.clear(); return { ok: true, note } },
+    nextNoteToggle: (req) => { nextNotes.toggleDone(req.id, req.done); resumeCardCache.clear(); return { ok: true } },
+    nextNoteDelete: (req) => { nextNotes.delete(req.id); resumeCardCache.clear(); return { ok: true } },
   }
 }

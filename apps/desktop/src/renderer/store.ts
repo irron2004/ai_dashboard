@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
 import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
-import type { WorkspaceOverview } from '@apc/dashboard-api'
+import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
   appendTailLines,
@@ -26,6 +26,12 @@ type ApcStore = {
   selectedProjectId: string | null
   dashboard: ProjectDashboardRes | null
   workspaceOverview: WorkspaceOverview | null
+  resumeCard: ResumeCard | null
+  resumeBannerOpen: boolean
+  loadResumeCard: (projectId: string) => Promise<void>
+  openResumeBanner: () => void
+  dismissResumeBanner: () => void
+  addNextNote: (text: string) => Promise<void>
   profiles: AgentProfile[]
   ingesting: boolean
   lastIngest: { sources: number; sessions: number; documents: number } | null
@@ -78,6 +84,9 @@ type ApcStore = {
   /** Keys whose latest exit was a user-initiated ⏹ stop; the resulting onPtyExit 'done' is coerced to 'idle'. */
   stoppingKeys: Record<string, boolean>
   restartAgent(key: string): void
+  /** Resumes `key`'s pane at a specific session (from a resume-card target) and bumps restartNonce in the
+   *  SAME set() so AgentTerminal's respawn effect (deps: restartNonce) picks up the new resumeSessionId. */
+  resumeAgentSession(key: string, sessionId: string): void
   stopAgent(key: string): void
   prepareGenerate(): Promise<void>
   generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
@@ -144,6 +153,8 @@ export const useStore = create<ApcStore>((set, get) => ({
   selectedProjectId: null,
   dashboard: null,
   workspaceOverview: null,
+  resumeCard: null,
+  resumeBannerOpen: false,
   profiles: [],
   ingesting: false,
   lastIngest: null,
@@ -198,6 +209,21 @@ export const useStore = create<ApcStore>((set, get) => ({
       const stopping = { ...s.stoppingKeys }
       delete stopping[key]
       return {
+        restartNonce: { ...s.restartNonce, [key]: (s.restartNonce[key] ?? 0) + 1 },
+        stoppingKeys: stopping,
+      }
+    })
+  },
+  resumeAgentSession(key, sessionId) {
+    set((s) => {
+      const agent = s.openPanes[key]?.agent ?? (key.split(':').pop() as AgentType)
+      // Mirror restartAgent's stoppingKeys reset (a prior ⏹ stop shouldn't linger across resume) and
+      // bump restartNonce in the SAME set() as the sessionId write — AgentTerminal's respawn effect only
+      // depends on restartNonce, so both must land in one render for it to pick up the new resumeSessionId.
+      const stopping = { ...s.stoppingKeys }
+      delete stopping[key]
+      return {
+        openPanes: { ...s.openPanes, [key]: { agent, sessionId } },
         restartNonce: { ...s.restartNonce, [key]: (s.restartNonce[key] ?? 0) + 1 },
         stoppingKeys: stopping,
       }
@@ -301,6 +327,22 @@ export const useStore = create<ApcStore>((set, get) => ({
       set({ workspaceOverview })
     } catch (e) {
       set({ error: `Failed to load workspace overview: ${e}` })
+    }
+  },
+
+  async loadResumeCard(projectId) {
+    const card = await api.resumeCard(projectId)
+    set({ resumeCard: card, resumeBannerOpen: Boolean(card?.hasHistory) })
+  },
+  openResumeBanner() { set({ resumeBannerOpen: true }) },
+  dismissResumeBanner() { set({ resumeBannerOpen: false }) },
+  async addNextNote(text) {
+    const pid = get().selectedProjectId
+    if (!pid) return
+    const res = await api.nextNoteAdd({ projectId: pid, text })
+    if (res.ok && res.note) {
+      const card = get().resumeCard
+      if (card && card.project.id === pid) set({ resumeCard: { ...card, nextNotes: [res.note, ...card.nextNotes], hasHistory: true } })
     }
   },
 

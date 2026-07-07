@@ -7,6 +7,7 @@ import type {
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
+  ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import { AgentKind } from '@apc/shared'
@@ -104,7 +105,9 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.ingestAll]: async (_payload: unknown) => {
-      return container.ingest.ingestAll(container.ingestAdapters)
+      const r = await container.ingest.ingestAll(container.ingestAdapters)
+      container.invalidateResumeCards()
+      return r
     },
 
     [CH.generatePreflight]: async (payload: unknown) => {
@@ -257,6 +260,22 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.taskSetBlockedBy]: async (payload: unknown) => {
       const req = z.object({ taskId: z.string(), blockedBy: z.array(z.string()) }).strict().parse(payload)
       return container.taskSetBlockedBy(req)
+    },
+
+    [CH.resumeCard]: async (payload: unknown) => {
+      return container.resumeCard(payload as ResumeCardReq)
+    },
+    [CH.questionLog]: async (payload: unknown) => {
+      return container.questionLog(payload as QuestionLogReq)
+    },
+    [CH.nextNoteAdd]: async (payload: unknown) => {
+      return container.nextNoteAdd(payload as NextNoteAddReq)
+    },
+    [CH.nextNoteToggle]: async (payload: unknown) => {
+      return container.nextNoteToggle(payload as NextNoteToggleReq)
+    },
+    [CH.nextNoteDelete]: async (payload: unknown) => {
+      return container.nextNoteDelete(payload as NextNoteDeleteReq)
     },
 
     [CH.fsReadDoc]: async (payload: unknown) => {

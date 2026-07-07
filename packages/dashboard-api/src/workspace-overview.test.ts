@@ -47,4 +47,14 @@ describe('buildWorkspaceOverview', () => {
     const a = buildWorkspaceOverview({ registry, tasks, runs }).projects.find((p) => p.project.id === 'a')!
     expect(a.nextUp).toHaveLength(3)
   })
+
+  test('includes the newest open note text as topNote', () => {
+    const overview = buildWorkspaceOverview({
+      registry: { list: () => [{ id: 'p1', name: 'coin' } as never] },
+      tasks: { listByProject: () => [] },
+      runs: { listRunning: () => [] },
+      nextNotes: { listByProject: () => [{ id: 'n1', projectId: 'p1', text: '7/10 상장 반영', createdAt: '2026-07-07T00:00:00Z', done: false }] },
+    } as never)
+    expect(overview.projects[0].topNote).toBe('7/10 상장 반영')
+  })
 })

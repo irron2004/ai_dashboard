@@ -42,6 +42,7 @@ export function WorkspaceHome({ overview, onRefresh, onOpenProject }: Props) {
                   <span className="workspace-card__badge workspace-card__badge--review">리뷰 {p.reviewQueueCount}</span>
                 )}
               </div>
+              {p.topNote && <div className="workspace-card__note">📌 {p.topNote}</div>}
               {p.runningRuns.length > 0 && (
                 <ul className="workspace-card__runs">
                   {p.runningRuns.map((r) => (

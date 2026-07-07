@@ -144,4 +144,25 @@ describe('IngestService', () => {
     const svc = new IngestService({ registry, cursors, index, onSessionParsed })
     await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toBeDefined()
   })
+
+  test('records user questions to the question log after indexing', async () => {
+    const recorded: string[] = []
+    const session: NormalizedSession = {
+      id: 's-q', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
+      turns: [{ role: 'user', text: 'hello?', toolCalls: [] }], filesTouched: [],
+    }
+    const adapter = {
+      discoverSources: async () => [{ id: 'src1', agentKind: 'claude', kind: 'jsonl-file', locator: '/x.jsonl' }],
+      parseSource: async () => ({ session, position: 'pos1' }),
+    } as unknown as AgentIngestAdapter
+    const svc = new IngestService({
+      registry: { findByRepoPath: () => ({ id: 'p1' }) } as never,
+      cursors: { get: () => undefined, set: () => {} } as never,
+      index: { indexSession: () => {} } as never,
+      questionLog: { record: (s: NormalizedSession) => { recorded.push(s.id) } },
+    })
+    await svc.ingestAll([adapter])
+    expect(recorded).toEqual(['s-q'])
+  })
 })
