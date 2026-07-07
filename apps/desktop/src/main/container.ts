@@ -6,7 +6,7 @@ import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceSt
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard, buildWorkspaceOverview, buildResumeCard, type WorkspaceOverview, type ResumeCard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, GitSyncService, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
@@ -73,6 +73,7 @@ export type Container = {
   vault: VaultAdapter
   taskProfiles: TaskProfileStore
   ingest: IngestService
+  gitSync: GitSyncService
   ingestAdapters: AgentIngestAdapter[]
   runService: RunService
   generate: GenerateService
@@ -226,6 +227,7 @@ export function buildContainer(opts: {
       reconcileSessionTasks(tasks, projectId, session.id, request, todos)
     },
   })
+  const gitSync = new GitSyncService()
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
   const vaultWriter = new VaultWriter(vault)
@@ -440,7 +442,7 @@ export function buildContainer(opts: {
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
-    ingest, ingestAdapters, runService, generate, generatePreflight, generateProject,
+    ingest, gitSync, ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
     devHarnessRun, devHarnessCancel, composeContext, devHarnessReadTranscript,

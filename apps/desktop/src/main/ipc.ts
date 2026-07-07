@@ -8,6 +8,7 @@ import type {
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
   ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
+  GitStatusReq, GitFetchReq, GitPullReq, GitCommitPushReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import { AgentKind } from '@apc/shared'
@@ -314,6 +315,34 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const project = container.registry.get(req.projectId)
       if (!project) return { ok: false, reason: 'project not found' }
       return diffProjectFile(project.repoPaths, req.relPath)
+    },
+
+    [CH.gitStatus]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), fetch: z.boolean().optional() }).strict().parse(payload) as GitStatusReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found', detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] }
+      return container.gitSync.status(project.repoPaths[0] ?? '', { fetch: req.fetch })
+    },
+
+    [CH.gitFetch]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload) as GitFetchReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found' }
+      return container.gitSync.fetch(project.repoPaths[0] ?? '')
+    },
+
+    [CH.gitPull]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload) as GitPullReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found' }
+      return container.gitSync.pull(project.repoPaths[0] ?? '')
+    },
+
+    [CH.gitCommitPush]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), files: z.array(z.string()), message: z.string() }).strict().parse(payload) as GitCommitPushReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: 'project not found' }
+      return container.gitSync.commitPush(project.repoPaths[0] ?? '', req.files, req.message)
     },
   }
 }

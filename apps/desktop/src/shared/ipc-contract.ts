@@ -1,4 +1,4 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry } from '@apc/shared'
+import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry, GitSyncStatus, GitSyncResult } from '@apc/shared'
 
 export const CH = {
   // queries
@@ -74,6 +74,10 @@ export const CH = {
   // project working-tree changes (Changes tab)
   changesList: 'q:changesList',
   changesDiff: 'q:changesDiff',
+  gitStatus: 'q:gitStatus',
+  gitFetch: 'c:gitFetch',
+  gitPull: 'c:gitPull',
+  gitCommitPush: 'c:gitCommitPush',
   // workspace session persistence (main→renderer restore, renderer→main reports)
   workspaceRestore: 'workspace:restore',
   paneOpened: 'pane:opened',
@@ -240,6 +244,13 @@ export type ChangesListRes = {
 }
 export type ChangesDiffReq = { projectId: string; relPath: string }
 export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }
+
+export type GitStatusReq = { projectId: string; fetch?: boolean }
+export type GitStatusRes = GitSyncStatus
+export type GitFetchReq = { projectId: string }
+export type GitPullReq = { projectId: string }
+export type GitCommitPushReq = { projectId: string; files: string[]; message: string }
+export type GitSyncRes = GitSyncResult
 
 // Workspace session persistence
 export type PaneRef = { projectId: string; agent: 'claude' | 'codex' | 'opencode' }
