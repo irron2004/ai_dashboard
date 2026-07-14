@@ -3,7 +3,14 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync, utimesSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { diffProjectFile, listProjectChanges, markUnreflected, parsePorcelain } from './project-changes.js'
+import {
+  countUntrackedAdditions,
+  diffProjectFile,
+  listProjectChanges,
+  markUnreflected,
+  parseNumstat,
+  parsePorcelain,
+} from './project-changes.js'
 
 describe('parsePorcelain', () => {
   test('maps porcelain v1 statuses', () => {
@@ -29,6 +36,59 @@ describe('parsePorcelain', () => {
 
   test('empty output → empty list', () => {
     expect(parsePorcelain('')).toEqual([])
+  })
+})
+
+describe('parseNumstat', () => {
+  test('일반 라인 → 증감 카운트', () => {
+    const out = '12\t3\tsrc/app.ts\n0\t7\tdocs/gone.md\n'
+    const result = parseNumstat(out)
+    expect(result.get('src/app.ts')).toEqual({ additions: 12, deletions: 3 })
+    expect(result.get('docs/gone.md')).toEqual({ additions: 0, deletions: 7 })
+  })
+
+  test('binary(-\\t-) → null 카운트', () => {
+    expect(parseNumstat('-\t-\tassets/logo.png\n').get('assets/logo.png')).toEqual({
+      additions: null,
+      deletions: null,
+    })
+  })
+
+  test('rename 두 형태 모두 새 경로 기준', () => {
+    const result = parseNumstat('5\t2\told.md => new.md\n1\t1\tpackages/{pm => pm2}/src/x.ts\n')
+    expect(result.get('new.md')).toEqual({ additions: 5, deletions: 2 })
+    expect(result.get('packages/pm2/src/x.ts')).toEqual({ additions: 1, deletions: 1 })
+  })
+
+  test('빈 출력 → 빈 Map', () => {
+    expect(parseNumstat('').size).toBe(0)
+  })
+})
+
+describe('countUntrackedAdditions', () => {
+  test('텍스트 파일 → 줄 수 (개행 없는 마지막 줄 포함)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-count-'))
+    writeFileSync(join(dir, 'a.md'), 'one\ntwo\nthree')
+    expect(countUntrackedAdditions(join(dir, 'a.md'))).toBe(3)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('빈 파일 → 0', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-count-'))
+    writeFileSync(join(dir, 'empty.md'), '')
+    expect(countUntrackedAdditions(join(dir, 'empty.md'))).toBe(0)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('NUL 바이트 포함(binary) → null', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-count-'))
+    writeFileSync(join(dir, 'bin.dat'), Buffer.from([0x41, 0x00, 0x42]))
+    expect(countUntrackedAdditions(join(dir, 'bin.dat'))).toBe(null)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('없는 파일 → null', () => {
+    expect(countUntrackedAdditions(join(tmpdir(), 'apc-none', 'nope.md'))).toBe(null)
   })
 })
 
@@ -76,6 +136,32 @@ describe('listProjectChanges (integration, real git)', () => {
     expect(f?.mtimeMs).toBeGreaterThan(0)
     rmSync(dir, { recursive: true, force: true })
   })
+
+  test('modified 파일에 +/− 카운트, untracked에 줄 수가 붙는다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-numstat-'))
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    writeFileSync(join(dir, 'doc.md'), 'a\nb\nc\n')
+    execFileSync('git', ['add', 'doc.md'], { cwd: dir })
+    execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'init'], { cwd: dir })
+    writeFileSync(join(dir, 'doc.md'), 'a\nX\nY\nc\n')
+    writeFileSync(join(dir, 'fresh.md'), 'one\ntwo\n')
+
+    const res = listProjectChanges([dir], null)
+    expect(res.ok).toBe(true)
+    expect(res.files?.find((f) => f.path === 'doc.md')).toMatchObject({ additions: 2, deletions: 1 })
+    expect(res.files?.find((f) => f.path === 'fresh.md')).toMatchObject({ additions: 2, deletions: 0 })
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('빈 repo(HEAD 없음)에서도 untracked 카운트가 나온다', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-nohead-'))
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    writeFileSync(join(dir, 'a.md'), 'x\n')
+    const res = listProjectChanges([dir], null)
+    expect(res.ok).toBe(true)
+    expect(res.files?.find((f) => f.path === 'a.md')?.additions).toBe(1)
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('diffProjectFile (integration, real git)', () => {
@@ -105,6 +191,21 @@ describe('diffProjectFile (integration, real git)', () => {
     expect(res.ok).toBe(true)
     expect(res.patch).toContain('-original')
     expect(res.patch).toContain('+changed')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('tracked + deleted file → patch includes deleted content', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-diff-deleted-'))
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+    writeFileSync(join(dir, 'gone.md'), 'goodbye\nlast line\n')
+    execFileSync('git', ['add', 'gone.md'], { cwd: dir })
+    commit(dir, 'init')
+    rmSync(join(dir, 'gone.md'))
+
+    const res = diffProjectFile([dir], 'gone.md')
+    expect(res.ok).toBe(true)
+    expect(res.patch).toContain('-goodbye')
+    expect(res.patch).toContain('-last line')
     rmSync(dir, { recursive: true, force: true })
   })
 

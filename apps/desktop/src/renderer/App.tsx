@@ -7,6 +7,7 @@ import { MainPanel, type MainTab } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { AgentDockHeader } from './components/AgentDockHeader.js'
 import { SearchModal } from './components/SearchModal.js'
+import { DiffPanel } from './components/DiffPanel.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
 import { ResumeBanner } from './components/ResumeBanner.js'
 import { QuestionHistory } from './components/QuestionHistory.js'
@@ -49,6 +50,7 @@ export function App() {
     return 'home'
   })
   const [searchOpen, setSearchOpen] = useState(false)
+  const [diffOpen, setDiffOpen] = useState(false)
   const [historyScope, setHistoryScope] = useState<{ open: boolean; scope: string | null }>({ open: false, scope: null })
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
@@ -239,6 +241,17 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedProjectId, openResumeBanner])
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === 'KeyD') {
+        e.preventDefault()
+        setDiffOpen((value) => !value)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // The active agent pane grows; the others shrink. Focus/typing in a pane makes it active.
   useEffect(() => {
     setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
@@ -294,6 +307,7 @@ export function App() {
   const toolbarActions = (
     <>
       <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)" aria-label="검색 (Ctrl+K)">🔎</button>
+      <button onClick={() => setDiffOpen((value) => !value)} title="변경사항 (Ctrl+Shift+D)" aria-label="변경사항 (Ctrl+Shift+D)">±</button>
       <GlobalMenu items={[{ label: upd.running ? 'Updating…' : '⭳ Update (git pull + pnpm install)', onClick: runUpdate, disabled: upd.running }]} />
     </>
   )
@@ -493,6 +507,7 @@ export function App() {
       )}
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
+      <DiffPanel open={diffOpen} projectId={selectedProjectId} onClose={() => setDiffOpen(false)} />
 
       <QuestionHistory
         open={historyScope.open}

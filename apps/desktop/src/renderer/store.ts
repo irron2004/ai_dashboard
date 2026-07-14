@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
+import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent, ProjectStructureHintDto } from '../shared/ipc-contract.js'
 import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
@@ -104,7 +104,7 @@ type ApcStore = {
 
   hydrateHarnessProject(projectId: string): void
   selectHarnessRun(runId: string): void
-  startHarnessRun(materialize?: boolean, fullRegen?: boolean, interactive?: boolean): Promise<void>
+  startHarnessRun(materialize?: boolean, fullRegen?: boolean, interactive?: boolean, projectContext?: ProjectStructureHintDto): Promise<void>
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   confirmNodes(runId: string, approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }): Promise<void>
@@ -400,13 +400,22 @@ export const useStore = create<ApcStore>((set, get) => ({
     saveHarnessSelectedRun(projectId, runId)
   },
 
-  async startHarnessRun(materialize = false, fullRegen = false, interactive = false) {
+  async startHarnessRun(materialize = false, fullRegen = false, interactive = false, projectContext?: ProjectStructureHintDto) {
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
     const config = getHarnessConfig(get(), projectId)
     set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
-      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model), workerConcurrency: config.model.workerConcurrency, fullRegen, ...(interactive ? { interactive: true } : {}) })
+      const started = await api.harnessRun({
+        projectId,
+        engine: config.model.engine,
+        materialize,
+        engineOptions: modelSettingsToEngineOptions(config.model),
+        workerConcurrency: config.model.workerConcurrency,
+        fullRegen,
+        ...(interactive ? { interactive: true } : {}),
+        ...(projectContext ? { projectContext } : {}),
+      })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {

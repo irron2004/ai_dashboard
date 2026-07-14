@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
 import { useStore } from '../store.js'
+import { api } from '../api.js'
 import { createDefaultHarnessConfig, runModeLabel, readFanoutSummary, type HarnessRunBundle } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
@@ -11,11 +12,13 @@ import { ProposalsPanel } from './ProposalsPanel.js'
 import { ReviewPanel, type EvidenceFinding, type PolicyViolation } from './ReviewPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
 import { NodeConfirmPanel } from './NodeConfirmPanel.js'
+import { ProjectStructureView } from './ProjectStructureView.js'
+import { WikiGenerationSetup } from './WikiGenerationSetup.js'
 
-type ReviewTab = 'summary' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
+type ReviewTab = 'summary' | 'structure' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
 
 const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
-  { id: 'summary', label: '요약' }, { id: 'review', label: '🔎 검수' }, { id: 'coverage', label: 'Coverage' },
+  { id: 'summary', label: '요약' }, { id: 'structure', label: '구조' }, { id: 'review', label: '🔎 검수' }, { id: 'coverage', label: 'Coverage' },
   { id: 'quality', label: 'Quality' }, { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
 ]
 
@@ -34,6 +37,8 @@ export function WikiGenDashboard() {
   const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [interactiveMode, setInteractiveMode] = useState(false)
+  const [pendingRun, setPendingRun] = useState<{ materialize: boolean; fullRegen?: boolean } | null>(null)
+  const [projectFolders, setProjectFolders] = useState<string[]>([])
   const [runsCollapsed, setRunsCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:runsCollapsed') === '1' } catch { return false }
   })
@@ -50,6 +55,22 @@ export function WikiGenDashboard() {
   useEffect(() => {
     if (selectedProjectId) loadWikiPolicy(selectedProjectId)
   }, [loadWikiPolicy, selectedProjectId])
+
+  useEffect(() => {
+    if (!selectedProjectId) { setProjectFolders([]); return }
+    let stale = false
+    void api.fsListDocs({ projectId: selectedProjectId }).then((result) => {
+      if (stale) return
+      const folders = new Set<string>()
+      for (const doc of result.docs ?? []) {
+        const normalized = doc.relPath.replace(/\\/g, '/')
+        const slash = normalized.indexOf('/')
+        folders.add(slash < 0 ? '(root)' : normalized.slice(0, slash))
+      }
+      setProjectFolders([...folders].sort().slice(0, 40))
+    }).catch(() => { if (!stale) setProjectFolders([]) })
+    return () => { stale = true }
+  }, [selectedProjectId])
 
   const currentRun: HarnessRunBundle | null = useMemo(
     () => harnessRuns.find((b) => b.runState.runId === selectedHarnessRunId) ?? harnessRuns[0] ?? null,
@@ -86,7 +107,7 @@ export function WikiGenDashboard() {
           onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
-          onStartRun={(materialize, fullRegen) => void startHarnessRun(materialize, fullRegen, interactiveMode)}
+          onStartRun={(materialize, fullRegen) => setPendingRun({ materialize, fullRegen })}
           onResumeRun={(runId) => void resumeHarnessRun(runId)}
         />
 
@@ -169,6 +190,7 @@ export function WikiGenDashboard() {
                     )}
                   </div>
                 )}
+                {reviewTab === 'structure' && <ProjectStructureView artifacts={currentRun.artifacts} />}
                 {reviewTab === 'review' && (proposalsData && proposalsData.length > 0
                   ? <ReviewPanel runId={currentRun.runState.runId} projectId={selectedProjectId} proposals={proposalsData} warnings={evidenceWarnings} violations={policyViolations} />
                   : <div className="wikigen__placeholder">검수할 노드 제안이 없습니다 — 전체 문서 모드로 실행하세요.</div>)}
@@ -254,6 +276,18 @@ export function WikiGenDashboard() {
           />
         )}
       </div>
+      <WikiGenerationSetup
+        open={pendingRun !== null}
+        projectId={selectedProjectId}
+        modeLabel={pendingRun?.fullRegen ? '전체 재생성' : pendingRun?.materialize ? '전체 문서' : '최근 세션'}
+        suggestedFolders={projectFolders}
+        onCancel={() => setPendingRun(null)}
+        onConfirm={(projectContext) => {
+          const run = pendingRun
+          setPendingRun(null)
+          if (run) void startHarnessRun(run.materialize, run.fullRegen, interactiveMode, projectContext)
+        }}
+      />
     </section>
   )
 }

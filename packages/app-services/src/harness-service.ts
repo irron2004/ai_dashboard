@@ -13,6 +13,7 @@ import {
   type SourceLedger,
   type DomainId,
   type DomainPack,
+  type ProjectStructureHint,
 } from '@apc/knowledge-harness'
 import { ConflictManager } from '@apc/core'
 import type { AgentIngestAdapter } from '@apc/agents'
@@ -164,7 +165,7 @@ export class HarnessService {
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
    * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
    * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
-  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean, interactive?: boolean, domainPack?: DomainPack, substrate?: WikiSubstrate): HarnessRunner {
+  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean, interactive?: boolean, domainPack?: DomainPack, substrate?: WikiSubstrate, projectContext?: ProjectStructureHint): HarnessRunner {
     const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
     const runner: AgentRunner = !onEngineLog ? logging : {
       run: (i) => logging.run({
@@ -184,6 +185,7 @@ export class HarnessService {
       sourceLedger: this.deps.sourceLedger,
       ignoreLedger,
       interactive,
+      projectContext,
       now: this.now,
       // Forward each folder worker's nodes to the live stream, stamped with this run's id.
       onNodesDiscovered: onNodes ? (ev) => onNodes({ runId, folder: ev.folder, nodes: ev.nodes }) : undefined,
@@ -210,7 +212,7 @@ export class HarnessService {
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean; domain?: DomainId }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
+  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean; domain?: DomainId; projectContext?: ProjectStructureHint }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
     const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
     const pack = resolveDomainPack(input.domain)
     log(`domain: ${pack.id}\n`)
@@ -263,7 +265,7 @@ export class HarnessService {
     // Prefer the selected project's autosci-core/core.lock so Wiki Gen validates/indexes against the
     // project's own structured-document runtime. Fall back to the dashboard repo cwd for legacy dev setups.
     const substrate = buildVenvSubstrate(input.repoPaths?.[0] ?? '') ?? buildVenvSubstrate(process.cwd())
-    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen, input.interactive, pack, substrate)
+    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen, input.interactive, pack, substrate, input.projectContext)
     runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
     const result = await this.advanceSafely(runId, runner, store, onProgress)
     // Save the agent-pipeline transcript (run dir + workspace runs/) for later study — even on failure,

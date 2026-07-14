@@ -3,7 +3,7 @@ import { basename } from 'node:path'
 import { makePaperDrivers } from './paper-drivers.js'
 import { resolveInside, isRaw } from './vault-fs.js'
 import { SourceReader, budgetSourcesForPrompt, isConversationSource, isContextSource, type SourceDoc } from './source-reader.js'
-import { planFolders, type FolderPlan, type WorkUnit } from './folder-plan.js'
+import { planFolders, type FolderPlan, type WorkUnit, type ProjectStructureHint } from './folder-plan.js'
 import type { SourceLedger } from './source-ledger.js'
 import { normalizeEvidencePaths } from './evidence-normalize.js'
 import { dedupeProposalIds, demoteUnderEvidencedShared, pruneUnverifiableEvidence } from './merge-proposals.js'
@@ -61,6 +61,9 @@ export type DriverDeps = {
   onNodesDiscovered?: (ev: LiveNodesEvent) => void
   /** 확인 모드: WRITE_PLAN_CREATED가 approved-nodes 아티팩트가 없으면 paused로 정지한다. */
   interactive?: boolean
+  /** Human steering gathered immediately before Wiki Gen. A blank folder description deliberately asks
+   *  the classifier to infer that folder's role; a non-blank description is authoritative context. */
+  projectContext?: ProjectStructureHint
   /** Domain overlay pack (Plan 1+). When id==='paper', makeDrivers overlays the paper drivers. */
   domainPack?: import('../domains/types.js').DomainPack
   /** Substrate for paper kernel lint (built from the venv python). Required for paper VALIDATED. */
@@ -284,7 +287,12 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
   const base: Partial<Record<KhState, Driver>> = {
     PROJECT_SCANNED: async (ctx) => {
-      const data = await discovery.run({ ...run, engine: engineOf(ctx), label: `PROJECT_SCANNED-${discovery.name}`, input: { projectId: ctx.projectId } })
+      const data = await discovery.run({
+        ...run,
+        engine: engineOf(ctx),
+        label: `PROJECT_SCANNED-${discovery.name}`,
+        input: { projectId: ctx.projectId, project_context: deps.projectContext ?? {} },
+      })
       return { artifacts: [{ name: ARTIFACTS.projectDiscovery, data }] }
     },
 
@@ -301,10 +309,24 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
     },
 
     DOCUMENTS_CLASSIFIED: async (ctx) => {
-      const data = await classifier.run({ ...run, engine: engineOf(ctx), label: `DOCUMENTS_CLASSIFIED-${classifier.name}`, input: { discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery) } })
       // PM router (spec §4): partition project docs into folder-aligned, window-sized work units. Emitted
       // for visibility now; the NODE_PROPOSALS_CREATED fan-out consumes it next phase.
-      const folderPlan = planFolders(freshSources(ctx.projectId), maxPromptChars)
+      const folderPlan = planFolders(freshSources(ctx.projectId), maxPromptChars, deps.projectContext)
+      const data = await classifier.run({
+        ...run,
+        engine: engineOf(ctx),
+        label: `DOCUMENTS_CLASSIFIED-${classifier.name}`,
+        input: {
+          discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
+          project_context: folderPlan.projectContext ?? {},
+          folders: folderPlan.units.map((unit) => ({
+            label: unit.label,
+            member_paths: unit.memberPaths,
+            document_paths: unit.docSourceIds,
+            classifications: unit.folderClassifications ?? [],
+          })),
+        },
+      })
       return { artifacts: [
         { name: ARTIFACTS.documentIntent, data },
         { name: ARTIFACTS.folderPlan, data: folderPlan },
@@ -319,9 +341,15 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
 
       // Run one extractor call over a source subset (a folder work unit, or all sources in the single-shot
       // fallback). The budget is the worker's last-resort guard; with folder units it rarely truncates.
-      const extractOver = async (sources: SourceDoc[], label: string): Promise<KhNodeProposal[]> => {
+      const extractOver = async (sources: SourceDoc[], label: string, unit?: WorkUnit): Promise<KhNodeProposal[]> => {
         const raw = await extractor.run({ ...run, engine: engineOf(ctx), label, input: {
           history, intents, sources: budgetSourcesForPrompt(sources, maxPromptChars).sources,
+          project_context: plan?.projectContext ?? deps.projectContext ?? {},
+          folder: unit ? {
+            label: unit.label,
+            member_paths: unit.memberPaths,
+            classifications: unit.folderClassifications ?? [],
+          } : undefined,
         } })
         return raw.proposals as KhNodeProposal[]
       }
@@ -349,7 +377,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
           units,
           (u) => u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s),
           deps.workerConcurrency ?? 1,
-          (docs, u) => extractOver([...docs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`),
+          (docs, u) => extractOver([...docs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`, u),
           (unitProposals, u) => deps.onNodesDiscovered?.({ folder: u.label, nodes: liveNodesOf(unitProposals) }),
         )
         if (res.ran === 0) {
@@ -394,7 +422,11 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
       const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: {
         proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals),
-        folders: plan?.units.map((u) => u.label),
+        folders: plan?.units.map((u) => ({
+          label: u.label,
+          member_paths: u.memberPaths,
+          classifications: u.folderClassifications ?? [],
+        })),
         provenance: fan?.provenance,
       } })
       // Keep only edges whose endpoints are real nodes (created here or proposed). A dangling edge from a

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { obsidianForceLayout } from './graph-layout.js'
+import { obsidianForceLayout, SCALABLE_LAYOUT_NODE_THRESHOLD } from './graph-layout.js'
 
 const nodes = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `n${i}` }))
 
@@ -33,5 +33,16 @@ describe('obsidianForceLayout', () => {
     const ns = [{ id: 'hub' }, { id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]
     const r = obsidianForceLayout(ns, edges, 1000, 600)
     expect(r.sizes.hub.radius).toBeGreaterThan(r.sizes.a.radius)
+  })
+
+  test('uses a deterministic scalable layout for large graphs', () => {
+    const nodes = Array.from({ length: SCALABLE_LAYOUT_NODE_THRESHOLD + 20 }, (_, i) => ({ id: `n${i}` }))
+    const edges = nodes.slice(1).map((node, i) => ({ source: 'n0', target: node.id, id: `e${i}` }))
+    const first = obsidianForceLayout(nodes, edges, 1000, 600)
+    const second = obsidianForceLayout(nodes, edges, 1000, 600)
+
+    expect(Object.keys(first.positions)).toHaveLength(nodes.length)
+    expect(first).toEqual(second)
+    expect(first.positions.n0).toEqual({ x: 500, y: 300 })
   })
 })

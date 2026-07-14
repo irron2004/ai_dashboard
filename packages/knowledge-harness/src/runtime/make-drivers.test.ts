@@ -101,6 +101,33 @@ describe('makeDrivers (real agents, faked LLM)', () => {
     expect(fake.calls[0].timeoutMs).toBe(900000)
   })
 
+  test('passes the user project character and folder classifications through discovery and workers', async () => {
+    mkdirSync(join(ws, 'vault', 'raw', 'project-docs', '0', 'docs'), { recursive: true })
+    writeFileSync(join(ws, 'vault', 'raw', 'project-docs', '0', 'docs', 'guide.md'), '# guide\n')
+    const fake = new FakeAgentRunner(cannedOutputs())
+    const store = new RunArtifactStore(join(ws, 'runs', 'RUN-CONTEXT'))
+    const drivers = makeDrivers({
+      runner: fake,
+      vaultRoot: join(ws, 'vault'),
+      stagingRoot: join(ws, 'vault-staging-context'),
+      preamble: 'RULES',
+      projectContext: {
+        projectCharacter: '제품 코드와 고객 문서가 함께 있는 프로젝트',
+        folderClassifications: [{ path: 'docs/', description: '고객 문서' }],
+      },
+    })
+    const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers, now: () => '2026-06-02T00:00:00Z' })
+    runner.createRun(store, { runId: 'RUN-CONTEXT', projectId: 'p1', engine: 'claude' })
+    const rs = await runner.advance(store)
+
+    expect(fake.calls[0].prompt).toContain('제품 코드와 고객 문서')
+    expect(fake.calls[2].prompt).toContain('고객 문서')
+    expect(fake.calls[3].prompt).toContain('"source": "user"')
+    const folderPlanPath = rs.artifacts.DOCUMENTS_CLASSIFIED.find((path) => path.endsWith('folder-plan.json'))!
+    const plan = store.readArtifact<{ projectContext: { projectCharacter: string } }>(folderPlanPath)
+    expect(plan.projectContext.projectCharacter).toContain('제품 코드')
+  })
+
   test('a pre-existing vault secret never blocks a clean run; VALIDATED scans only run-authored files (#22 scoping)', async () => {
     // A pre-existing vault file with a secret-shaped string must NOT trip the gate — only THIS run's
     // authored files are scanned, otherwise a legacy secret would permanently block all promotions.

@@ -85,6 +85,26 @@ describe('planFolders', () => {
     expect(byLabel['notes']).toBe('reference')
   })
 
+  test('keeps user folder descriptions and routes blank descriptions to the agent', () => {
+    const sources = [
+      doc('raw/project-docs/0/docs/guide.md'),
+      doc('raw/project-docs/0/tasks/today.md'),
+    ]
+    const oneFolder = planFolders([sources[0]], HUGE).units[0].estChars
+    const plan = planFolders(sources, oneFolder + 1, {
+      projectCharacter: '개발 프로젝트와 운영 기록이 함께 있는 저장소',
+      folderClassifications: [
+        { path: 'docs/', description: '사용자 문서' },
+        { path: 'tasks/', description: '' },
+      ],
+    })
+    const classified = plan.units.flatMap((unit) => unit.folderClassifications ?? [])
+
+    expect(plan.projectContext?.projectCharacter).toContain('개발 프로젝트')
+    expect(classified).toContainEqual({ path: 'docs', description: '사용자 문서', source: 'user' })
+    expect(classified).toContainEqual({ path: 'tasks', description: '', source: 'agent' })
+  })
+
   test('deterministic', () => {
     const sources = [doc('raw/project-docs/0/z/1.md'), doc('raw/project-docs/0/a/1.md'), doc('raw/project-docs/0/a/2.md')]
     expect(JSON.stringify(planFolders(sources, 5000))).toBe(JSON.stringify(planFolders(sources, 5000)))

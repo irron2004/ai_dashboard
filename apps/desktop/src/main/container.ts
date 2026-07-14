@@ -331,7 +331,7 @@ export function buildContainer(opts: {
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)
     return harness.run(
-      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [], engineOptions: req.engineOptions, workerConcurrency: req.workerConcurrency, fullRegen: req.fullRegen, domain: project?.domain },
+      { projectId: req.projectId, engine: req.engine, materialize: req.materialize, repoPaths: project?.repoPaths ?? [], engineOptions: req.engineOptions, workerConcurrency: req.workerConcurrency, fullRegen: req.fullRegen, interactive: req.interactive, domain: project?.domain, projectContext: req.projectContext },
       (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
       batchEngineLog(opts.emitHarnessEngineLog),
       (e) => opts.emitHarnessNodes?.(e),

@@ -1,6 +1,17 @@
 import type { SourceDoc } from './source-reader.js'
 import { isCanonical } from './vault-fs.js'
 
+export type FolderClassificationHint = { path: string; description?: string }
+export type ProjectStructureHint = {
+  projectCharacter?: string
+  folderClassifications?: FolderClassificationHint[]
+}
+export type ResolvedFolderClassification = {
+  path: string
+  description: string
+  source: 'user' | 'agent'
+}
+
 /**
  * A work unit = the set of sources one folder-worker processes (spec §6). Auto size-based partitioning:
  * a unit is one folder, a split-piece of an oversized folder (`splitOf`), or a greedy merge of small
@@ -15,12 +26,16 @@ export type WorkUnit = {
   sessionIds: string[]         // conversation sessions matched to this unit (filled in a later phase)
   estChars: number             // serialized-size estimate used for bin-packing
   splitOf?: string             // parent folder path when this unit is a split-piece of an oversized folder
+  /** One classification per member folder. Blank user descriptions deliberately route to the agent. */
+  folderClassifications?: ResolvedFolderClassification[]
 }
 
 export type FolderPlan = {
   units: WorkUnit[]
   /** Sources not placed in any folder unit (conversations, out-of-repo context) — handled separately. */
   unplacedSourceIds: string[]
+  /** The human hint used for this exact run, persisted with the plan so the UI can explain provenance. */
+  projectContext?: ProjectStructureHint
 }
 
 /** Serialized-size estimate of a source, consistent with budgetSourcesForPrompt (which the worker uses). */
@@ -43,6 +58,34 @@ export function docFolder(sourcePath: string): string | null {
 function folderLabel(folderKey: string): string {
   const rel = folderKey.replace(/^\d+\//, '')
   return rel === '' ? '(root)' : rel
+}
+
+function normalizeFolderPath(path: string): string {
+  const normalized = path.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
+  return normalized === '' || normalized === '.' || normalized === '(root)' ? '(root)' : normalized
+}
+
+function normalizedContext(context: ProjectStructureHint | undefined): ProjectStructureHint | undefined {
+  if (!context) return undefined
+  const projectCharacter = context.projectCharacter?.trim() ?? ''
+  const folderClassifications = (context.folderClassifications ?? [])
+    .map((hint) => ({ path: normalizeFolderPath(hint.path), description: hint.description?.trim() ?? '' }))
+    .filter((hint) => hint.path.length > 0)
+  return { projectCharacter, folderClassifications }
+}
+
+function classificationFor(path: string, context: ProjectStructureHint | undefined): ResolvedFolderClassification {
+  const normalized = normalizeFolderPath(path)
+  const rules = context?.folderClassifications ?? []
+  // A parent rule (e.g. docs/) covers descendants; the most-specific rule wins.
+  const match = rules
+    .filter((rule) => {
+      const rulePath = normalizeFolderPath(rule.path)
+      return normalized === rulePath || (rulePath !== '(root)' && normalized.startsWith(rulePath + '/'))
+    })
+    .sort((a, b) => normalizeFolderPath(b.path).length - normalizeFolderPath(a.path).length)[0]
+  const description = match?.description?.trim() ?? ''
+  return { path: normalized, description, source: description ? 'user' : 'agent' }
 }
 
 /** A unit's role: 'canonical' if it holds a canonical doc (current.md/PRD.md/ADR-*), else 'reference'.
@@ -71,7 +114,8 @@ function packDocs(docs: SourceDoc[], maxChars: number): SourceDoc[][] {
  *   - non-project-doc sources (conversations, context) are returned as `unplacedSourceIds`.
  * Deterministic: folders are processed in sorted order and unit ids are index-based.
  */
-export function planFolders(sources: SourceDoc[], maxChars: number): FolderPlan {
+export function planFolders(sources: SourceDoc[], maxChars: number, contextInput?: ProjectStructureHint): FolderPlan {
+  const context = normalizedContext(contextInput)
   const byFolder = new Map<string, SourceDoc[]>()
   const unplaced: string[] = []
   for (const s of sources) {
@@ -99,6 +143,7 @@ export function planFolders(sources: SourceDoc[], maxChars: number): FolderPlan 
       docSourceIds: bin.ids,
       sessionIds: [],
       estChars: bin.chars,
+      folderClassifications: bin.paths.map((path) => classificationFor(folderLabel(path), context)),
     })
     bin = null
   }
@@ -120,6 +165,7 @@ export function planFolders(sources: SourceDoc[], maxChars: number): FolderPlan 
           sessionIds: [],
           estChars: group.reduce((n, d) => n + sizeOf(d), 0),
           splitOf: folderLabel(folder),
+          folderClassifications: [classificationFor(folderLabel(folder), context)],
         })
       })
       continue
@@ -133,5 +179,5 @@ export function planFolders(sources: SourceDoc[], maxChars: number): FolderPlan 
   }
   flush()
 
-  return { units, unplacedSourceIds: unplaced }
+  return { units, unplacedSourceIds: unplaced, ...(context ? { projectContext: context } : {}) }
 }

@@ -67,4 +67,36 @@ describe('WikiGenDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Coverage' }))
     expect(screen.getByText(/커버리지 데이터 없음/)).toBeDefined()
   })
+
+  test('위키 생성 전에 프로젝트 성격을 묻고 힌트를 run에 전달한다', () => {
+    const startHarnessRun = vi.fn(async () => {})
+    useStore.setState({ startHarnessRun })
+    render(<WikiGenDashboard />)
+
+    fireEvent.click(screen.getByRole('button', { name: /위키 생성/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /전체 문서/ }))
+    expect(screen.getByRole('dialog', { name: '위키 생성 전 구조 설정' })).toBeDefined()
+    fireEvent.change(screen.getByPlaceholderText(/고객용 웹 앱/), { target: { value: '개발 문서와 작업 기록이 함께 있는 프로젝트' } })
+    fireEvent.click(screen.getByRole('button', { name: '이 설정으로 위키 생성' }))
+
+    expect(startHarnessRun).toHaveBeenCalledWith(true, undefined, false, {
+      projectCharacter: '개발 문서와 작업 기록이 함께 있는 프로젝트',
+      folderClassifications: [],
+    })
+  })
+
+  test('구조 탭에서 project-discovery 결과를 시각화한다', () => {
+    const run = reviewRun()
+    run.artifacts.push(
+      { state: 'PROJECT_SCANNED', name: 'project-discovery-report', path: 'a', data: { project_id: 'p1', summary: '모노레포', topics: ['desktop'] } },
+      { state: 'DOCUMENTS_CLASSIFIED', name: 'folder-plan', path: 'b', data: { units: [{ id: 'u1', label: 'docs', memberPaths: ['docs'], role: 'reference', docSourceIds: ['raw/project-docs/0/docs/a.md'], folderClassifications: [{ path: 'docs', description: '문서', source: 'user' }] }], projectContext: { projectCharacter: '제품 개발 프로젝트' } } },
+    )
+    useStore.setState({ harnessRuns: [run] })
+    render(<WikiGenDashboard />)
+    fireEvent.click(screen.getByRole('button', { name: '구조' }))
+
+    expect(screen.getByText('제품 개발 프로젝트')).toBeDefined()
+    expect(screen.getByText('docs')).toBeDefined()
+    expect(screen.getByText('문서')).toBeDefined()
+  })
 })

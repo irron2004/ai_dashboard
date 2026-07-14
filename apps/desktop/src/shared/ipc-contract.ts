@@ -145,7 +145,20 @@ export type HarnessEngineLogEvent = { label: string; stream: 'stdout' | 'stderr'
 /** Live node previews discovered mid-run (per folder worker) — for the Knowledge tab's incremental graph. */
 export type HarnessLiveNode = { id: string; title: string; type: string; scope: string }
 export type HarnessNodesEvent = { runId: string; folder: string; nodes: HarnessLiveNode[] }
-export type HarnessRunReq = { projectId: string; engine: AgentType; materialize?: boolean; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean }
+export type ProjectStructureHintDto = {
+  projectCharacter?: string
+  folderClassifications?: Array<{ path: string; description?: string }>
+}
+export type HarnessRunReq = {
+  projectId: string
+  engine: AgentType
+  materialize?: boolean
+  engineOptions?: EngineOptions
+  workerConcurrency?: number
+  fullRegen?: boolean
+  interactive?: boolean
+  projectContext?: ProjectStructureHintDto
+}
 export type HarnessRunRes = { ok: boolean; runId?: string; finalState?: string; reason?: string }
 
 // dev-harness (S3): drive the multi-agent coding harness for one task via the CLI contract.
@@ -240,7 +253,16 @@ export type ChangesListReq = { projectId: string }
 export type ChangesListRes = {
   ok: boolean
   reason?: string
-  files?: { path: string; status: 'new' | 'modified' | 'deleted'; isMarkdown: boolean; mtimeMs: number; unreflected?: boolean }[]
+  files?: {
+    path: string
+    status: 'new' | 'modified' | 'deleted'
+    isMarkdown: boolean
+    mtimeMs: number
+    unreflected?: boolean
+    additions?: number
+    deletions?: number
+    binary?: boolean
+  }[]
 }
 export type ChangesDiffReq = { projectId: string; relPath: string }
 export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }

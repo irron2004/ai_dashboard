@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 780" font-family="'Segoe UI', -apple-system, sans-serif">
+  <title>Diff 패널 목업 — Ctrl+Shift+D로 여는 우측 변경사항 패널</title>
+  <desc>앱 어느 탭에서든 우측에 열리는 Diff 패널. 변경 파일 목록에 파일별 +N −N 증감량이 보이고, 파일을 클릭하면 unified diff가 인라인으로 펼쳐진다.</desc>
+
+  <!-- 캔버스 -->
+  <rect width="1100" height="780" rx="14" fill="#091017"/>
+
+  <!-- ── 뒤 배경: 기존 앱 (dimmed) ─────────────────────── -->
+  <g opacity="0.45">
+    <!-- 탭 바 -->
+    <rect x="16" y="16" width="1068" height="44" rx="8" fill="#0f1722"/>
+    <text x="36" y="44" font-size="14" fill="#8ea0b6">전체</text>
+    <rect x="84" y="24" width="52" height="28" rx="6" fill="#141c28" stroke="#3a4a5e" stroke-width="1"/>
+    <text x="98" y="44" font-size="14" fill="#eaf1fb">홈</text>
+    <text x="156" y="44" font-size="14" fill="#8ea0b6">문서</text>
+    <text x="216" y="44" font-size="14" fill="#8ea0b6">지식</text>
+    <text x="276" y="44" font-size="14" fill="#8ea0b6">위키 생성</text>
+    <!-- 본문 자리 -->
+    <rect x="16" y="72" width="524" height="120" rx="10" fill="#0f1722"/>
+    <rect x="16" y="204" width="524" height="300" rx="10" fill="#0f1722"/>
+    <rect x="16" y="516" width="524" height="180" rx="10" fill="#0f1722"/>
+    <rect x="36" y="92" width="200" height="12" rx="6" fill="#1d2735"/>
+    <rect x="36" y="116" width="380" height="10" rx="5" fill="#18212e"/>
+    <rect x="36" y="136" width="320" height="10" rx="5" fill="#18212e"/>
+    <rect x="36" y="228" width="120" height="12" rx="6" fill="#1d2735"/>
+    <rect x="36" y="252" width="480" height="10" rx="5" fill="#18212e"/>
+    <rect x="36" y="272" width="440" height="10" rx="5" fill="#18212e"/>
+    <rect x="36" y="292" width="460" height="10" rx="5" fill="#18212e"/>
+  </g>
+
+  <!-- 툴바 (강조 유지) -->
+  <text x="946" y="44" font-size="15" fill="#8ea0b6">🔎</text>
+  <rect x="976" y="22" width="34" height="32" rx="16" fill="#141c28" stroke="#75c7ff" stroke-width="1.5"/>
+  <text x="987" y="44" font-size="16" fill="#75c7ff" font-weight="700">±</text>
+  <text x="1030" y="44" font-size="15" fill="#8ea0b6">⋮</text>
+
+  <!-- ── Diff 패널 (우측 오버레이) ─────────────────────── -->
+  <rect x="560" y="0" width="540" height="780" fill="#101822" opacity="0.98"/>
+  <line x1="560" y1="0" x2="560" y2="780" stroke="#3a4a5e" stroke-width="1.5"/>
+
+  <!-- 헤더 -->
+  <text x="584" y="96" font-size="16" font-weight="700" fill="#eaf1fb">변경사항</text>
+  <text x="676" y="96" font-size="13" fill="#8ea0b6">파일 6 ·</text>
+  <text x="732" y="96" font-size="13" font-weight="700" fill="#4ade80">+581</text>
+  <text x="774" y="96" font-size="13" font-weight="700" fill="#fb7185">−146</text>
+  <rect x="960" y="76" width="30" height="28" rx="14" fill="#141c28" stroke="#3a4a5e"/>
+  <text x="969" y="95" font-size="13" fill="#8ea0b6">⟳</text>
+  <rect x="998" y="76" width="30" height="28" rx="14" fill="#141c28" stroke="#3a4a5e"/>
+  <text x="1008" y="95" font-size="13" fill="#8ea0b6">✕</text>
+  <line x1="560" y1="118" x2="1100" y2="118" stroke="#243040" stroke-width="1"/>
+
+  <!-- 파일 행 1 -->
+  <text x="588" y="148" font-size="14" font-weight="700" fill="#fbbf24">±</text>
+  <text x="610" y="148" font-size="13" fill="#eaf1fb" font-family="Consolas, monospace">src/renderer/App.tsx</text>
+  <text x="972" y="148" font-size="13" fill="#4ade80" text-anchor="end">+37</text>
+  <text x="1016" y="148" font-size="13" fill="#fb7185" text-anchor="end">−32</text>
+
+  <!-- 파일 행 2 (선택됨 → 펼침) -->
+  <rect x="572" y="162" width="512" height="30" rx="8" fill="#1a2534"/>
+  <text x="588" y="182" font-size="14" font-weight="700" fill="#fbbf24">±</text>
+  <text x="610" y="182" font-size="13" fill="#eaf1fb" font-family="Consolas, monospace">src/renderer/app.css</text>
+  <text x="972" y="182" font-size="13" fill="#4ade80" text-anchor="end">+228</text>
+  <text x="1016" y="182" font-size="13" fill="#fb7185" text-anchor="end">−26</text>
+  <text x="1046" y="182" font-size="11" fill="#61738c">▾</text>
+
+  <!-- 펼쳐진 unified diff -->
+  <rect x="596" y="200" width="488" height="170" rx="8" fill="#0b121b" stroke="#243040"/>
+  <g font-family="Consolas, monospace" font-size="12">
+    <text x="612" y="222" fill="#61738c">…</text>
+    <text x="612" y="242" fill="#61738c">311</text><text x="648" y="242" fill="#61738c">311</text>
+    <text x="684" y="242" fill="#8ea0b6">.dock-bar__agent { display: flex; }</text>
+    <rect x="600" y="250" width="480" height="18" fill="#3d1620"/>
+    <text x="612" y="264" fill="#61738c">312</text>
+    <text x="684" y="264" fill="#fda4af">- .home-strip__detail { display: none; }</text>
+    <rect x="600" y="270" width="480" height="18" fill="#0f2b1a"/>
+    <text x="648" y="284" fill="#61738c">312</text>
+    <text x="684" y="284" fill="#86efac">+ .diff-panel { position: fixed; right: 0; }</text>
+    <rect x="600" y="290" width="480" height="18" fill="#0f2b1a"/>
+    <text x="648" y="304" fill="#61738c">313</text>
+    <text x="684" y="304" fill="#86efac">+ .diff-panel__row { display: flex; }</text>
+    <rect x="600" y="310" width="480" height="18" fill="#0f2b1a"/>
+    <text x="648" y="324" fill="#61738c">314</text>
+    <text x="684" y="324" fill="#86efac">+ .diff-panel__add { color: var(--success); }</text>
+    <text x="612" y="346" fill="#61738c">313</text><text x="648" y="346" fill="#61738c">315</text>
+    <text x="684" y="346" fill="#8ea0b6">.error-toast { position: fixed; }</text>
+    <text x="612" y="362" fill="#61738c">…</text>
+  </g>
+
+  <!-- 파일 행 3~6 -->
+  <text x="588" y="404" font-size="14" font-weight="700" fill="#4ade80">+</text>
+  <text x="610" y="404" font-size="13" fill="#eaf1fb" font-family="Consolas, monospace">components/DiffPanel.tsx</text>
+  <text x="972" y="404" font-size="13" fill="#4ade80" text-anchor="end">+214</text>
+  <text x="1016" y="404" font-size="13" fill="#fb7185" text-anchor="end">−0</text>
+
+  <text x="588" y="440" font-size="14" font-weight="700" fill="#4ade80">+</text>
+  <text x="610" y="440" font-size="13" fill="#eaf1fb" font-family="Consolas, monospace">components/DiffPanel.test.tsx</text>
+  <text x="972" y="440" font-size="13" fill="#4ade80" text-anchor="end">+102</text>
+  <text x="1016" y="440" font-size="13" fill="#fb7185" text-anchor="end">−0</text>
+
+  <text x="588" y="476" font-size="14" font-weight="700" fill="#fb7185">−</text>
+  <text x="610" y="476" font-size="13" fill="#8ea0b6" font-family="Consolas, monospace" text-decoration="line-through">legacy/OldPanel.tsx</text>
+  <text x="972" y="476" font-size="13" fill="#4ade80" text-anchor="end">+0</text>
+  <text x="1016" y="476" font-size="13" fill="#fb7185" text-anchor="end">−88</text>
+
+  <text x="588" y="512" font-size="14" font-weight="700" fill="#fbbf24">±</text>
+  <text x="610" y="512" font-size="13" fill="#eaf1fb" font-family="Consolas, monospace">assets/icon.png</text>
+  <text x="1016" y="512" font-size="12" fill="#61738c" text-anchor="end">binary</text>
+
+  <!-- ── 콜아웃 (개발자 주석) ─────────────────────────── -->
+  <g font-size="12.5">
+    <!-- 단축키 -->
+    <rect x="700" y="18" width="180" height="30" rx="8" fill="#0f1722" stroke="#75c7ff" stroke-width="1"/>
+    <text x="716" y="38" fill="#75c7ff">Ctrl+Shift+D 또는 ± 버튼</text>
+    <path d="M 880 33 L 972 33" stroke="#75c7ff" stroke-width="1" stroke-dasharray="3 3" fill="none"/>
+
+    <!-- 총계 -->
+    <rect x="300" y="80" width="230" height="30" rx="8" fill="#0f1722" stroke="#75c7ff" stroke-width="1"/>
+    <text x="316" y="100" fill="#75c7ff">헤더에 파일 수 + 총 증감량</text>
+    <path d="M 530 95 L 668 92" stroke="#75c7ff" stroke-width="1" stroke-dasharray="3 3" fill="none"/>
+
+    <!-- 행 클릭 펼침 -->
+    <rect x="300" y="240" width="230" height="46" rx="8" fill="#0f1722" stroke="#75c7ff" stroke-width="1"/>
+    <text x="316" y="259" fill="#75c7ff">행 클릭 → changesDiff lazy fetch,</text>
+    <text x="316" y="277" fill="#75c7ff">unified diff 인라인 펼침 (1개만)</text>
+    <path d="M 530 263 L 592 263" stroke="#75c7ff" stroke-width="1" stroke-dasharray="3 3" fill="none"/>
+
+    <!-- 상태 마커 -->
+    <rect x="300" y="420" width="230" height="46" rx="8" fill="#0f1722" stroke="#75c7ff" stroke-width="1"/>
+    <text x="316" y="439" fill="#75c7ff">+ new · ± modified · − deleted</text>
+    <text x="316" y="457" fill="#75c7ff">binary는 카운트 대신 뱃지</text>
+    <path d="M 530 443 L 584 443" stroke="#75c7ff" stroke-width="1" stroke-dasharray="3 3" fill="none"/>
+  </g>
+
+  <!-- 푸터 캡션 -->
+  <line x1="560" y1="726" x2="1100" y2="726" stroke="#243040" stroke-width="1"/>
+  <text x="584" y="752" font-size="12" fill="#61738c">Esc 닫기 · ⟳ 새로고침 · 어느 탭에서든 열림 (우측 오버레이, 폭 min(560px, 92vw))</text>
+  <text x="16" y="752" font-size="12" fill="#61738c">spec: docs/superpowers/specs/2026-07-14-diff-panel-design.md</text>
+</svg>
