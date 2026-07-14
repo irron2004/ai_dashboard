@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { useStore } from '../store.js'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
-import { HomeView } from './HomeView.js'
+import { HomeView, ProjectDocumentsView } from './HomeView.js'
 
 const fsReadDoc = vi.fn(async ({ relPath }: { relPath: string }) =>
   relPath === 'current.md' ? { ok: true, content: '# 현재 상태' } : { ok: true, content: '# 새 문서' })
@@ -47,21 +47,31 @@ const dashboard: ProjectDashboardRes = {
   allTasks: [{ id: 'T1', projectId: 'p1', title: 't', status: 'done', assigneeType: 'agent', priority: 'high', reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [] }],
 }
 
-describe('HomeView', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    useStore.setState({ selectedProjectId: 'p1', dashboard, ingesting: false })
-  })
+beforeEach(() => {
+  vi.clearAllMocks()
+  useStore.setState({ selectedProjectId: 'p1', dashboard, ingesting: false })
+})
 
-  test('loads current.md and the changes feed on mount', async () => {
+describe('HomeView', () => {
+  test('shows the PM dashboard immediately without an expand action', () => {
     render(<HomeView dashboard={dashboard} />)
+    expect(screen.getByText(/ship MVP/)).toBeDefined()
+    expect(screen.getByText('태스크 보드')).toBeDefined()
+    expect(screen.getByRole('region', { name: '프로젝트 작업 대시보드' })).toBeDefined()
+    expect(screen.queryByRole('button', { name: /자세히/ })).toBeNull()
+  })
+})
+
+describe('ProjectDocumentsView', () => {
+  test('loads current.md and the changes feed on mount', async () => {
+    render(<ProjectDocumentsView dashboard={dashboard} />)
     expect(await screen.findByText('현재 상태')).toBeDefined()
     expect(await screen.findByText('docs/new.md')).toBeDefined()
     expect(screen.getByText(/미반영/)).toBeDefined()
   })
 
   test('clicking an unreflected md opens it with an Ingest now header button', async () => {
-    render(<HomeView dashboard={dashboard} />)
+    render(<ProjectDocumentsView dashboard={dashboard} />)
     fireEvent.click(await screen.findByText('docs/new.md'))
     expect(await screen.findByText('새 문서')).toBeDefined()
     expect(screen.getAllByRole('button', { name: /Ingest now/ }).length).toBeGreaterThanOrEqual(2)
@@ -69,24 +79,23 @@ describe('HomeView', () => {
   })
 
   test('clicking a code file fetches its diff', async () => {
-    render(<HomeView dashboard={dashboard} />)
+    render(<ProjectDocumentsView dashboard={dashboard} />)
     const rows = await screen.findAllByText('src/x.ts')
     fireEvent.click(rows[rows.length - 1])
     await waitFor(() => expect(changesDiff).toHaveBeenCalledWith({ projectId: 'p1', relPath: 'src/x.ts' }))
   })
 
-  test('PM strip shows goal and expands details', async () => {
-    render(<HomeView dashboard={dashboard} />)
-    // let the mount's async loads (fsReadDoc/changesList) settle before asserting, so React state
-    // updates are flushed inside act() rather than firing after synchronous assertions
-    await screen.findByText('현재 상태')
-    expect(screen.getByText(/ship MVP/)).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: /자세히/ }))
-    expect(screen.getByText('Task Board')).toBeDefined()
+  test('keeps current.md and Git changes in the dedicated documents view', async () => {
+    render(<ProjectDocumentsView dashboard={dashboard} />)
+    expect(await screen.findByText('현재 상태')).toBeDefined()
+    expect(screen.getByRole('region', { name: '프로젝트 문서와 변경분' })).toBeDefined()
+    expect(screen.getByRole('region', { name: '프로젝트 문서' })).toBeDefined()
+    expect(screen.getByRole('complementary', { name: 'Git 변경분' })).toBeDefined()
+    expect(screen.queryByText('태스크 보드')).toBeNull()
   })
 
   test('Git sync panel commits only selected files with a message', async () => {
-    render(<HomeView dashboard={dashboard} />)
+    render(<ProjectDocumentsView dashboard={dashboard} />)
     expect(await screen.findByText('Git 동기화')).toBeDefined()
     fireEvent.click((await screen.findAllByText('src/x.ts'))[0])
     fireEvent.change(screen.getByPlaceholderText(/feat: add git sync panel/), { target: { value: 'test: sync selected file' } })

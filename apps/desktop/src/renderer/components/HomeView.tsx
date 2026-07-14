@@ -25,10 +25,17 @@ function relTime(ms: number): string {
 }
 
 export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
+  return (
+    <div className="home home--pm" role="region" aria-label="프로젝트 작업 대시보드">
+      <PmHome dashboard={dashboard} />
+    </div>
+  )
+}
+
+export function ProjectDocumentsView({ dashboard }: { dashboard: ProjectDashboardRes }) {
   const { selectedProjectId, ingesting, ingest, lastIngest, prepareGenerate, clearGeneration } = useStore()
   const [viewer, setViewer] = useState<Viewer>({ kind: 'current' })
   const [changes, setChanges] = useState<{ files?: ChangedFile[]; reason?: string } | null>(null)
-  const [pmOpen, setPmOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
 
   const loadCurrent = useCallback(() => {
@@ -78,8 +85,6 @@ export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
     }
   }, [changes])
 
-  const doneCount = dashboard.allTasks.filter((t) => t.status === 'done').length
-
   const feedRow = (f: ChangedFile) => (
     <button key={f.path} type="button" className="home-feed__row" onClick={() => openFile(f)}>
       <span className={`home-feed__st home-feed__st--${f.status}`}>{f.status === 'new' ? '+' : f.status === 'deleted' ? '−' : '±'}</span>
@@ -90,9 +95,9 @@ export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
   )
 
   return (
-    <div className="home">
+    <div className="home home--documents" role="region" aria-label="프로젝트 문서와 변경분">
       <div className="home__panes">
-        <main className="home-viewer panel">
+        <section className="home-viewer panel" aria-label="프로젝트 문서">
           <header className="panel__header home-viewer__header">
             {viewer.kind === 'current' ? (
               <>
@@ -123,41 +128,32 @@ export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
               : <DiffViewer patch={viewer.patch ?? null} />)}
             {viewer.kind === 'deleted' && <div className="home-viewer__empty">삭제된 파일입니다: {viewer.file.path}</div>}
           </div>
-        </main>
-
-        <aside className="home-side">
-          <GitSyncPanel projectId={selectedProjectId} repoPath={dashboard.project.repoPaths[0]} onSynced={loadChanges} />
-        <section className="home-feed panel">
-          <header className="panel__header home-feed__header">
-            <h2>변경분</h2>
-            <span className="home-feed__meta">git · {changes?.files?.length ?? 0} files{lastIngest ? ` · ingested ${lastIngest.sessions} session(s)` : ''}</span>
-            <button type="button" className="home-feed__ingest" disabled={ingesting} onClick={() => void runIngest()}>
-              {ingesting ? 'Ingesting…' : 'Ingest now'}
-            </button>
-            <button type="button" onClick={loadChanges} aria-label="변경분 새로고침">⟳</button>
-          </header>
-          <div className="home-feed__list">
-            {changes?.reason && <div className="home-feed__error">⚠ {changes.reason}</div>}
-            {groups.newDocs.length > 0 && <div className="home-feed__group">새 문서 ({groups.newDocs.length})</div>}
-            {groups.newDocs.map(feedRow)}
-            {groups.modDocs.length > 0 && <div className="home-feed__group">수정된 문서 ({groups.modDocs.length})</div>}
-            {groups.modDocs.map(feedRow)}
-            {groups.code.length > 0 && <div className="home-feed__group">코드 ({groups.code.length})</div>}
-            {groups.code.map(feedRow)}
-            {changes && !changes.reason && (changes.files?.length ?? 0) === 0 && <div className="home-feed__empty">변경분 없음 — working tree clean</div>}
-          </div>
         </section>
+
+        <aside className="home-side" aria-label="Git 변경분">
+          <GitSyncPanel projectId={selectedProjectId} repoPath={dashboard.project.repoPaths[0]} onSynced={loadChanges} />
+          <section className="home-feed panel">
+            <header className="panel__header home-feed__header">
+              <h2>변경분</h2>
+              <span className="home-feed__meta">git · {changes?.files?.length ?? 0} files{lastIngest ? ` · ingested ${lastIngest.sessions} session(s)` : ''}</span>
+              <button type="button" className="home-feed__ingest" disabled={ingesting} onClick={() => void runIngest()}>
+                {ingesting ? 'Ingesting…' : 'Ingest now'}
+              </button>
+              <button type="button" onClick={loadChanges} aria-label="변경분 새로고침">⟳</button>
+            </header>
+            <div className="home-feed__list">
+              {changes?.reason && <div className="home-feed__error">⚠ {changes.reason}</div>}
+              {groups.newDocs.length > 0 && <div className="home-feed__group">새 문서 ({groups.newDocs.length})</div>}
+              {groups.newDocs.map(feedRow)}
+              {groups.modDocs.length > 0 && <div className="home-feed__group">수정된 문서 ({groups.modDocs.length})</div>}
+              {groups.modDocs.map(feedRow)}
+              {groups.code.length > 0 && <div className="home-feed__group">코드 ({groups.code.length})</div>}
+              {groups.code.map(feedRow)}
+              {changes && !changes.reason && (changes.files?.length ?? 0) === 0 && <div className="home-feed__empty">변경분 없음 — working tree clean</div>}
+            </div>
+          </section>
         </aside>
       </div>
-
-      <footer className="home-strip">
-        <span>🎯 <b>{dashboard.project.goal ?? '(목표 없음)'}</b></span>
-        <span className="home-strip__bar"><i style={{ width: `${dashboard.allTasks.length ? Math.round((doneCount / dashboard.allTasks.length) * 100) : 0}%` }} /></span>
-        <span>{doneCount}/{dashboard.allTasks.length} tasks</span>
-        <span>리뷰 대기 <b className="home-strip__warn">{dashboard.reviewQueue.length}</b></span>
-        <button type="button" onClick={() => setPmOpen((v) => !v)}>{pmOpen ? '접기 ▴' : '자세히 ▾'}</button>
-      </footer>
-      {pmOpen && <div className="home-strip__detail"><PmHome dashboard={dashboard} /></div>}
 
       <GeneratePreflightModal open={generateOpen} onClose={() => setGenerateOpen(false)} />
     </div>

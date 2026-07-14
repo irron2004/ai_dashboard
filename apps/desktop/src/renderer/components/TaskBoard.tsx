@@ -3,15 +3,20 @@ import type { Task, TaskStatus } from '@apc/shared'
 import { unresolvedBlockers } from '@apc/dashboard-api'
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'todo', label: 'To Do' },
-  { status: 'in_progress', label: 'In Progress' },
-  { status: 'review', label: 'Review' },
-  { status: 'done', label: 'Done' },
+  { status: 'todo', label: '할 일' },
+  { status: 'in_progress', label: '진행 중' },
+  { status: 'review', label: '리뷰' },
+  { status: 'done', label: '완료' },
 ]
 
-type Props = { tasks: Task[]; onSetBlockedBy?: (taskId: string, blockedBy: string[]) => void }
+type Props = {
+  tasks: Task[]
+  onSetBlockedBy?: (taskId: string, blockedBy: string[]) => void
+  onComposeTask?: (taskId: string) => void
+  onRunTask?: (taskId: string) => void
+}
 
-export function TaskBoard({ tasks, onSetBlockedBy }: Props) {
+export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask }: Props) {
   const [editing, setEditing] = useState<string | null>(null)
   const byId = new Map(tasks.map((t) => [t.id, t]))
   return (
@@ -26,6 +31,8 @@ export function TaskBoard({ tasks, onSetBlockedBy }: Props) {
             ) : (
               items.map((task) => {
                 const blockers = unresolvedBlockers(task, byId)
+                const composeDisabled = task.status === 'done' || task.status === 'rejected'
+                const runDisabled = composeDisabled || task.status === 'review' || blockers.length > 0
                 return (
                   <div key={task.id} className="pm-board__card">
                     <span className="pm-board__card-title">{task.title}</span>
@@ -42,6 +49,30 @@ export function TaskBoard({ tasks, onSetBlockedBy }: Props) {
                         >⛓</button>
                       )}
                     </span>
+                    {(onComposeTask || onRunTask) && (
+                      <span className="pm-board__card-actions">
+                        {onComposeTask && (
+                          <button
+                            type="button"
+                            className="pm-board__compose-btn"
+                            aria-label={`${task.title} 컨텍스트 조립`}
+                            disabled={composeDisabled}
+                            title={composeDisabled ? '완료된 작업은 다시 조립할 수 없습니다' : undefined}
+                            onClick={() => onComposeTask(task.id)}
+                          >📋 조립</button>
+                        )}
+                        {onRunTask && (
+                          <button
+                            type="button"
+                            className="pm-board__run-btn"
+                            aria-label={`${task.title} Harness 실행`}
+                            disabled={runDisabled}
+                            title={blockers.length > 0 ? '차단 작업을 먼저 완료하세요' : runDisabled ? '진행 가능한 작업만 실행할 수 있습니다' : undefined}
+                            onClick={() => onRunTask(task.id)}
+                          >▶ Run</button>
+                        )}
+                      </span>
+                    )}
                     {onSetBlockedBy && editing === task.id && (
                       <select
                         multiple className="pm-board__dep-select" aria-label={`차단 작업 선택 ${task.title}`}

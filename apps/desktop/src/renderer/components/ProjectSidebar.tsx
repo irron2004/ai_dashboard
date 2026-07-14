@@ -25,6 +25,12 @@ function groupByStatus(projects: Project[]): Record<string, Project[]> {
 
 type PathMode = 'local' | 'ssh'
 type Menu = { id: string; x: number; y: number }
+const STATUS_LABEL: Record<Project['status'], string> = {
+  active: '진행 중',
+  maintenance: '유지보수',
+  paused: '일시정지',
+  archived: '보관됨',
+}
 
 export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggleCollapse, onSelect, onAdd, onUpdate, onDelete, badges = {} }: Props) {
   const groups = groupByStatus(projects)
@@ -171,7 +177,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
       ) : (
         <nav className="project-sidebar">
           <div className="project-sidebar__header">
-            <h2>Projects</h2>
+            <h2>프로젝트</h2>
             <button
               type="button"
               className="project-sidebar__collapse-btn"
@@ -183,11 +189,11 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
             </button>
           </div>
           {projects.length === 0 && (
-            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 8 }}>No projects yet</p>
+            <p style={{ color: '#666', fontSize: '0.85rem', marginBottom: 8 }}>아직 프로젝트가 없습니다</p>
           )}
           {Object.entries(groups).map(([status, projs]) => (
             <section key={status} className="project-sidebar__group">
-              <h3 className="project-sidebar__group-title">{status}</h3>
+              <h3 className="project-sidebar__group-title">{STATUS_LABEL[status as Project['status']] ?? status}</h3>
               <ul className="project-sidebar__list">
                 {projs.map((p) => (
                   <li key={p.id}>
@@ -212,7 +218,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
             </section>
           ))}
           <button type="button" className="project-sidebar__add-btn" onClick={openAdd}>
-            + Add Project
+            + 프로젝트 추가
           </button>
         </nav>
       )}

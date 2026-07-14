@@ -1,17 +1,19 @@
-import type { ReactNode } from 'react'
+import { useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
 import type { WorkspaceOverview } from '@apc/dashboard-api'
-import { HomeView } from './HomeView.js'
+import { HomeView, ProjectDocumentsView } from './HomeView.js'
 import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
 import { WorkspaceHome } from './WorkspaceHome.js'
 
-export type MainTab = 'home' | 'knowledge' | 'wikigen' | 'workspace'
+export type MainTab = 'workspace' | 'home' | 'documents' | 'knowledge' | 'wikigen'
+export type ProjectLoadState = 'unselected' | 'loading' | 'ready'
 
 type Props = {
   tab: MainTab
   onTab: (tab: MainTab) => void
-  dashboard: ProjectDashboardRes
+  dashboard: ProjectDashboardRes | null
+  projectLoadState: ProjectLoadState
   /** Right-aligned toolbar actions rendered inline in the tab row (so they don't claim a whole row). */
   actions?: ReactNode
   /** True while a wiki generation run is in flight — shows a pulsing dot on the Wiki Gen tab. */
@@ -21,37 +23,85 @@ type Props = {
   onOpenProject?: (projectId: string) => void
 }
 
-const TABS: { id: MainTab; label: string }[] = [
-  { id: 'home', label: '🏠 Home' },
-  { id: 'knowledge', label: '📖 Knowledge' },
-  { id: 'wikigen', label: '⚙ Wiki Gen' },
-  { id: 'workspace', label: '🌐 전체' },
+const TABS: { id: MainTab; icon: string; label: string }[] = [
+  { id: 'workspace', icon: '🌐', label: '전체' },
+  { id: 'home', icon: '🏠', label: '홈' },
+  { id: 'documents', icon: '📄', label: '문서' },
+  { id: 'knowledge', icon: '📖', label: '지식' },
+  { id: 'wikigen', icon: '⚙', label: '위키 생성' },
 ]
 
-export function MainPanel({ tab, onTab, dashboard, actions, wikiGenRunning, overview, onRefreshWorkspace, onOpenProject }: Props) {
+export function MainPanel({ tab, onTab, dashboard, projectLoadState, actions, wikiGenRunning, overview, onRefreshWorkspace, onOpenProject }: Props) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const projectRequired = tab !== 'workspace' && projectLoadState !== 'ready'
+  const activeTabId = `main-tab-${tab}`
+  const activePanelId = `main-panel-${tab}`
+
+  const handleTabKeyDown = (index: number, event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    let nextIndex: number | null = null
+    if (event.key === 'ArrowRight') nextIndex = (index + 1) % TABS.length
+    if (event.key === 'ArrowLeft') nextIndex = (index - 1 + TABS.length) % TABS.length
+    if (event.key === 'Home') nextIndex = 0
+    if (event.key === 'End') nextIndex = TABS.length - 1
+    if (nextIndex === null) return
+
+    event.preventDefault()
+    onTab(TABS[nextIndex].id)
+    tabRefs.current[nextIndex]?.focus()
+  }
+
   return (
     <div className="main-panel">
-      <nav className="main-panel__tabs">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            className={`main-panel__tab${tab === id ? ' main-panel__tab--active' : ''}`}
-            aria-pressed={tab === id}
-            onClick={() => onTab(id)}
-          >
-            {label}
-            {id === 'wikigen' && wikiGenRunning && (
-              <span className="main-panel__tab-dot" data-testid="wikigen-running-dot" aria-hidden="true" />
-            )}
-          </button>
-        ))}
+      <div className="main-panel__tabs">
+        <nav aria-label="주 화면">
+          <div role="tablist" aria-label="주 화면 탭" style={{ display: 'flex', alignItems: 'flex-end', gap: 4 }}>
+            {TABS.map(({ id, icon, label }, index) => {
+              const selected = tab === id
+              const runningLabel = id === 'wikigen' && wikiGenRunning ? `${label} (실행 중)` : label
+              return (
+                <button
+                  key={id}
+                  ref={(node) => { tabRefs.current[index] = node }}
+                  id={`main-tab-${id}`}
+                  type="button"
+                  role="tab"
+                  className={`main-panel__tab${selected ? ' main-panel__tab--active' : ''}`}
+                  aria-label={runningLabel}
+                  aria-selected={selected}
+                  aria-controls={`main-panel-${id}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => onTab(id)}
+                  onKeyDown={(event) => handleTabKeyDown(index, event)}
+                >
+                  <span aria-hidden="true">{icon}</span> {label}
+                  {id === 'wikigen' && wikiGenRunning && (
+                    <span className="main-panel__tab-dot" data-testid="wikigen-running-dot" aria-hidden="true" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </nav>
         {actions && <div className="main-panel__tab-actions">{actions}</div>}
-      </nav>
-      <div className="main-panel__content">
-        {tab === 'home' && <HomeView dashboard={dashboard} />}
-        {tab === 'knowledge' && <KnowledgeView />}
-        {tab === 'wikigen' && <WikiGenDashboard />}
+      </div>
+      <div
+        id={activePanelId}
+        className="main-panel__content"
+        role="tabpanel"
+        aria-labelledby={activeTabId}
+        tabIndex={0}
+      >
+        {projectRequired && (
+          <div className="app-layout__placeholder" role="status" aria-live="polite">
+            {projectLoadState === 'loading'
+              ? '프로젝트를 불러오는 중…'
+              : '프로젝트를 선택하거나 새 프로젝트를 추가하세요'}
+          </div>
+        )}
+        {tab === 'home' && dashboard && <HomeView dashboard={dashboard} />}
+        {tab === 'documents' && dashboard && <ProjectDocumentsView dashboard={dashboard} />}
+        {tab === 'knowledge' && dashboard && <KnowledgeView />}
+        {tab === 'wikigen' && dashboard && <WikiGenDashboard />}
         {tab === 'workspace' && (
           <WorkspaceHome
             overview={overview ?? null}

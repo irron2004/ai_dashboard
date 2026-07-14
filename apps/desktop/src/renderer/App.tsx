@@ -3,7 +3,7 @@ import type { AgentType } from '@apc/shared'
 import { useStore, type AgentRunStatus } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
-import { MainPanel, type MainTab } from './components/MainPanel.js'
+import { MainPanel, type MainTab, type ProjectLoadState } from './components/MainPanel.js'
 import { AgentTerminal } from './components/AgentTerminal.js'
 import { AgentDockHeader } from './components/AgentDockHeader.js'
 import { SearchModal } from './components/SearchModal.js'
@@ -21,11 +21,11 @@ const AGENTS: AgentType[] = ['claude', 'opencode', 'codex']
 // among them never reloads claude/codex/opencode. The oldest beyond this is unmounted (reloads on revisit).
 const MAX_KEPT_DOCKS = 8
 
-const STATUS_COLOR: Record<AgentRunStatus, string> = {
+export const STATUS_COLOR: Record<AgentRunStatus, string> = {
   idle: '#666',         // not started — grey
   running: '#4ade80',   // 동작중 — green
   attention: '#facc15', // 사용자 허가 필요 — yellow
-  done: '#f87171',      // 완료 — red
+  done: '#378add',      // 완료 — blue; red is reserved for actual errors
 }
 
 export function App() {
@@ -45,9 +45,9 @@ export function App() {
   const [mainTab, setMainTab] = useState<MainTab>(() => {
     try {
       const saved = localStorage.getItem('apc:mainTab')
-      if (saved === 'home' || saved === 'knowledge' || saved === 'wikigen' || saved === 'workspace') return saved
+      if (saved === 'workspace' || saved === 'home' || saved === 'documents' || saved === 'knowledge' || saved === 'wikigen') return saved
     } catch { /* ignore */ }
-    return 'home'
+    return 'workspace'
   })
   const [searchOpen, setSearchOpen] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
@@ -86,10 +86,17 @@ export function App() {
     return next
   })
 
-  const handleMainTab = (t: MainTab) => {
+  const handleMainTab = useCallback((t: MainTab) => {
     setMainTab(t)
     try { localStorage.setItem('apc:mainTab', t) } catch { /* ignore */ }
-  }
+  }, [])
+
+  // Selecting a project from the global overview enters its PM home. When the user is already
+  // comparing the same project-specific surface (documents/knowledge/wiki), preserve that context.
+  const openProject = useCallback((projectId: string, forceHome = false) => {
+    void selectProject(projectId)
+    if (forceHome || mainTab === 'workspace') handleMainTab('home')
+  }, [handleMainTab, mainTab, selectProject])
 
   useEffect(() => {
     return () => {
@@ -180,7 +187,13 @@ export function App() {
 
   // Workspace session persistence: hydrate panes from main on boot.
   useEffect(() => {
-    const off = api.onWorkspaceRestore((p) => useStore.getState().hydrateWorkspace(p))
+    const off = api.onWorkspaceRestore((p) => {
+      const state = useStore.getState()
+      state.hydrateWorkspace(p)
+      // Hydration restores the selected id and panes only. Load its dashboard explicitly, but do not
+      // treat session restoration as an intentional navigation away from the global overview.
+      if (p.selectedProjectId) void state.selectProject(p.selectedProjectId)
+    })
     return off
   }, [])
 
@@ -214,12 +227,12 @@ export function App() {
       }
       if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && n >= 1 && n <= 9 && projects[n - 1]) {
         e.preventDefault(); e.stopPropagation()
-        selectProject(projects[n - 1].id)
+        openProject(projects[n - 1].id)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [projects, selectProject, toggleDock])
+  }, [openProject, projects, toggleDock])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -334,7 +347,7 @@ export function App() {
           selectedProjectId={selectedProjectId}
           collapsed={sidebarCollapsed}
           onToggleCollapse={toggleSidebar}
-          onSelect={selectProject}
+          onSelect={openProject}
           onAdd={addProject}
           onUpdate={updateProject}
           onDelete={deleteProject}
@@ -352,25 +365,17 @@ export function App() {
       )}
 
       <main className="app-layout__main">
-        {dashboard ? (
-          <MainPanel
-            tab={mainTab}
-            onTab={handleMainTab}
-            dashboard={dashboard}
-            actions={toolbarActions}
-            wikiGenRunning={harnessLoading}
-            overview={workspaceOverview}
-            onRefreshWorkspace={() => void loadWorkspaceOverview()}
-            onOpenProject={(pid) => { void selectProject(pid); handleMainTab('home') }}
-          />
-        ) : (
-          <>
-            <header className="app-layout__toolbar">{toolbarActions}</header>
-            <div className="app-layout__placeholder">
-              {selectedProjectId ? 'Loading...' : 'Select a project or add one'}
-            </div>
-          </>
-        )}
+        <MainPanel
+          tab={mainTab}
+          onTab={handleMainTab}
+          dashboard={dashboard}
+          projectLoadState={(dashboard ? 'ready' : selectedProjectId ? 'loading' : 'unselected') satisfies ProjectLoadState}
+          actions={toolbarActions}
+          wikiGenRunning={harnessLoading}
+          overview={workspaceOverview}
+          onRefreshWorkspace={() => void loadWorkspaceOverview()}
+          onOpenProject={(pid) => openProject(pid, true)}
+        />
       </main>
 
       {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
@@ -506,7 +511,7 @@ export function App() {
         </div>
       )}
 
-      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={(id) => void selectProject(id)} />
+      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={openProject} />
       <DiffPanel open={diffOpen} projectId={selectedProjectId} onClose={() => setDiffOpen(false)} />
 
       <QuestionHistory
@@ -516,7 +521,7 @@ export function App() {
         onClose={() => setHistoryScope((s) => ({ ...s, open: false }))}
         onPick={(entry) => {
           setHistoryScope((s) => ({ ...s, open: false }))
-          void selectProject(entry.projectId)
+          openProject(entry.projectId)
         }}
       />
 

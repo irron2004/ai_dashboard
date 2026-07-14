@@ -1,5 +1,5 @@
 import { render, screen, within, fireEvent } from '@testing-library/react'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { Task } from '@apc/shared'
 import { TaskBoard } from './TaskBoard.js'
 
@@ -69,5 +69,33 @@ describe('TaskBoard', () => {
   test('no ⛓ editor button when onSetBlockedBy is absent', () => {
     render(<TaskBoard tasks={[t('X', 'todo', 'solo')]} />)
     expect(screen.queryByLabelText('의존성 편집 solo')).toBeNull()
+  })
+
+  test('hands the exact card task to compose and Run without a second selection', () => {
+    const onComposeTask = vi.fn()
+    const onRunTask = vi.fn()
+    render(<TaskBoard tasks={tasks} onComposeTask={onComposeTask} onRunTask={onRunTask} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'build it 컨텍스트 조립' }))
+    fireEvent.click(screen.getByRole('button', { name: 'build it Harness 실행' }))
+
+    expect(onComposeTask).toHaveBeenCalledWith('T2')
+    expect(onRunTask).toHaveBeenCalledWith('T2')
+  })
+
+  test('disables unsafe card actions for blocked, review, and completed tasks', () => {
+    const list: Task[] = [
+      t('B1', 'todo', 'blocked one', { blockedBy: ['B2'] }),
+      t('B2', 'in_progress', 'blocker task'),
+      t('R1', 'review', 'review me'),
+      t('D1', 'done', 'already done'),
+    ]
+    render(<TaskBoard tasks={list} onComposeTask={() => {}} onRunTask={() => {}} />)
+
+    expect((screen.getByRole('button', { name: 'blocked one Harness 실행' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'blocked one 컨텍스트 조립' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'review me Harness 실행' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'already done 컨텍스트 조립' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'already done Harness 실행' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
