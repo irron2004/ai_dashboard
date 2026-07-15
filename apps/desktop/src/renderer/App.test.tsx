@@ -11,6 +11,7 @@ const appMocks = vi.hoisted(() => ({
   workspaceOverview: vi.fn(),
   projectDashboard: vi.fn(),
   resumeCard: vi.fn(),
+  conversationHistory: vi.fn(),
   paneOpened: vi.fn(),
   paneClosed: vi.fn(),
   persistSelectedProject: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('./api.js', () => ({
     workspaceOverview: appMocks.workspaceOverview,
     projectDashboard: appMocks.projectDashboard,
     resumeCard: appMocks.resumeCard,
+    conversationHistory: appMocks.conversationHistory,
     paneOpened: appMocks.paneOpened,
     paneClosed: appMocks.paneClosed,
     selectProject: appMocks.persistSelectedProject,
@@ -43,15 +45,17 @@ vi.mock('./components/ProjectSidebar.js', () => ({
 }))
 vi.mock('./components/MainPanel.js', () => ({
   MainPanel: ({
-    tab, projectLoadState, onOpenProject,
+    tab, projectLoadState, onOpenProject, historyFocus,
   }: {
     tab: string
     projectLoadState: string
     onOpenProject: (projectId: string) => void
+    historyFocus?: { agent: string } | null
   }) => (
     <div>
       <span data-testid="active-main-tab">{tab}</span>
       <span data-testid="project-load-state">{projectLoadState}</span>
+      <span data-testid="history-focus-agent">{historyFocus?.agent ?? ''}</span>
       <button type="button" onClick={() => onOpenProject('p1')}>workspace project</button>
     </div>
   ),
@@ -74,6 +78,9 @@ beforeEach(() => {
   appMocks.workspaceOverview.mockResolvedValue({ generatedAt: '', projects: [] })
   appMocks.projectDashboard.mockResolvedValue(dashboard)
   appMocks.resumeCard.mockResolvedValue(null)
+  appMocks.conversationHistory.mockResolvedValue({
+    projectId: 'p1', agent: 'claude', sessions: [], scannedSources: 0, skippedSources: 0, truncated: false,
+  })
   useStore.setState({
     projects: [project],
     selectedProjectId: null,
@@ -141,5 +148,31 @@ describe('App project navigation', () => {
 
     expect(screen.getByTestId('active-main-tab').textContent).toBe('knowledge')
     await waitFor(() => expect(appMocks.projectDashboard).toHaveBeenCalledWith({ projectId: 'p1' }))
+  })
+
+  it('opens the history tab with the resume card agent focus', () => {
+    appMocks.listProjects.mockReturnValue(new Promise(() => {}))
+    appMocks.workspaceOverview.mockReturnValue(new Promise(() => {}))
+    appMocks.resumeCard.mockReturnValue(new Promise(() => {}))
+    useStore.setState({
+      selectedProjectId: 'p1',
+      dashboard,
+      resumeBannerOpen: true,
+      resumeCard: {
+        project,
+        lastSummary: null,
+        lastQuestion: { text: '이 질문을 이어서 봐 줘', ts: '2026-07-15T10:00:00Z', agent: 'claude' },
+        nextNotes: [],
+        resumeTarget: { agent: 'codex', sessionId: 'session-1' },
+        hasHistory: true,
+      },
+    })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '질문 히스토리' }))
+
+    expect(screen.getByTestId('active-main-tab').textContent).toBe('history')
+    expect(screen.getByTestId('history-focus-agent').textContent).toBe('claude')
+    expect(screen.queryByRole('dialog', { name: /이어서/ })).toBeNull()
   })
 })

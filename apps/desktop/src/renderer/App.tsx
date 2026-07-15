@@ -10,7 +10,7 @@ import { SearchModal } from './components/SearchModal.js'
 import { DiffPanel } from './components/DiffPanel.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
 import { ResumeBanner } from './components/ResumeBanner.js'
-import { QuestionHistory } from './components/QuestionHistory.js'
+import type { HistoryFocus } from './components/ConversationHistoryView.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import type { ConversationHistoryReq } from '../shared/ipc-contract.js'
 import './app.css'
@@ -46,15 +46,13 @@ export function App() {
   const [mainTab, setMainTab] = useState<MainTab>(() => {
     try {
       const saved = localStorage.getItem('apc:mainTab')
-      if (saved === 'workspace' || saved === 'home' || saved === 'documents' || saved === 'knowledge' || saved === 'wikigen') return saved
+      if (saved === 'workspace' || saved === 'home' || saved === 'documents' || saved === 'knowledge' || saved === 'wikigen' || saved === 'history') return saved
     } catch { /* ignore */ }
     return 'workspace'
   })
   const [searchOpen, setSearchOpen] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
-  const [historyScope, setHistoryScope] = useState<{ open: boolean; projectId: string | null; agent: AgentType }>({
-    open: false, projectId: null, agent: 'codex',
-  })
+  const [historyFocus, setHistoryFocus] = useState<HistoryFocus | null>(null)
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -306,8 +304,7 @@ export function App() {
 
   const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
-  // Stable identity so QuestionHistory's fetch effect doesn't re-fire on every
-  // App re-render while the panel is open.
+  // Stable identity so ConversationHistoryView's fetch effect doesn't re-fire on every App render.
   const fetchConversationHistory = useCallback((req: ConversationHistoryReq) => api.conversationHistory(req), [])
 
   const runUpdate = async () => {
@@ -342,11 +339,8 @@ export function App() {
           }}
           onOpenHistory={() => {
             dismissResumeBanner()
-            setHistoryScope({
-              open: true,
-              projectId: selectedProjectId,
-              agent: resumeCard.lastQuestion?.agent ?? resumeCard.resumeTarget?.agent ?? agent,
-            })
+            setHistoryFocus({ agent: resumeCard.lastQuestion?.agent ?? resumeCard.resumeTarget?.agent ?? agent })
+            handleMainTab('history')
           }}
           onAddNote={(text) => void addNextNote(text)}
         />
@@ -385,6 +379,9 @@ export function App() {
           overview={workspaceOverview}
           onRefreshWorkspace={() => void loadWorkspaceOverview()}
           onOpenProject={(pid) => openProject(pid, true)}
+          historyFocus={historyFocus}
+          onHistoryFocusConsumed={() => setHistoryFocus(null)}
+          fetchConversationHistory={fetchConversationHistory}
         />
       </main>
 
@@ -523,14 +520,6 @@ export function App() {
 
       <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} onSelectProject={openProject} />
       <DiffPanel open={diffOpen} projectId={selectedProjectId} onClose={() => setDiffOpen(false)} />
-
-      <QuestionHistory
-        open={historyScope.open}
-        projectId={historyScope.projectId}
-        initialAgent={historyScope.agent}
-        fetchHistory={fetchConversationHistory}
-        onClose={() => setHistoryScope((s) => ({ ...s, open: false }))}
-      />
 
       {error && (
         <div className="error-toast" onClick={clearError}>
