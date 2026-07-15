@@ -97,6 +97,37 @@ describe('ConversationHistoryView', () => {
     expect(fetchHistory).not.toHaveBeenCalled()
   })
 
+  test('대화를 불러오는 동안 선택한 에이전트의 로딩 상태를 보인다', () => {
+    const fetchHistory = vi.fn(() => new Promise<ConversationHistoryRes>(() => {}))
+
+    renderView({ fetchHistory })
+
+    expect(screen.getByRole('status').textContent).toBe('Codex 대화를 불러오는 중…')
+  })
+
+  test('불러오기 오류를 표시하고 다시 시도할 수 있다', async () => {
+    const fetchHistory = vi.fn()
+      .mockRejectedValueOnce(new Error('세션 파일을 읽을 수 없습니다'))
+      .mockResolvedValueOnce(history('codex'))
+    renderView({ fetchHistory })
+
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('세션 파일을 읽을 수 없습니다'))
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+
+    await waitFor(() => expect(screen.getByText('질문 2개 · feat/history')).toBeTruthy())
+    expect(fetchHistory).toHaveBeenCalledTimes(2)
+  })
+
+  test('잘린 결과와 읽지 못한 세션 소스 수를 안내한다', async () => {
+    const fetchHistory = vi.fn(async () => ({
+      ...history('codex'), truncated: true, skippedSources: 2,
+    }))
+    renderView({ fetchHistory })
+
+    await waitFor(() => expect(screen.getByText(/최근 대화만 표시합니다/)).toBeTruthy())
+    expect(screen.getByText(/읽지 못한 세션 소스 2개가 있습니다/)).toBeTruthy()
+  })
+
   test('focus 주입 시 세션을 선택하고 질문을 펼친 뒤 소거한다', async () => {
     const { props } = renderView({ focus: { agent: 'codex', sessionId: 'codex-old', exchangeId: 'q1' } })
 

@@ -150,6 +150,15 @@ describe('App project navigation', () => {
     await waitFor(() => expect(appMocks.projectDashboard).toHaveBeenCalledWith({ projectId: 'p1' }))
   })
 
+  it('restores the history tab from localStorage', () => {
+    appMocks.listProjects.mockReturnValue(new Promise(() => {}))
+    localStorage.setItem('apc:mainTab', 'history')
+
+    render(<App />)
+
+    expect(screen.getByTestId('active-main-tab').textContent).toBe('history')
+  })
+
   it('opens the history tab with the resume card agent focus', () => {
     appMocks.listProjects.mockReturnValue(new Promise(() => {}))
     appMocks.workspaceOverview.mockReturnValue(new Promise(() => {}))
