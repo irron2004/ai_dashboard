@@ -97,21 +97,21 @@ test('long-korean-narrow: 좁은 viewport에서도 버튼 nowrap과 비겹침 �
   await expectViewportContained(page)
 })
 
-test('conversation-history: 에이전트 선택, 세션 목록, 질문 답변 펼치기를 렌더한다', async ({ page }) => {
+test('conversation-history: 히스토리 탭에서 에이전트 선택, 세션 목록, 질문 답변 펼치기를 렌더한다', async ({ page }) => {
   await page.goto('/?fixture=many-projects-docs&history=1')
   await expect(page.locator('html')).toHaveAttribute('data-apc-fixture', 'many-projects-docs')
   await page.getByRole('button', { name: '질문 히스토리' }).click()
 
-  const dialog = page.getByRole('dialog', { name: '대화 히스토리' })
-  await expect(dialog).toBeVisible()
-  await expect(dialog.getByRole('tab', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
-  await expect(dialog.locator('.question-history__session')).toHaveCount(1)
-  await dialog.getByRole('button', { name: /^Q1 codex 대화 히스토리 화면을 검증해 줘/ }).click()
-  await expect(dialog.getByRole('region', { name: 'Q1 답변' })).toContainText('세션 목록과 질문 아코디언을 확인했습니다.')
+  await expect(page.getByRole('tab', { name: '히스토리' })).toHaveAttribute('aria-selected', 'true')
+  const panel = page.getByRole('tabpanel')
+  await expect(panel.getByRole('tab', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.locator('.question-history__session')).toHaveCount(1)
+  await panel.getByRole('button', { name: /^Q1 codex 대화 히스토리 화면을 검증해 줘/ }).click()
+  await expect(panel.getByRole('region', { name: 'Q1 답변' })).toContainText('세션 목록과 질문 아코디언을 확인했습니다.')
 
-  await dialog.getByRole('tab', { name: 'Claude' }).click()
-  await expect(dialog.getByText('claude 대화 히스토리 화면을 검증해 줘').first()).toBeVisible()
-  await expectElementContained(dialog)
+  await panel.getByRole('tab', { name: 'Claude' }).click()
+  await expect(panel.getByText('claude 대화 히스토리 화면을 검증해 줘').first()).toBeVisible()
+  await expectElementContained(panel)
   await expectViewportContained(page)
 })
 
