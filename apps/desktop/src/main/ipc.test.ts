@@ -781,4 +781,91 @@ describe('IPC handlers (no Electron)', () => {
     })
     await expect(h[CH.conversationHistory]({ projectId: 'p1', agent: 'unknown' })).rejects.toThrow()
   })
+
+  test('q:conversationHistory merges Windows-native and WSL sessions for a Windows project path', async () => {
+    const makeAdapter = (id: string, repoPath: string): AgentIngestAdapter => ({
+      agentKind: 'codex',
+      async discoverSources(): Promise<AgentSource[]> {
+        return [{ id: `codex:${id}`, agentKind: 'codex', kind: 'jsonl-file', locator: `/${id}.jsonl`, repoPath, mtimeMs: id === 'wsl' ? 2 : 1 }]
+      },
+      async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+        return {
+          session: {
+            id, agentType: 'codex', repoPath,
+            startedAt: `2026-07-1${id === 'wsl' ? '6' : '5'}T10:00:00Z`,
+            sourceMeta: { provider: 'codex', sourceKind: 'jsonl-file', rawLocator: `/${id}.jsonl`, sessionHeader: {} },
+            turns: [
+              { role: 'user', text: `${id} 질문`, toolCalls: [] },
+              { role: 'assistant', text: `${id} 답변`, toolCalls: [] },
+            ],
+            filesTouched: [],
+          },
+          position: '{}',
+        }
+      },
+    })
+    const wslFetcher = vi.fn(async () => [makeAdapter('wsl', '/mnt/c/Users/Me/work/apc/apps/desktop')])
+    const c2 = buildContainer({
+      dbFile: ':memory:', vaultRoot: vaultDir,
+      ingestAdapters: [makeAdapter('windows', 'C:\\Users\\Me\\work\\apc')],
+      wslConversationFetcher: wslFetcher,
+    })
+    c2.registry.register({
+      id: 'windows-wsl', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: ['C:\\Users\\Me\\work\\apc'], vaultPaths: [], sourcePaths: [],
+    })
+
+    const result = await handlers(c2)[CH.conversationHistory]({ projectId: 'windows-wsl', agent: 'codex' }) as ConversationHistoryRes
+
+    expect(result.sessions.map((item) => item.id)).toEqual(['wsl', 'windows'])
+    expect(wslFetcher).toHaveBeenCalledWith(
+      'C:\\Users\\Me\\work\\apc',
+      expect.stringContaining('apc-conversation-cache'),
+      ['codex'],
+    )
+  })
+
+  test('q:conversationHistory reads SSH sessions from the remote path without mixing local stores', async () => {
+    const remoteSession: NormalizedSession = {
+      id: 'ssh-codex', agentType: 'codex', repoPath: '/home/me/work/apc',
+      startedAt: '2026-07-16T11:00:00Z',
+      sourceMeta: { provider: 'codex', sourceKind: 'jsonl-file', rawLocator: '/ssh.jsonl', sessionHeader: {} },
+      turns: [
+        { role: 'user', text: 'SSH 질문', toolCalls: [] },
+        { role: 'assistant', text: 'SSH 답변', toolCalls: [] },
+      ],
+      filesTouched: [],
+    }
+    const remoteAdapter: AgentIngestAdapter = {
+      agentKind: 'codex',
+      discoverSources: async () => [{
+        id: 'codex:ssh', agentKind: 'codex', kind: 'jsonl-file', locator: '/ssh.jsonl',
+        repoPath: '/home/me/work/apc', mtimeMs: 1,
+      }],
+      parseSource: async () => ({ session: remoteSession, position: '{}' }),
+    }
+    const localAdapter: AgentIngestAdapter = {
+      agentKind: 'codex',
+      discoverSources: async () => [{ id: 'codex:local', agentKind: 'codex', kind: 'jsonl-file', locator: '/local.jsonl', repoPath: '/home/me/work/apc', mtimeMs: 2 }],
+      parseSource: async () => ({ session: { ...remoteSession, id: 'must-not-leak' }, position: '{}' }),
+    }
+    const remoteFetcher = vi.fn(async () => [remoteAdapter])
+    const wslFetcher = vi.fn(async () => { throw new Error('WSL must not run for SSH') })
+    const c2 = buildContainer({
+      dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [localAdapter],
+      remoteConversationFetcher: remoteFetcher,
+      wslConversationFetcher: wslFetcher,
+    })
+    const sshPath = 'ssh://me@example.test/home/me/work/apc'
+    c2.registry.register({
+      id: 'ssh-project', name: 'Remote APC', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: [sshPath], vaultPaths: [], sourcePaths: [],
+    })
+
+    const result = await handlers(c2)[CH.conversationHistory]({ projectId: 'ssh-project', agent: 'codex' }) as ConversationHistoryRes
+
+    expect(result.sessions.map((item) => item.id)).toEqual(['ssh-codex'])
+    expect(remoteFetcher).toHaveBeenCalledWith(sshPath, expect.stringContaining('apc-conversation-cache'), ['codex'])
+    expect(wslFetcher).not.toHaveBeenCalled()
+  })
 })

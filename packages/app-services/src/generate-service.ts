@@ -41,6 +41,14 @@ export function normalizeRepoPath(path: string | undefined): string | undefined 
     }
   }
   const normalized = trimmed.replace(/\\/g, '/')
+  const windowsDrive = normalized.match(/^([a-z]):(?:\/(.*))?$/i)
+  if (windowsDrive) {
+    const suffix = windowsDrive[2] ? `/${windowsDrive[2]}` : ''
+    return `/mnt/${windowsDrive[1].toLowerCase()}${suffix}`.replace(/\/+$/, '').toLowerCase()
+  }
+  if (/^\/mnt\/[a-z](?:\/|$)/i.test(normalized)) {
+    return (normalized.replace(/\/+$/, '') || '/').toLowerCase()
+  }
   const absolute = isAbsolute(normalized) ? normalized : resolve(normalized)
   return absolute.replace(/\/+$/, '') || '/'
 }

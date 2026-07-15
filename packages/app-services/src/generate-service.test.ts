@@ -8,7 +8,7 @@ import { VaultWriter } from '@apc/pm'
 import { WikiEngine, FakeAgentRunner } from '@apc/llm-wiki'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession, SourceCursor } from '@apc/shared'
-import { GENERATE_SOURCE_SCAN_LIMIT, GenerateService } from './generate-service.js'
+import { GENERATE_SOURCE_SCAN_LIMIT, GenerateService, normalizeRepoPath, repoPathMatches } from './generate-service.js'
 
 function fakeAdapter(session: NormalizedSession): AgentIngestAdapter {
   return {
@@ -156,5 +156,22 @@ describe('GenerateService', () => {
     const res = await svc.generateForProject({ projectId: 'p4', engine: 'claude' })
     expect(res.ok).toBe(false)
     expect(adapter.parsed).toHaveLength(GENERATE_SOURCE_SCAN_LIMIT)
+  })
+})
+
+describe('repo path matching across Windows and WSL', () => {
+  test('normalizes a Windows drive path and its WSL mount to the same canonical path', () => {
+    expect(normalizeRepoPath('C:\\Users\\Me\\work\\apc')).toBe('/mnt/c/users/me/work/apc')
+    expect(normalizeRepoPath('/mnt/c/Users/Me/work/apc')).toBe('/mnt/c/users/me/work/apc')
+  })
+
+  test('matches project subdirectories in both Windows-to-WSL directions', () => {
+    expect(repoPathMatches('/mnt/c/Users/Me/work/apc/apps/desktop', ['C:\\Users\\me\\work\\apc'])).toBe(true)
+    expect(repoPathMatches('C:\\Users\\ME\\work\\apc\\apps\\desktop', ['/mnt/c/Users/Me/work/apc'])).toBe(true)
+  })
+
+  test('does not match a lookalike path prefix or fold case for native POSIX paths', () => {
+    expect(repoPathMatches('/mnt/c/Users/Me/work/apc-other', ['C:\\Users\\me\\work\\apc'])).toBe(false)
+    expect(repoPathMatches('/home/Me/work/apc', ['/home/me/work/apc'])).toBe(false)
   })
 })

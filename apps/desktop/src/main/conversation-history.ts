@@ -71,6 +71,7 @@ type LoadConversationHistoryOpts = {
 }
 
 type RankedSession = { session: ConversationSession; rank: number }
+type CandidateSource = { adapter: AgentIngestAdapter; source: AgentSource }
 
 function canBelongToProject(source: AgentSource, repoPaths: readonly string[]): boolean {
   return !source.repoPath || repoPathMatches(source.repoPath, repoPaths)
@@ -91,18 +92,22 @@ export async function loadConversationHistory(opts: LoadConversationHistoryOpts)
   }
   if (opts.repoPaths.length === 0) return empty
 
-  const adapter = opts.adapters.find((candidate) => candidate.agentKind === opts.agent)
-  if (!adapter) return empty
+  const adapters = opts.adapters.filter((candidate) => candidate.agentKind === opts.agent)
+  if (adapters.length === 0) return empty
 
-  const discovered = await adapter.discoverSources(() => undefined)
-  const candidates = discovered
-    .filter((source) => canBelongToProject(source, opts.repoPaths))
-    .sort((left, right) => (right.mtimeMs ?? 0) - (left.mtimeMs ?? 0))
+  const candidates: CandidateSource[] = []
+  for (const adapter of adapters) {
+    const discovered = await adapter.discoverSources(() => undefined)
+    for (const source of discovered) {
+      if (canBelongToProject(source, opts.repoPaths)) candidates.push({ adapter, source })
+    }
+  }
+  candidates.sort((left, right) => (right.source.mtimeMs ?? 0) - (left.source.mtimeMs ?? 0))
   const taken = candidates.slice(0, CONVERSATION_HISTORY_SOURCE_SCAN_LIMIT)
   const byId = new Map<string, RankedSession>()
   let skippedSources = 0
 
-  for (const source of taken) {
+  for (const { adapter, source } of taken) {
     try {
       const { session } = await adapter.parseSource(source)
       const candidatePath = session.repoPath ?? session.worktreePath ?? source.repoPath

@@ -18,6 +18,8 @@ import { generateRemote } from './remote-generate.js'
 import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
+import { fetchWslConversations, toWslProjectTarget } from './wsl-conversations.js'
+import { parseSsh } from './ssh-exec.js'
 import { readProjectDoc } from './project-files.js'
 import { loadConversationHistory } from './conversation-history.js'
 import type {
@@ -189,6 +191,8 @@ export function buildContainer(opts: {
   emitDevHarnessLog?: (e: DevHarnessLogEvent) => void
   emitDevHarnessStarted?: (e: DevHarnessStartedEvent) => void
   emitHarnessNodes?: (e: HarnessNodesEvent) => void
+  remoteConversationFetcher?: typeof fetchRemoteConversations
+  wslConversationFetcher?: typeof fetchWslConversations
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -237,6 +241,8 @@ export function buildContainer(opts: {
   const gitSync = new GitSyncService()
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
+  const remoteConversationFetcher = opts.remoteConversationFetcher ?? fetchRemoteConversations
+  const wslConversationFetcher = opts.wslConversationFetcher ?? fetchWslConversations
   const vaultWriter = new VaultWriter(vault)
   const wiki = new WikiEngine(opts.agentRunner ?? new RoutingAgentRunner())
   const runService = new RunService({ wiki, vaultWriter, tasks, runs })
@@ -333,7 +339,7 @@ export function buildContainer(opts: {
     // 프로젝트는 raw/가 비어 EvidenceVerifier가 전부 막힌다.
     fetchRemoteDocs: fetchRemoteProjectDocs,
     // ssh:// 프로젝트면 대화 로그도 원격에서 가져온다(로컬 PC의 ~/.claude 등을 읽지 않도록).
-    remoteConversationFetcher: fetchRemoteConversations,
+    remoteConversationFetcher,
   })
   const harnessRun = (req: HarnessRunReq): Promise<HarnessRunRes> => {
     const project = registry.get(req.projectId)
@@ -480,10 +486,43 @@ export function buildContainer(opts: {
     conversationHistory: async (req) => {
       const project = registry.get(req.projectId)
       if (!project) throw new Error(`Project not found: ${req.projectId}`)
+      const safeProjectId = project.id.replace(/[^a-z0-9._-]+/gi, '_')
+      const cacheRoot = join(opts.vaultRoot, '..', 'apc-conversation-cache', safeProjectId, req.agent)
+      const adapters: AgentIngestAdapter[] = []
+      const repoPaths = [...project.repoPaths]
+      const hasLocalRepo = project.repoPaths.some((repoPath) => !repoPath.startsWith('ssh://'))
+      if (hasLocalRepo) adapters.push(...ingestAdapters)
+
+      for (const [index, repoPath] of project.repoPaths.entries()) {
+        const ssh = parseSsh(repoPath)
+        if (ssh) {
+          adapters.push(...await remoteConversationFetcher(
+            repoPath,
+            join(cacheRoot, `ssh-${index}`),
+            [req.agent],
+          ))
+          repoPaths.push(ssh.path)
+          continue
+        }
+
+        const wslTarget = toWslProjectTarget(repoPath)
+        if (!wslTarget) continue
+        repoPaths.push(wslTarget.path)
+        try {
+          adapters.push(...await wslConversationFetcher(
+            repoPath,
+            join(cacheRoot, `wsl-${index}`),
+            [req.agent],
+          ))
+        } catch {
+          // WSL is optional. A stopped/unavailable distro must not hide Windows-native history.
+        }
+      }
+
       return loadConversationHistory({
-        adapters: ingestAdapters,
+        adapters,
         projectId: project.id,
-        repoPaths: project.repoPaths,
+        repoPaths,
         agent: req.agent,
         limit: req.limit,
       })

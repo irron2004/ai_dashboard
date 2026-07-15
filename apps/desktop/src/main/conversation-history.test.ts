@@ -103,4 +103,31 @@ describe('conversation history', () => {
     expect(result.sessions[0].id).toBe('two')
     expect(result.truncated).toBe(true)
   })
+
+  test('merges the same agent sessions from Windows and WSL stores', async () => {
+    const windows = adapter([{
+      source: {
+        id: 'windows', agentKind: 'codex', kind: 'jsonl-file', locator: 'C:\\sessions\\windows.jsonl',
+        repoPath: 'C:\\Users\\Me\\work\\apc', mtimeMs: 10,
+      },
+      session: session('windows', 'C:\\Users\\Me\\work\\apc', '2026-07-14T12:00:00Z'),
+    }])
+    const wsl = adapter([{
+      source: {
+        id: 'wsl', agentKind: 'codex', kind: 'jsonl-file', locator: '/tmp/wsl.jsonl',
+        repoPath: '/mnt/c/Users/Me/work/apc/apps/desktop', mtimeMs: 20,
+      },
+      session: session('wsl', '/mnt/c/Users/Me/work/apc/apps/desktop', '2026-07-15T12:00:00Z'),
+    }])
+
+    const result = await loadConversationHistory({
+      adapters: [windows, wsl],
+      projectId: 'p1',
+      repoPaths: ['C:\\Users\\me\\work\\apc'],
+      agent: 'codex',
+    })
+
+    expect(result.sessions.map((item) => item.id)).toEqual(['wsl', 'windows'])
+    expect(result.scannedSources).toBe(2)
+  })
 })

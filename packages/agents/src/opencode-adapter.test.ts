@@ -101,4 +101,34 @@ describe('OpenCodeAdapter', () => {
     expect(session.turns.map((t) => t.text)).toEqual(['please build', 'building now'])
     expect(JSON.parse(position).timeUpdated).toBe(2000)
   })
+
+  test('parses current OpenCode databases where role and time live in message.data', async () => {
+    const modernDir = join(dir, 'modern')
+    const modernDb = join(modernDir, 'opencode.db')
+    mkdirSync(modernDir, { recursive: true })
+    const db = new DatabaseSync(modernDb)
+    db.exec(`
+      CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);
+      CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, directory TEXT, agent TEXT, model TEXT, time_created INTEGER, time_updated INTEGER);
+      CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT NOT NULL);
+      CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT NOT NULL);
+    `)
+    db.prepare('INSERT INTO project VALUES (?,?)').run('modern-project', '/mnt/c/work/apc')
+    db.prepare('INSERT INTO session VALUES (?,?,?,?,?,?,?)').run('modern-session', 'modern-project', '/mnt/c/work/apc/apps/desktop', 'build', 'openai/gpt-5.5', 1000, 2000)
+    db.prepare('INSERT INTO message VALUES (?,?,?,?,?)').run('modern-user', 'modern-session', 1100, 1100, JSON.stringify({ role: 'user', time: { created: 1100 } }))
+    db.prepare('INSERT INTO message VALUES (?,?,?,?,?)').run('modern-assistant', 'modern-session', 1200, 1200, JSON.stringify({ role: 'assistant', time: { created: 1200 } }))
+    db.prepare('INSERT INTO part VALUES (?,?,?,?,?,?)').run('modern-user-text', 'modern-user', 'modern-session', 1100, 1100, JSON.stringify({ type: 'text', text: '현재 형식 질문' }))
+    db.prepare('INSERT INTO part VALUES (?,?,?,?,?,?)').run('modern-assistant-text', 'modern-assistant', 'modern-session', 1200, 1200, JSON.stringify({ type: 'text', text: '현재 형식 답변' }))
+    db.close()
+
+    const adapter = new OpenCodeAdapter(modernDb)
+    const [source] = await adapter.discoverSources(() => undefined)
+    const { session } = await adapter.parseSource(source)
+
+    expect(session.repoPath).toBe('/mnt/c/work/apc/apps/desktop')
+    expect(session.turns).toEqual([
+      expect.objectContaining({ role: 'user', text: '현재 형식 질문' }),
+      expect.objectContaining({ role: 'assistant', text: '현재 형식 답변' }),
+    ])
+  })
 })
