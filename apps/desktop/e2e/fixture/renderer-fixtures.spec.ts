@@ -97,7 +97,7 @@ test('long-korean-narrow: 좁은 viewport에서도 버튼 nowrap과 비겹침 �
   await expectViewportContained(page)
 })
 
-test('conversation-history: 히스토리 탭에서 에이전트 선택, 세션 목록, 질문 답변 펼치기를 렌더한다', async ({ page }) => {
+test('conversation-history: 세 에이전트, 최신순, 3일 이전 더 불러오기와 질문 답변을 렌더한다', async ({ page }) => {
   await page.goto('/?fixture=many-projects-docs&history=1')
   await expect(page.locator('html')).toHaveAttribute('data-apc-fixture', 'many-projects-docs')
   await page.getByRole('button', { name: '질문 히스토리' }).click()
@@ -106,11 +106,23 @@ test('conversation-history: 히스토리 탭에서 에이전트 선택, 세션 �
   const panel = page.getByRole('tabpanel')
   await expect(panel.getByRole('tab', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
   await expect(panel.locator('.question-history__session')).toHaveCount(1)
-  await panel.getByRole('button', { name: /^Q1 codex 대화 히스토리 화면을 검증해 줘/ }).click()
-  await expect(panel.getByRole('region', { name: 'Q1 답변' })).toContainText('세션 목록과 질문 아코디언을 확인했습니다.')
+  const questions = panel.locator('.question-history__question-text')
+  await expect(questions.nth(0)).toHaveText('codex 최신 질문이 먼저 보이는지 확인해 줘')
+  await expect(questions.nth(1)).toHaveText('codex 대화 히스토리 화면을 검증해 줘')
+  await panel.getByRole('button', { name: /^Q2 codex 대화 히스토리 화면을 검증해 줘/ }).click()
+  await expect(panel.getByRole('region', { name: 'Q2 답변' })).toContainText('세션 목록과 질문 아코디언을 확인했습니다.')
 
   await panel.getByRole('tab', { name: 'Claude' }).click()
   await expect(panel.getByText('claude 대화 히스토리 화면을 검증해 줘').first()).toBeVisible()
+
+  await panel.getByRole('tab', { name: 'OpenCode' }).click()
+  await expect(panel.getByText('opencode 대화 히스토리 화면을 검증해 줘').first()).toBeVisible()
+  await panel.getByRole('button', { name: '3일 이전 대화 더 불러오기' }).click()
+  await expect(panel.locator('.question-history__session')).toHaveCount(2)
+  const sessionPreviews = panel.locator('.question-history__session-preview')
+  await expect(sessionPreviews.nth(0)).toHaveText('opencode 대화 히스토리 화면을 검증해 줘')
+  await expect(sessionPreviews.nth(1)).toHaveText('opencode 3일 이전 대화')
+  await expect(panel.getByRole('button', { name: '3일 이전 대화 더 불러오기' })).toHaveCount(0)
   await expectElementContained(panel)
   await expectViewportContained(page)
 })

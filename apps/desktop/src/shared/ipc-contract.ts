@@ -109,7 +109,13 @@ export type TaskSetBlockedByRes = { ok: boolean; reason?: string }
 // @apc/shared; the richer session + Q&A DTOs live here because they are desktop IPC view models.
 export type ResumeCardReq = { projectId: string }
 export type QuestionLogReq = { projectId?: string; limit?: number }
-export type ConversationHistoryReq = { projectId: string; agent: AgentType; limit?: number }
+export type ConversationHistoryReq = {
+  projectId: string
+  agent: AgentType
+  /** Initial reads cover the latest 72 hours. Set true after "더 불러오기" or for a direct old-session focus. */
+  includeOlder?: boolean
+  limit?: number
+}
 export type ConversationExchange = {
   id: string
   askedAt?: string

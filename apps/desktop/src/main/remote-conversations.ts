@@ -15,9 +15,9 @@ export type BashScriptRunner = (script: string, timeoutMs: number) => Promise<Ss
 // Remote python that exports ONLY this project's recent opencode sessions (+messages/parts/project)
 // into a small /tmp/apc-oc-export/opencode.db. The full db is multi-GB, so we never fetch it whole;
 // we filter by session.directory (the real cwd) so it matches the configured workspace folder. argv:
-// [project-path, max-sessions]. Prints EXPORT_OK (ignored by the framed parser).
+// [project-path, since-ms-or-zero]. Prints EXPORT_OK (ignored by the framed parser).
 const OPENCODE_EXPORT_PY = `import sqlite3, os, sys
-REPO = sys.argv[1]; N = int(sys.argv[2])
+REPO = sys.argv[1]; SINCE = int(sys.argv[2])
 src = os.path.expanduser("~/.local/share/opencode/opencode.db")
 con = sqlite3.connect("file:" + src + "?mode=ro", uri=True)
 out_dir = "/tmp/apc-oc-export"; os.makedirs(out_dir, exist_ok=True)
@@ -31,7 +31,12 @@ def ddl(t):
 for t in ("project", "session", "message", "part"):
     d = ddl(t)
     if d: dst.execute(d)
-sess = con.execute("select id, project_id from session where directory=? or directory like ? order by time_updated desc limit ?", (REPO, REPO + "/%", N)).fetchall()
+where = "(directory=? or directory like ?)"
+args = [REPO, REPO + "/%"]
+if SINCE:
+    where += " and (case when coalesce(time_updated,time_created,0) < 10000000000 then coalesce(time_updated,time_created,0) * 1000 else coalesce(time_updated,time_created,0) end) >= ?"
+    args.append(SINCE)
+sess = con.execute("select id, project_id from session where " + where + " order by time_updated desc", args).fetchall()
 sids = [s[0] for s in sess]; pids = sorted({s[1] for s in sess if s[1]})
 def ins(table, rows):
     rows = list(rows)
@@ -47,6 +52,8 @@ if sids:
     ins("part", con.execute("select p.* from part p where p.message_id in (select id from message where session_id in (" + ph + "))", sids))
 dst.commit(); dst.close()
 print("EXPORT_OK", os.path.getsize(out), len(sids))`
+
+export type ConversationFetchOptions = { sinceMs?: number }
 
 /**
  * Run a bash script (via `bash -s` over stdin — bash-forced, quoting-safe) whose `listSnippet` prints
@@ -64,13 +71,13 @@ async function fetchFiles(runBash: BashScriptRunner, listSnippet: string): Promi
 
 /** Build a small filtered opencode db on the remote (python) and fetch it. The real db is multi-GB,
  *  so we export only this project's recent sessions remotely and fetch the small result. */
-async function fetchRemoteOpencode(repoPath: string, runBash: BashScriptRunner, maxSessions: number): Promise<RemoteFile[]> {
+async function fetchRemoteOpencode(repoPath: string, runBash: BashScriptRunner, sinceMs?: number): Promise<RemoteFile[]> {
   const repo = repoPath.replace(/'/g, `'\\''`)
   const script = [
     `emit() { printf '${DOC_MARKER}%s\\n' "$1"; base64 "$1" 2>/dev/null; printf '${END_MARKER}\\n'; }`,
     `command -v python3 >/dev/null 2>&1 || exit 0`,
     `[ -f "$HOME/.local/share/opencode/opencode.db" ] || exit 0`,
-    `python3 - '${repo}' ${maxSessions} <<'PYEOF'`,
+    `python3 - '${repo}' ${Math.max(0, Math.trunc(sinceMs ?? 0))} <<'PYEOF'`,
     OPENCODE_EXPORT_PY,
     `PYEOF`,
     `[ -f /tmp/apc-oc-export/opencode.db ] && emit /tmp/apc-oc-export/opencode.db`,
@@ -97,6 +104,7 @@ export async function fetchConversationsWithRunner(
   destDir: string,
   runBash: BashScriptRunner,
   agents: readonly AgentType[] = ALL_AGENTS,
+  options: ConversationFetchOptions = {},
 ): Promise<AgentIngestAdapter[]> {
   rmSync(destDir, { recursive: true, force: true })
   const adapters: AgentIngestAdapter[] = []
@@ -116,12 +124,21 @@ export async function fetchConversationsWithRunner(
 
   // Shell-single-quote the project path for safe interpolation into the scripts below.
   const q = repoPath.replace(/'/g, `'\\''`)
+  const newerThan = Number.isFinite(options.sinceMs)
+    ? ` -newermt '@${Math.floor(options.sinceMs! / 1000)}'`
+    : ''
 
-  // Claude: ~/.claude/projects/<cwd-with-/-as->/*.jsonl — already scoped to this project's cwd.
+  // Claude: each cwd has its own encoded directory. Include directories below the registered root
+  // as well, then let the adapter's parsed cwd enforce the exact project/subdirectory boundary.
   await attempt('claude', async () => {
     // Claude Code replaces path separators and punctuation (including `_`) with `-`.
     const enc = repoPath.replace(/[^a-zA-Z0-9-]/g, '-')
-    const claudeFiles = await fetchFiles(runBash, `ls -1t "$HOME/.claude/projects/${enc}/"*.jsonl 2>/dev/null | head -n 12`)
+    const claudeFiles = await fetchFiles(
+      runBash,
+      `for d in "$HOME/.claude/projects/${enc}" "$HOME/.claude/projects/${enc}-"*; do ` +
+      `[ -d "$d" ] || continue; find "$d" -maxdepth 1 -name '*.jsonl' -type f${newerThan} -printf '%T@\\t%p\\n' 2>/dev/null; ` +
+      `done | sort -rn | cut -f2-`,
+    )
     if (claudeFiles.length) {
       const projectsDir = join(destDir, 'claude', 'projects')
       writeUnder(claudeFiles, projectsDir)
@@ -133,8 +150,8 @@ export async function fetchConversationsWithRunner(
   // reference this project's path (newest first); sessionMatchesProject filters precisely by cwd after.
   await attempt('codex', async () => {
     const codexList =
-      `find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -type f -size -5242880c -printf '%T@\\t%p\\n' 2>/dev/null ` +
-      `| sort -rn | cut -f2- | while IFS= read -r f; do grep -lF '${q}' "$f" >/dev/null 2>&1 && echo "$f"; done | head -n 12`
+      `find "$HOME/.codex/sessions" -name 'rollout-*.jsonl' -type f${newerThan} -printf '%T@\\t%p\\n' 2>/dev/null ` +
+      `| sort -rn | cut -f2- | while IFS= read -r f; do grep -lF '${q}' "$f" >/dev/null 2>&1 && echo "$f"; done`
     const codexFiles = await fetchFiles(runBash, codexList)
     if (codexFiles.length) {
       const sessionsDir = join(destDir, 'codex', 'sessions')
@@ -146,7 +163,7 @@ export async function fetchConversationsWithRunner(
   // OpenCode: the db can be multi-GB, so export only this project's recent sessions on the remote
   // (filtered by session.directory) and fetch the small result; point OpenCodeAdapter at it.
   await attempt('opencode', async () => {
-    const ocFiles = await fetchRemoteOpencode(repoPath, runBash, 12)
+    const ocFiles = await fetchRemoteOpencode(repoPath, runBash, options.sinceMs)
     if (ocFiles.length) {
       const ocDir = join(destDir, 'opencode')
       writeUnder(ocFiles, ocDir)
@@ -169,6 +186,7 @@ export async function fetchRemoteConversations(
   sshRepoPath: string,
   destDir: string,
   agents?: readonly AgentType[],
+  options?: ConversationFetchOptions,
 ): Promise<AgentIngestAdapter[]> {
   const ssh = parseSsh(sshRepoPath)
   if (!ssh) return []
@@ -177,5 +195,6 @@ export async function fetchRemoteConversations(
     destDir,
     (script, timeoutMs) => sshExec(ssh, 'bash -s', { stdin: script, timeoutMs }),
     agents,
+    options,
   )
 }

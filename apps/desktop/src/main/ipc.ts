@@ -289,6 +289,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = z.object({
         projectId: z.string().min(1),
         agent: AgentKind,
+        includeOlder: z.boolean().optional(),
         limit: z.number().int().min(1).max(100).optional(),
       }).strict().parse(payload) as ConversationHistoryReq
       return container.conversationHistory(req)

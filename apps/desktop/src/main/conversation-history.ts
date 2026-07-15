@@ -7,9 +7,8 @@ import type {
   ConversationSession,
 } from '../shared/ipc-contract.js'
 
-export const CONVERSATION_HISTORY_DEFAULT_LIMIT = 40
 export const CONVERSATION_HISTORY_MAX_LIMIT = 100
-export const CONVERSATION_HISTORY_SOURCE_SCAN_LIMIT = 200
+export const CONVERSATION_HISTORY_RECENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
 
 function rankTime(value: string | undefined): number {
   if (!value) return 0
@@ -22,7 +21,7 @@ function rankTime(value: string | undefined): number {
  * non-empty user prompt deliberately closes the active unit so an internal harness response cannot
  * be appended to the preceding real conversation.
  */
-export function toConversationSession(session: NormalizedSession): ConversationSession | null {
+export function toConversationSession(session: NormalizedSession): ConversationSession {
   const exchanges: ConversationSession['exchanges'] = []
   let active: { index: number; answers: string[] } | null = null
 
@@ -50,15 +49,22 @@ export function toConversationSession(session: NormalizedSession): ConversationS
     }
   }
 
-  if (exchanges.length === 0) return null
+  const newestFirst = exchanges
+    .map((exchange, index) => ({ exchange, index }))
+    .sort((left, right) => {
+      const byTime = rankTime(right.exchange.askedAt) - rankTime(left.exchange.askedAt)
+      return byTime || right.index - left.index
+    })
+    .map(({ exchange }) => exchange)
+
   return {
     id: session.id,
     agent: session.agentType,
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     branch: session.branch,
-    preview: exchanges[0].question,
-    exchanges,
+    preview: newestFirst[0]?.question ?? '사용자 질문 없음',
+    exchanges: newestFirst,
   }
 }
 
@@ -67,7 +73,9 @@ type LoadConversationHistoryOpts = {
   projectId: string
   repoPaths: readonly string[]
   agent: ConversationHistoryReq['agent']
+  includeOlder?: boolean
   limit?: number
+  nowMs?: number
 }
 
 type RankedSession = { session: ConversationSession; rank: number }
@@ -80,8 +88,12 @@ function canBelongToProject(source: AgentSource, repoPaths: readonly string[]): 
 /** Read recent live CLI transcripts for one agent. This intentionally does not depend on ingest:
  * the history dialog must work immediately after opening the app, before `c:ingestAll` has run. */
 export async function loadConversationHistory(opts: LoadConversationHistoryOpts): Promise<ConversationHistoryRes> {
-  const requestedLimit = Number.isFinite(opts.limit) ? Math.trunc(opts.limit!) : CONVERSATION_HISTORY_DEFAULT_LIMIT
-  const limit = Math.max(1, Math.min(CONVERSATION_HISTORY_MAX_LIMIT, requestedLimit))
+  const limit = Number.isFinite(opts.limit)
+    ? Math.max(1, Math.min(CONVERSATION_HISTORY_MAX_LIMIT, Math.trunc(opts.limit!)))
+    : undefined
+  const cutoff = opts.includeOlder
+    ? undefined
+    : (opts.nowMs ?? Date.now()) - CONVERSATION_HISTORY_RECENT_WINDOW_MS
   const empty: ConversationHistoryRes = {
     projectId: opts.projectId,
     agent: opts.agent,
@@ -96,25 +108,33 @@ export async function loadConversationHistory(opts: LoadConversationHistoryOpts)
   if (adapters.length === 0) return empty
 
   const candidates: CandidateSource[] = []
+  let hasOlder = false
   for (const adapter of adapters) {
     const discovered = await adapter.discoverSources(() => undefined)
     for (const source of discovered) {
-      if (canBelongToProject(source, opts.repoPaths)) candidates.push({ adapter, source })
+      if (!canBelongToProject(source, opts.repoPaths)) continue
+      if (cutoff !== undefined && source.mtimeMs !== undefined && source.mtimeMs < cutoff) {
+        hasOlder = true
+        continue
+      }
+      candidates.push({ adapter, source })
     }
   }
   candidates.sort((left, right) => (right.source.mtimeMs ?? 0) - (left.source.mtimeMs ?? 0))
-  const taken = candidates.slice(0, CONVERSATION_HISTORY_SOURCE_SCAN_LIMIT)
   const byId = new Map<string, RankedSession>()
   let skippedSources = 0
 
-  for (const { adapter, source } of taken) {
+  for (const { adapter, source } of candidates) {
     try {
       const { session } = await adapter.parseSource(source)
       const candidatePath = session.repoPath ?? session.worktreePath ?? source.repoPath
       if (!repoPathMatches(candidatePath, opts.repoPaths)) continue
-      const view = toConversationSession(session)
-      if (!view) continue
       const rank = Math.max(rankTime(session.endedAt), rankTime(session.startedAt), source.mtimeMs ?? 0)
+      if (cutoff !== undefined && rank < cutoff) {
+        hasOlder = true
+        continue
+      }
+      const view = toConversationSession(session)
       const previous = byId.get(session.id)
       if (!previous || rank > previous.rank) byId.set(session.id, { session: view, rank })
     } catch {
@@ -123,12 +143,13 @@ export async function loadConversationHistory(opts: LoadConversationHistoryOpts)
   }
 
   const ranked = [...byId.values()].sort((left, right) => right.rank - left.rank)
+  const visible = limit === undefined ? ranked : ranked.slice(0, limit)
   return {
     projectId: opts.projectId,
     agent: opts.agent,
-    sessions: ranked.slice(0, limit).map((item) => item.session),
-    scannedSources: taken.length,
+    sessions: visible.map((item) => item.session),
+    scannedSources: candidates.length,
     skippedSources,
-    truncated: candidates.length > taken.length || ranked.length > limit,
+    truncated: hasOlder || (limit !== undefined && ranked.length > limit),
   }
 }

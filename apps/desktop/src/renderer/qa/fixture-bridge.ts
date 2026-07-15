@@ -126,28 +126,51 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         } : null)
       case CH.conversationHistory: {
         const historyAgent = request.agent === 'claude' || request.agent === 'opencode' ? request.agent : 'codex'
+        const recentSession = {
+          id: `fixture-${historyAgent}-session`,
+          agent: historyAgent,
+          startedAt: '2026-07-14T12:00:00.000Z',
+          endedAt: '2026-07-14T13:00:00.000Z',
+          branch: 'feat/fixture-history',
+          preview: `${historyAgent} 대화 히스토리 화면을 검증해 줘`,
+          exchanges: [
+            {
+              id: 'fixture-q1',
+              askedAt: '2026-07-14T12:05:00.000Z',
+              question: `${historyAgent} 대화 히스토리 화면을 검증해 줘`,
+              answer: '세션 목록과 질문 아코디언을 확인했습니다.\n\n- 답변 펼치기\n- 긴 텍스트 overflow 방지',
+            },
+            {
+              id: 'fixture-q2',
+              askedAt: '2026-07-14T12:55:00.000Z',
+              question: `${historyAgent} 최신 질문이 먼저 보이는지 확인해 줘`,
+              answer: '질문 시간을 기준으로 내림차순 정렬했습니다.',
+            },
+          ],
+        }
+        const olderSession = {
+          id: `fixture-${historyAgent}-older-session`,
+          agent: historyAgent,
+          startedAt: '2026-06-30T10:00:00.000Z',
+          endedAt: '2026-06-30T11:00:00.000Z',
+          preview: `${historyAgent} 3일 이전 대화`,
+          exchanges: [{
+            id: 'fixture-older-q1',
+            askedAt: '2026-06-30T10:05:00.000Z',
+            question: `${historyAgent} 과거 질문`,
+            answer: '더 불러오기를 눌렀을 때 표시되는 과거 답변입니다.',
+          }],
+        }
+        const includeOlder = request.includeOlder === true
         return Promise.resolve({
           projectId: String(request.projectId ?? model.selectedProjectId),
           agent: historyAgent,
-          sessions: [{
-            id: `fixture-${historyAgent}-session`,
-            agent: historyAgent,
-            startedAt: '2026-07-14T12:00:00.000Z',
-            endedAt: '2026-07-14T13:00:00.000Z',
-            branch: 'feat/fixture-history',
-            preview: `${historyAgent} 대화 히스토리 화면을 검증해 줘`,
-            exchanges: [
-              {
-                id: 'fixture-q1',
-                askedAt: '2026-07-14T12:05:00.000Z',
-                question: `${historyAgent} 대화 히스토리 화면을 검증해 줘`,
-                answer: '세션 목록과 질문 아코디언을 확인했습니다.\n\n- 답변 펼치기\n- 긴 텍스트 overflow 방지',
-              },
-            ],
-          }],
-          scannedSources: 1,
+          // Intentionally return the older session and exchanges first so the renderer contract
+          // proves that both session and question timestamps are normalized newest-first.
+          sessions: includeOlder ? [olderSession, recentSession] : [recentSession],
+          scannedSources: includeOlder ? 2 : 1,
           skippedSources: 0,
-          truncated: false,
+          truncated: !includeOlder,
         })
       }
       case CH.questionLog:

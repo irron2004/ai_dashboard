@@ -815,13 +815,16 @@ describe('IPC handlers (no Electron)', () => {
       repoPaths: ['C:\\Users\\Me\\work\\apc'], vaultPaths: [], sourcePaths: [],
     })
 
-    const result = await handlers(c2)[CH.conversationHistory]({ projectId: 'windows-wsl', agent: 'codex' }) as ConversationHistoryRes
+    const result = await handlers(c2)[CH.conversationHistory]({
+      projectId: 'windows-wsl', agent: 'codex', includeOlder: true,
+    }) as ConversationHistoryRes
 
     expect(result.sessions.map((item) => item.id)).toEqual(['wsl', 'windows'])
     expect(wslFetcher).toHaveBeenCalledWith(
       'C:\\Users\\Me\\work\\apc',
       expect.stringContaining('apc-conversation-cache'),
       ['codex'],
+      {},
     )
   })
 
@@ -862,10 +865,14 @@ describe('IPC handlers (no Electron)', () => {
       repoPaths: [sshPath], vaultPaths: [], sourcePaths: [],
     })
 
-    const result = await handlers(c2)[CH.conversationHistory]({ projectId: 'ssh-project', agent: 'codex' }) as ConversationHistoryRes
+    const result = await handlers(c2)[CH.conversationHistory]({
+      projectId: 'ssh-project', agent: 'codex', includeOlder: true,
+    }) as ConversationHistoryRes
 
     expect(result.sessions.map((item) => item.id)).toEqual(['ssh-codex'])
-    expect(remoteFetcher).toHaveBeenCalledWith(sshPath, expect.stringContaining('apc-conversation-cache'), ['codex'])
+    expect(remoteFetcher).toHaveBeenCalledWith(
+      sshPath, expect.stringContaining('apc-conversation-cache'), ['codex'], {},
+    )
     expect(wslFetcher).not.toHaveBeenCalled()
   })
 })

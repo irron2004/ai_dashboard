@@ -41,6 +41,7 @@ describe('WSL conversation discovery', () => {
       'C:\\Users\\Me\\work\\apc',
       'C:\\cache\\wsl',
       ['codex'],
+      {},
       {
         listDistros,
         runBashFor,
@@ -65,6 +66,7 @@ describe('WSL conversation discovery', () => {
       '\\\\wsl$\\Ubuntu-24.04\\home\\me\\work\\apc',
       'C:\\cache\\wsl',
       ['claude'],
+      {},
       {
         listDistros,
         runBashFor: () => async () => ({ ok: true, stdout: '', stderr: '', exitCode: 0 }),

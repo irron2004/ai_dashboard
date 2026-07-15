@@ -30,6 +30,7 @@ describe('CodexAdapter', () => {
     const sources = await a.discoverSources(() => undefined)
     expect(sources).toHaveLength(1)
     expect(sources[0].agentKind).toBe('codex')
+    expect(sources[0].repoPath).toBe('/mnt/c/work/apc')
   })
 
   test('parseSource extracts id/cwd/branch and message turns', async () => {

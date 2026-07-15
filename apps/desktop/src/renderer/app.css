@@ -420,6 +420,7 @@ textarea {
   display: flex; flex-direction: column; gap: 12px;
   height: 100%; min-height: 0; padding: 12px 14px; overflow: hidden;
 }
+.question-history__toolbar { display: flex; gap: 8px; flex: 0 0 auto; }
 .question-history__agents { display: flex; gap: 6px; flex: 0 0 auto; }
 .question-history__agent-tab {
   min-width: 112px; padding: 8px 16px; border: 1px solid #3b3e52; border-radius: 8px;
@@ -429,6 +430,10 @@ textarea {
 .question-history__agent-tab--active {
   border-color: #718dff; background: rgba(92, 119, 231, 0.2); color: #dbe3ff;
   box-shadow: inset 0 -2px 0 #718dff;
+}
+.question-history__load-more {
+  flex: 0 0 auto; margin-left: auto; padding: 8px 13px; white-space: nowrap;
+  border-color: rgba(113, 141, 255, 0.45); color: #cbd6ff; background: rgba(92, 119, 231, 0.1);
 }
 .question-history__state {
   flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -479,6 +484,9 @@ textarea {
 .question-history__questions-header strong { color: #e3e6ef; font-size: 0.82rem; }
 .question-history__questions-header span { color: #8f96ad; font-size: 0.7rem; }
 .question-history__questions > ol { min-height: 0; overflow-y: auto; padding: 10px; }
+.question-history__no-questions {
+  flex: 1; display: grid; place-items: center; min-height: 0; padding: 24px; color: #8f96ad; text-align: center;
+}
 .question-history__exchange { overflow: hidden; border: 1px solid #353849; border-radius: 9px; background: #1d1e2b; }
 .question-history__exchange + .question-history__exchange { margin-top: 7px; }
 .question-history__exchange--open { border-color: #4c567b; }
@@ -509,8 +517,10 @@ textarea {
 .question-history__notice { flex: 0 0 auto; margin: -4px 0 0; color: #8e94a8; font-size: 0.7rem; }
 
 @media (max-width: 720px) {
+  .question-history__toolbar { flex-wrap: wrap; }
   .question-history__agents { gap: 4px; }
   .question-history__agent-tab { min-width: 0; flex: 1; padding: 7px 8px; }
+  .question-history__load-more { width: 100%; margin-left: 0; }
   .question-history__content { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(130px, 32%) minmax(0, 1fr); }
   .question-history__sessions { border-right: 0; border-bottom: 1px solid #36394a; }
 }

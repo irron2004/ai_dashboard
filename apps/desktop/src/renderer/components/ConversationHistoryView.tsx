@@ -49,6 +49,25 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function sortTime(value: string | undefined): number {
+  if (!value) return 0
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function newestFirst(result: ConversationHistoryRes): ConversationHistoryRes {
+  return {
+    ...result,
+    sessions: result.sessions
+      .map((session) => ({
+        ...session,
+        exchanges: [...session.exchanges].sort((left, right) => sortTime(right.askedAt) - sortTime(left.askedAt)),
+      }))
+      .sort((left, right) =>
+        sortTime(right.endedAt ?? right.startedAt) - sortTime(left.endedAt ?? left.startedAt)),
+  }
+}
+
 export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fetchHistory }: Props) {
   const [agent, setAgent] = useState<AgentType>('codex')
   const [result, setResult] = useState<ConversationHistoryRes | null>(null)
@@ -57,6 +76,7 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
+  const [olderScope, setOlderScope] = useState<string | null>(null)
   // focus prop은 수신 즉시 소거하되 payload는 다음 fetch가 끝날 때까지 보관한다.
   // App이 상태를 바로 비워도 세션 선택·펼침이 유실되지 않는다.
   const pendingFocus = useRef<HistoryFocus | null>(null)
@@ -65,9 +85,13 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
     if (!focus) return
     pendingFocus.current = focus
     setAgent(focus.agent)
+    setOlderScope(focus.sessionId && projectId ? `${projectId}:${focus.agent}` : null)
     setRetry((value) => value + 1)
     onFocusConsumed()
-  }, [focus, onFocusConsumed])
+  }, [focus, onFocusConsumed, projectId])
+
+  const scopeKey = projectId ? `${projectId}:${agent}` : null
+  const includeOlder = scopeKey !== null && olderScope === scopeKey
 
   useEffect(() => {
     if (!projectId) return
@@ -78,16 +102,17 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
     setSelectedSessionId(null)
     setExpanded(new Set())
 
-    void fetchHistory({ projectId, agent, limit: 40 })
+    void fetchHistory({ projectId, agent, ...(includeOlder ? { includeOlder: true } : {}) })
       .then((next) => {
         if (!alive) return
-        setResult(next)
+        const sorted = newestFirst(next)
+        setResult(sorted)
         const pending = pendingFocus.current
         pendingFocus.current = null
         const focused = pending?.sessionId
-          ? next.sessions.find((session) => session.id === pending.sessionId)
+          ? sorted.sessions.find((session) => session.id === pending.sessionId)
           : undefined
-        setSelectedSessionId(focused?.id ?? next.sessions[0]?.id ?? null)
+        setSelectedSessionId(focused?.id ?? sorted.sessions[0]?.id ?? null)
         if (focused && pending?.exchangeId && focused.exchanges.some((exchange) => exchange.id === pending.exchangeId)) {
           const key = `${focused.id}:${pending.exchangeId}`
           setExpanded(new Set([key]))
@@ -103,7 +128,7 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
         if (alive) setLoading(false)
       })
     return () => { alive = false }
-  }, [projectId, agent, fetchHistory, retry])
+  }, [projectId, agent, fetchHistory, retry, includeOlder])
 
   const selectedSession = useMemo<ConversationSession | null>(() => {
     return result?.sessions.find((session) => session.id === selectedSessionId) ?? result?.sessions[0] ?? null
@@ -120,19 +145,30 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
 
   return (
     <div className="conversation-history" aria-label="대화 히스토리">
-      <div className="question-history__agents" role="tablist" aria-label="대화 에이전트">
-        {HISTORY_AGENTS.map((item) => (
+      <div className="question-history__toolbar">
+        <div className="question-history__agents" role="tablist" aria-label="대화 에이전트">
+          {HISTORY_AGENTS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              role="tab"
+              aria-selected={agent === item}
+              className={agent === item ? 'question-history__agent-tab question-history__agent-tab--active' : 'question-history__agent-tab'}
+              onClick={() => setAgent(item)}
+            >
+              {AGENT_LABEL[item]}
+            </button>
+          ))}
+        </div>
+        {projectId && result && !includeOlder && !loading && (
           <button
-            key={item}
             type="button"
-            role="tab"
-            aria-selected={agent === item}
-            className={agent === item ? 'question-history__agent-tab question-history__agent-tab--active' : 'question-history__agent-tab'}
-            onClick={() => setAgent(item)}
+            className="question-history__load-more"
+            onClick={() => { if (scopeKey) setOlderScope(scopeKey) }}
           >
-            {AGENT_LABEL[item]}
+            3일 이전 대화 더 불러오기
           </button>
-        ))}
+        )}
       </div>
 
       {!projectId ? (
@@ -147,8 +183,12 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
         </div>
       ) : !result?.sessions.length ? (
         <div className="question-history__state">
-          <strong>{AGENT_LABEL[agent]}에서 이 프로젝트의 대화를 찾지 못했습니다.</strong>
-          <span>선택한 프로젝트 경로에서 진행한 세션인지 확인해 주세요.</span>
+          <strong>
+            {includeOlder
+              ? `${AGENT_LABEL[agent]}에서 이 프로젝트의 대화를 찾지 못했습니다.`
+              : `${AGENT_LABEL[agent]}에서 최근 3일 대화를 찾지 못했습니다.`}
+          </strong>
+          <span>{includeOlder ? '선택한 프로젝트 경로에서 진행한 세션인지 확인해 주세요.' : '과거 세션은 위의 더 불러오기로 확인할 수 있습니다.'}</span>
         </div>
       ) : (
         <div className="question-history__content">
@@ -187,55 +227,57 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
                     <span>{AGENT_LABEL[selectedSession.agent]} · 질문 {selectedSession.exchanges.length}개</span>
                   </div>
                 </header>
-                <ol>
-                  {selectedSession.exchanges.map((exchange, index) => {
-                    const key = `${selectedSession.id}:${exchange.id}`
-                    const isExpanded = expanded.has(key)
-                    const answerId = `conversation-answer-${index}`
-                    const askedAt = timeOnly(exchange.askedAt)
-                    return (
-                      <li
-                        key={key}
-                        id={`conversation-exchange-${key}`}
-                        className={isExpanded ? 'question-history__exchange question-history__exchange--open' : 'question-history__exchange'}
-                      >
-                        <button
-                          type="button"
-                          className="question-history__question"
-                          aria-expanded={isExpanded}
-                          aria-controls={answerId}
-                          onClick={() => toggleAnswer(key)}
+                {selectedSession.exchanges.length === 0 ? (
+                  <div className="question-history__no-questions">이 세션에는 표시할 사용자 질문이 없습니다.</div>
+                ) : (
+                  <ol>
+                    {selectedSession.exchanges.map((exchange, index) => {
+                      const key = `${selectedSession.id}:${exchange.id}`
+                      const isExpanded = expanded.has(key)
+                      const answerId = `conversation-answer-${index}`
+                      const askedAt = timeOnly(exchange.askedAt)
+                      return (
+                        <li
+                          key={key}
+                          id={`conversation-exchange-${key}`}
+                          className={isExpanded ? 'question-history__exchange question-history__exchange--open' : 'question-history__exchange'}
                         >
-                          <span className="question-history__qmark">Q{index + 1}</span>
-                          <span className="question-history__question-text">{exchange.question}</span>
-                          {askedAt && <span className="question-history__question-time">{askedAt}</span>}
-                          <span className="question-history__chevron" aria-hidden="true">⌄</span>
-                        </button>
-                        {isExpanded && (
-                          <div id={answerId} className="question-history__answer" role="region" aria-label={`Q${index + 1} 답변`}>
-                            <span className="question-history__amark">A</span>
-                            <div className="question-history__answer-body">
-                              {exchange.answer
-                                ? <MarkdownContent markdown={exchange.answer} onOpenWikiLink={() => { /* history is read-only */ }} />
-                                : <p className="question-history__no-answer">기록된 답변이 없습니다.</p>}
+                          <button
+                            type="button"
+                            className="question-history__question"
+                            aria-expanded={isExpanded}
+                            aria-controls={answerId}
+                            onClick={() => toggleAnswer(key)}
+                          >
+                            <span className="question-history__qmark">Q{index + 1}</span>
+                            <span className="question-history__question-text">{exchange.question}</span>
+                            {askedAt && <span className="question-history__question-time">{askedAt}</span>}
+                            <span className="question-history__chevron" aria-hidden="true">⌄</span>
+                          </button>
+                          {isExpanded && (
+                            <div id={answerId} className="question-history__answer" role="region" aria-label={`Q${index + 1} 답변`}>
+                              <span className="question-history__amark">A</span>
+                              <div className="question-history__answer-body">
+                                {exchange.answer
+                                  ? <MarkdownContent markdown={exchange.answer} onOpenWikiLink={() => { /* history is read-only */ }} />
+                                  : <p className="question-history__no-answer">기록된 답변이 없습니다.</p>}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ol>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
               </>
             )}
           </section>
         </div>
       )}
 
-      {result && (result.truncated || result.skippedSources > 0) && (
+      {result && result.skippedSources > 0 && (
         <p className="question-history__notice">
-          {result.truncated ? '최근 대화만 표시합니다.' : ''}
-          {result.truncated && result.skippedSources > 0 ? ' ' : ''}
-          {result.skippedSources > 0 ? `읽지 못한 세션 소스 ${result.skippedSources}개가 있습니다.` : ''}
+          읽지 못한 세션 소스 {result.skippedSources}개가 있습니다.
         </p>
       )}
     </div>

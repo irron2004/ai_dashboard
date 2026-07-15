@@ -50,14 +50,14 @@ describe('ConversationHistoryView', () => {
     const { props } = renderView()
 
     await waitFor(() => expect(screen.getByText('질문 2개 · feat/history')).toBeTruthy())
-    expect(props.fetchHistory).toHaveBeenCalledWith({ projectId: 'p1', agent: 'codex', limit: 40 })
+    expect(props.fetchHistory).toHaveBeenCalledWith({ projectId: 'p1', agent: 'codex' })
     expect(screen.queryByText(/원인을 확인하고/)).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: /^Q1 로그인 오류를 고쳐 줘/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Q2 로그인 오류를 고쳐 줘/ }))
 
     expect(screen.getByText(/원인을 확인하고/)).toBeTruthy()
     expect(screen.getByText('수정했습니다.').tagName).toBe('STRONG')
-    expect(screen.getByRole('button', { name: /^Q1 로그인 오류를 고쳐 줘/ }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: /^Q2 로그인 오류를 고쳐 줘/ }).getAttribute('aria-expanded')).toBe('true')
   })
 
   test('에이전트 탭을 전환하면 해당 에이전트 세션을 불러온다', async () => {
@@ -67,7 +67,7 @@ describe('ConversationHistoryView', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Claude' }))
 
     await waitFor(() => expect(screen.getAllByText('claude 질문').length).toBeGreaterThan(0))
-    expect(props.fetchHistory).toHaveBeenLastCalledWith({ projectId: 'p1', agent: 'claude', limit: 40 })
+    expect(props.fetchHistory).toHaveBeenLastCalledWith({ projectId: 'p1', agent: 'claude' })
     expect(screen.getByRole('tab', { name: 'Claude' }).getAttribute('aria-selected')).toBe('true')
   })
 
@@ -87,7 +87,7 @@ describe('ConversationHistoryView', () => {
     const { rerender } = renderView({
       focus: { agent: 'opencode' }, fetchHistory,
     })
-    await waitFor(() => expect(screen.getByText(/OpenCode에서 이 프로젝트의 대화를 찾지 못했습니다/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/OpenCode에서 최근 3일 대화를 찾지 못했습니다/)).toBeTruthy())
 
     fetchHistory.mockClear()
     rerender(
@@ -124,8 +124,59 @@ describe('ConversationHistoryView', () => {
     }))
     renderView({ fetchHistory })
 
-    await waitFor(() => expect(screen.getByText(/최근 대화만 표시합니다/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: '3일 이전 대화 더 불러오기' })).toBeTruthy())
     expect(screen.getByText(/읽지 못한 세션 소스 2개가 있습니다/)).toBeTruthy()
+  })
+
+  test('3일 이전 대화 더 불러오기를 누르면 전체 범위로 다시 조회한다', async () => {
+    const { props } = renderView()
+    await waitFor(() => screen.getByText('질문 2개 · feat/history'))
+
+    fireEvent.click(screen.getByRole('button', { name: '3일 이전 대화 더 불러오기' }))
+
+    await waitFor(() => expect(props.fetchHistory).toHaveBeenLastCalledWith({
+      projectId: 'p1', agent: 'codex', includeOlder: true,
+    }))
+    expect(screen.queryByRole('button', { name: '3일 이전 대화 더 불러오기' })).toBeNull()
+  })
+
+  test('최근 세션이 없어도 더 불러오기로 과거 세션을 표시한다', async () => {
+    const fetchHistory = vi.fn(async (req: { agent: AgentType; includeOlder?: boolean }) =>
+      req.includeOlder ? history(req.agent) : { ...history(req.agent), sessions: [] })
+    renderView({ focus: { agent: 'opencode' }, fetchHistory })
+
+    await waitFor(() => expect(screen.getByText(/OpenCode에서 최근 3일 대화를 찾지 못했습니다/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '3일 이전 대화 더 불러오기' }))
+
+    await waitFor(() => expect(screen.getAllByText('opencode 질문').length).toBeGreaterThan(0))
+    expect(fetchHistory).toHaveBeenLastCalledWith({ projectId: 'p1', agent: 'opencode', includeOlder: true })
+  })
+
+  test('세션과 세션 안 질문을 시간 내림차순으로 정렬한다', async () => {
+    const unsorted = history('codex')
+    unsorted.sessions = [...unsorted.sessions].reverse()
+    const fetchHistory = vi.fn(async () => unsorted)
+    const { container } = renderView({ fetchHistory })
+
+    await waitFor(() => screen.getByText('질문 2개 · feat/history'))
+    expect([...container.querySelectorAll('.question-history__session-preview')].map((node) => node.textContent)).toEqual([
+      '로그인 오류를 고쳐 줘', '이전 질문',
+    ])
+    expect([...container.querySelectorAll('.question-history__question-text')].map((node) => node.textContent)).toEqual([
+      '테스트도 통과해?', '로그인 오류를 고쳐 줘',
+    ])
+  })
+
+  test('질문이 없는 resume 세션도 선택하고 빈 질문 상태를 안내한다', async () => {
+    const noQuestion = history('codex')
+    noQuestion.sessions = [{
+      id: 'internal', agent: 'codex', endedAt: '2026-07-16T10:00:00Z',
+      preview: '사용자 질문 없음', exchanges: [],
+    }]
+    renderView({ fetchHistory: vi.fn(async () => noQuestion) })
+
+    await waitFor(() => expect(screen.getByText('사용자 질문 없음')).toBeTruthy())
+    expect(screen.getByText('이 세션에는 표시할 사용자 질문이 없습니다.')).toBeTruthy()
   })
 
   test('focus 주입 시 세션을 선택하고 질문을 펼친 뒤 소거한다', async () => {
@@ -142,6 +193,6 @@ describe('ConversationHistoryView', () => {
 
     await waitFor(() => screen.getByText('질문 2개 · feat/history'))
     expect(screen.getByTitle('로그인 오류를 고쳐 줘').className).toContain('question-history__session--active')
-    expect(screen.getByRole('button', { name: /^Q1 로그인 오류를 고쳐 줘/ }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByRole('button', { name: /^Q2 로그인 오류를 고쳐 줘/ }).getAttribute('aria-expanded')).toBe('false')
   })
 })

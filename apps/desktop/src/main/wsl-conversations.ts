@@ -6,6 +6,7 @@ import type { SshExecResult } from './ssh-exec.js'
 import {
   fetchConversationsWithRunner,
   type BashScriptRunner,
+  type ConversationFetchOptions,
 } from './remote-conversations.js'
 
 export type WslProjectTarget = { distro?: string; path: string }
@@ -97,6 +98,7 @@ export async function fetchWslConversations(
   projectPath: string,
   destDir: string,
   agents?: readonly AgentType[],
+  options: ConversationFetchOptions = {},
   deps: WslConversationDeps = {},
 ): Promise<AgentIngestAdapter[]> {
   const target = toWslProjectTarget(projectPath)
@@ -118,6 +120,7 @@ export async function fetchWslConversations(
         join(destDir, safeDistro),
         runBashFor(distro),
         agents,
+        options,
       ))
     } catch (error) {
       failures.push(error instanceof Error ? error : new Error(String(error)))

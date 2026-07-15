@@ -37,7 +37,7 @@ describe('conversation history', () => {
     const view = toConversationSession({
       ...session('s1', '/work/apc', '2026-07-15T10:00:00Z', '첫 질문'),
       turns: [
-        { role: 'user', text: '첫 질문', uuid: 'q1', toolCalls: [] },
+        { role: 'user', text: '첫 질문', uuid: 'q1', timestamp: '2026-07-15T10:01:00Z', toolCalls: [] },
         { role: 'assistant', text: '첫 답', toolCalls: [] },
         {
           role: 'user',
@@ -45,15 +45,33 @@ describe('conversation history', () => {
           toolCalls: [],
         },
         { role: 'assistant', text: '{"internal":true}', toolCalls: [] },
-        { role: 'user', text: '둘째 질문', uuid: 'q2', toolCalls: [] },
+        { role: 'user', text: '둘째 질문', uuid: 'q2', timestamp: '2026-07-15T10:05:00Z', toolCalls: [] },
         { role: 'assistant', text: '둘째 답', toolCalls: [] },
       ],
     })
 
-    expect(view?.exchanges).toEqual([
-      { id: 'q1', askedAt: '2026-07-15T10:00:00Z', question: '첫 질문', answer: '첫 답' },
-      { id: 'q2', askedAt: '2026-07-15T10:00:00Z', question: '둘째 질문', answer: '둘째 답' },
+    expect(view.exchanges).toEqual([
+      { id: 'q2', askedAt: '2026-07-15T10:05:00Z', question: '둘째 질문', answer: '둘째 답' },
+      { id: 'q1', askedAt: '2026-07-15T10:01:00Z', question: '첫 질문', answer: '첫 답' },
     ])
+    expect(view.preview).toBe('둘째 질문')
+  })
+
+  test('keeps resume-visible sessions even when they contain no human question', () => {
+    const view = toConversationSession({
+      ...session('internal', '/work/apc', '2026-07-15T10:00:00Z'),
+      turns: [
+        {
+          role: 'user',
+          text: '# Knowledge Harness Rules\n\n## Role: wiki-graph-lead\n\n## Input\n{}\n\n## Output\nRespond with ONLY a single JSON object',
+          toolCalls: [],
+        },
+        { role: 'assistant', text: '{"ok":true}', toolCalls: [] },
+      ],
+    })
+
+    expect(view.preview).toBe('사용자 질문 없음')
+    expect(view.exchanges).toEqual([])
   })
 
   test('reads the selected agent live sources, filters the project, and sorts sessions newest-first', async () => {
@@ -81,6 +99,7 @@ describe('conversation history', () => {
       projectId: 'p1',
       repoPaths: ['/work/apc'],
       agent: 'codex',
+      includeOlder: true,
     })
 
     expect(result.sessions.map((item) => item.id)).toEqual(['new', 'old'])
@@ -97,11 +116,58 @@ describe('conversation history', () => {
     }))
     const claude: AgentIngestAdapter = { agentKind: 'claude', discoverSources: async () => [], parseSource: async () => { throw new Error('unused') } }
     const result = await loadConversationHistory({
-      adapters: [claude, adapter(rows)], projectId: 'p1', repoPaths: ['/work/apc'], agent: 'codex', limit: 1,
+      adapters: [claude, adapter(rows)], projectId: 'p1', repoPaths: ['/work/apc'], agent: 'codex', includeOlder: true, limit: 1,
     })
     expect(result.sessions).toHaveLength(1)
     expect(result.sessions[0].id).toBe('two')
     expect(result.truncated).toBe(true)
+  })
+
+  test('shows only the recent three days first, then returns every older matching session', async () => {
+    const rows = [
+      {
+        source: { id: 'recent', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/recent', mtimeMs: Date.parse('2026-07-15T12:00:00Z') },
+        session: session('recent', '/work/apc', '2026-07-15T12:00:00Z'),
+      },
+      {
+        source: { id: 'boundary', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/boundary', mtimeMs: Date.parse('2026-07-13T12:00:00Z') },
+        session: session('boundary', '/work/apc', '2026-07-13T12:00:00Z'),
+      },
+      {
+        source: { id: 'older', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/older', mtimeMs: Date.parse('2026-07-12T12:00:00Z') },
+        session: session('older', '/work/apc', '2026-07-12T12:00:00Z'),
+      },
+    ]
+    const base = {
+      adapters: [adapter(rows)], projectId: 'p1', repoPaths: ['/work/apc'], agent: 'codex' as const,
+      nowMs: Date.parse('2026-07-16T12:00:00Z'),
+    }
+
+    const recent = await loadConversationHistory(base)
+    expect(recent.sessions.map((item) => item.id)).toEqual(['recent', 'boundary'])
+    expect(recent.truncated).toBe(true)
+
+    const all = await loadConversationHistory({ ...base, includeOlder: true })
+    expect(all.sessions.map((item) => item.id)).toEqual(['recent', 'boundary', 'older'])
+    expect(all.truncated).toBe(false)
+  })
+
+  test('does not cap the full resume-compatible result at 200 sources', async () => {
+    const rows = Array.from({ length: 205 }, (_, index) => ({
+      source: {
+        id: `session-${index}`, agentKind: 'codex' as const, kind: 'jsonl-file' as const,
+        locator: `/session-${index}`, repoPath: '/work/apc', mtimeMs: index,
+      },
+      session: session(`session-${index}`, '/work/apc', '2026-07-15T12:00:00Z'),
+    }))
+
+    const result = await loadConversationHistory({
+      adapters: [adapter(rows)], projectId: 'p1', repoPaths: ['/work/apc'], agent: 'codex', includeOlder: true,
+    })
+
+    expect(result.sessions).toHaveLength(205)
+    expect(result.scannedSources).toBe(205)
+    expect(result.truncated).toBe(false)
   })
 
   test('merges the same agent sessions from Windows and WSL stores', async () => {
@@ -125,6 +191,7 @@ describe('conversation history', () => {
       projectId: 'p1',
       repoPaths: ['C:\\Users\\me\\work\\apc'],
       agent: 'codex',
+      includeOlder: true,
     })
 
     expect(result.sessions.map((item) => item.id)).toEqual(['wsl', 'windows'])

@@ -21,7 +21,7 @@ import { fetchRemoteConversations } from './remote-conversations.js'
 import { fetchWslConversations, toWslProjectTarget } from './wsl-conversations.js'
 import { parseSsh } from './ssh-exec.js'
 import { readProjectDoc } from './project-files.js'
-import { loadConversationHistory } from './conversation-history.js'
+import { CONVERSATION_HISTORY_RECENT_WINDOW_MS, loadConversationHistory } from './conversation-history.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -193,6 +193,7 @@ export function buildContainer(opts: {
   emitHarnessNodes?: (e: HarnessNodesEvent) => void
   remoteConversationFetcher?: typeof fetchRemoteConversations
   wslConversationFetcher?: typeof fetchWslConversations
+  now?: () => number
 }): Container {
   const db = openDb(opts.dbFile)
   migrate(db)
@@ -243,6 +244,7 @@ export function buildContainer(opts: {
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
   const remoteConversationFetcher = opts.remoteConversationFetcher ?? fetchRemoteConversations
   const wslConversationFetcher = opts.wslConversationFetcher ?? fetchWslConversations
+  const now = opts.now ?? Date.now
   const vaultWriter = new VaultWriter(vault)
   const wiki = new WikiEngine(opts.agentRunner ?? new RoutingAgentRunner())
   const runService = new RunService({ wiki, vaultWriter, tasks, runs })
@@ -490,6 +492,10 @@ export function buildContainer(opts: {
       const cacheRoot = join(opts.vaultRoot, '..', 'apc-conversation-cache', safeProjectId, req.agent)
       const adapters: AgentIngestAdapter[] = []
       const repoPaths = [...project.repoPaths]
+      const nowMs = now()
+      const fetchOptions = req.includeOlder
+        ? {}
+        : { sinceMs: nowMs - CONVERSATION_HISTORY_RECENT_WINDOW_MS }
       const hasLocalRepo = project.repoPaths.some((repoPath) => !repoPath.startsWith('ssh://'))
       if (hasLocalRepo) adapters.push(...ingestAdapters)
 
@@ -500,6 +506,7 @@ export function buildContainer(opts: {
             repoPath,
             join(cacheRoot, `ssh-${index}`),
             [req.agent],
+            fetchOptions,
           ))
           repoPaths.push(ssh.path)
           continue
@@ -513,6 +520,7 @@ export function buildContainer(opts: {
             repoPath,
             join(cacheRoot, `wsl-${index}`),
             [req.agent],
+            fetchOptions,
           ))
         } catch {
           // WSL is optional. A stopped/unavailable distro must not hide Windows-native history.
@@ -524,7 +532,9 @@ export function buildContainer(opts: {
         projectId: project.id,
         repoPaths,
         agent: req.agent,
+        includeOlder: req.includeOlder,
         limit: req.limit,
+        nowMs,
       })
     },
     // nextNotes are embedded in resumeCard; clear the whole cache rather than tracking projectId from

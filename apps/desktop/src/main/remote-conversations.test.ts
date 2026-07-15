@@ -43,6 +43,8 @@ describe('fetchConversationsWithRunner', () => {
       expect(scripts).toHaveLength(1)
       expect(scripts[0]).toContain('.codex/sessions')
       expect(scripts[0]).not.toContain('.claude/projects')
+      expect(scripts[0]).not.toContain('head -n')
+      expect(scripts[0]).not.toContain('-size ')
 
       const sources = await adapters[0].discoverSources(() => undefined)
       const parsed = await adapters[0].parseSource(sources[0])
@@ -68,8 +70,33 @@ describe('fetchConversationsWithRunner', () => {
       )
 
       expect(scripts).toHaveLength(1)
-      expect(scripts[0]).toContain('.claude/projects/-mnt-c-Users-Me-work-ai-dashboard-main/')
+      expect(scripts[0]).toContain('.claude/projects/-mnt-c-Users-Me-work-ai-dashboard-main')
+      expect(scripts[0]).toContain('.claude/projects/-mnt-c-Users-Me-work-ai-dashboard-main-')
       expect(scripts[0]).not.toContain('ai_dashboard-main')
+      expect(scripts[0]).not.toContain('head -n')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('adds a three-day source cutoff only for the initial recent fetch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'apc-remote-recent-'))
+    const recentScripts: string[] = []
+    const allScripts: string[] = []
+    try {
+      await fetchConversationsWithRunner(
+        '/home/me/work/apc', dir,
+        async (script) => { recentScripts.push(script); return { ok: true, stdout: '', stderr: '', exitCode: 0 } },
+        ['codex'], { sinceMs: 1_720_000_000_000 },
+      )
+      await fetchConversationsWithRunner(
+        '/home/me/work/apc', dir,
+        async (script) => { allScripts.push(script); return { ok: true, stdout: '', stderr: '', exitCode: 0 } },
+        ['codex'],
+      )
+
+      expect(recentScripts[0]).toContain("-newermt '@1720000000'")
+      expect(allScripts[0]).not.toContain('-newermt')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
