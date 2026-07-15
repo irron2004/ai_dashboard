@@ -55,7 +55,7 @@ test('Windows Electron: isolated boot, preload, IPC, tabs, shortcut', async ({},
     expect(projects).toEqual([])
     expect(existsSync(join(userDataDir, 'apc.db'))).toBe(true)
 
-    const tabs = ['전체', '홈', '문서', '지식', '위키 생성']
+    const tabs = ['전체', '홈', '문서', '지식', '위키 생성', '히스토리']
     await expect(page.getByRole('tab')).toHaveCount(tabs.length)
     for (const name of tabs) {
       const tab = page.getByRole('tab', { name, exact: true })
