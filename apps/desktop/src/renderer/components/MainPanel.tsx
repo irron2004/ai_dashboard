@@ -1,12 +1,17 @@
 import { useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
-import type { ProjectDashboardRes } from '../../shared/ipc-contract.js'
+import type {
+  ConversationHistoryReq,
+  ConversationHistoryRes,
+  ProjectDashboardRes,
+} from '../../shared/ipc-contract.js'
 import type { WorkspaceOverview } from '@apc/dashboard-api'
 import { HomeView, ProjectDocumentsView } from './HomeView.js'
 import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
 import { WorkspaceHome } from './WorkspaceHome.js'
+import { ConversationHistoryView, type HistoryFocus } from './ConversationHistoryView.js'
 
-export type MainTab = 'workspace' | 'home' | 'documents' | 'knowledge' | 'wikigen'
+export type MainTab = 'workspace' | 'home' | 'documents' | 'knowledge' | 'wikigen' | 'history'
 export type ProjectLoadState = 'unselected' | 'loading' | 'ready'
 
 type Props = {
@@ -21,6 +26,9 @@ type Props = {
   overview?: WorkspaceOverview | null
   onRefreshWorkspace?: () => void
   onOpenProject?: (projectId: string) => void
+  historyFocus?: HistoryFocus | null
+  onHistoryFocusConsumed?: () => void
+  fetchConversationHistory?: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
 }
 
 const TABS: { id: MainTab; icon: string; label: string }[] = [
@@ -29,9 +37,23 @@ const TABS: { id: MainTab; icon: string; label: string }[] = [
   { id: 'documents', icon: '📄', label: '문서' },
   { id: 'knowledge', icon: '📖', label: '지식' },
   { id: 'wikigen', icon: '⚙', label: '위키 생성' },
+  { id: 'history', icon: '💬', label: '히스토리' },
 ]
 
-export function MainPanel({ tab, onTab, dashboard, projectLoadState, actions, wikiGenRunning, overview, onRefreshWorkspace, onOpenProject }: Props) {
+export function MainPanel({
+  tab,
+  onTab,
+  dashboard,
+  projectLoadState,
+  actions,
+  wikiGenRunning,
+  overview,
+  onRefreshWorkspace,
+  onOpenProject,
+  historyFocus,
+  onHistoryFocusConsumed,
+  fetchConversationHistory,
+}: Props) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const projectRequired = tab !== 'workspace' && projectLoadState !== 'ready'
   const activeTabId = `main-tab-${tab}`
@@ -102,6 +124,14 @@ export function MainPanel({ tab, onTab, dashboard, projectLoadState, actions, wi
         {tab === 'documents' && dashboard && <ProjectDocumentsView dashboard={dashboard} />}
         {tab === 'knowledge' && dashboard && <KnowledgeView />}
         {tab === 'wikigen' && dashboard && <WikiGenDashboard />}
+        {tab === 'history' && dashboard && fetchConversationHistory && (
+          <ConversationHistoryView
+            projectId={dashboard.project.id}
+            focus={historyFocus ?? null}
+            onFocusConsumed={onHistoryFocusConsumed ?? (() => {})}
+            fetchHistory={fetchConversationHistory}
+          />
+        )}
         {tab === 'workspace' && (
           <WorkspaceHome
             overview={overview ?? null}

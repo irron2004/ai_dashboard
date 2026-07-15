@@ -9,6 +9,9 @@ vi.mock('./HomeView.js', () => ({
 vi.mock('./KnowledgeView.js', () => ({ KnowledgeView: () => <div>Knowledge view</div> }))
 vi.mock('./WikiGenDashboard.js', () => ({ WikiGenDashboard: () => <div>Wiki generation</div> }))
 vi.mock('./WorkspaceHome.js', () => ({ WorkspaceHome: () => <div>Workspace overview</div> }))
+vi.mock('./ConversationHistoryView.js', () => ({
+  ConversationHistoryView: () => <div>Conversation history view</div>,
+}))
 
 import { MainPanel, type MainTab, type ProjectLoadState } from './MainPanel.js'
 
@@ -40,6 +43,7 @@ function renderPanel({
       dashboard={projectDashboard}
       projectLoadState={projectLoadState}
       wikiGenRunning={wikiGenRunning}
+      fetchConversationHistory={vi.fn()}
     />,
   )
 }
@@ -50,7 +54,7 @@ describe('MainPanel information architecture', () => {
 
     const tablist = screen.getByRole('tablist', { name: '주 화면 탭' })
     expect(within(tablist).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-      '🌐 전체', '🏠 홈', '📄 문서', '📖 지식', '⚙ 위키 생성',
+      '🌐 전체', '🏠 홈', '📄 문서', '📖 지식', '⚙ 위키 생성', '💬 히스토리',
     ])
     expect(screen.getByText('Project documents')).toBeDefined()
     expect(screen.queryByText('PM dashboard')).toBeNull()
@@ -62,6 +66,7 @@ describe('MainPanel information architecture', () => {
     ['knowledge', 'Knowledge view'],
     ['wikigen', 'Wiki generation'],
     ['workspace', 'Workspace overview'],
+    ['history', 'Conversation history view'],
   ] as const)('renders the %s view', (tab, expected) => {
     renderPanel({ tab })
     expect(screen.getByText(expected)).toBeDefined()
@@ -97,7 +102,7 @@ describe('MainPanel information architecture', () => {
     fireEvent.keyDown(home, { key: 'Home' })
     expect(onTab).toHaveBeenLastCalledWith('workspace')
     fireEvent.keyDown(home, { key: 'End' })
-    expect(onTab).toHaveBeenLastCalledWith('wikigen')
+    expect(onTab).toHaveBeenLastCalledWith('history')
   })
 
   test('distinguishes an unselected project from a loading project', () => {
@@ -115,6 +120,20 @@ describe('MainPanel information architecture', () => {
     renderPanel({ tab: 'workspace', projectDashboard: null, projectLoadState: 'unselected' })
     expect(screen.getByText('Workspace overview')).toBeDefined()
     expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  test('history 탭은 프로젝트 선택 전에는 placeholder를 보인다', () => {
+    render(
+      <MainPanel
+        tab="history"
+        onTab={() => {}}
+        dashboard={null}
+        projectLoadState="unselected"
+        fetchConversationHistory={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('status').textContent).toContain('프로젝트를 선택')
+    expect(screen.queryByText('Conversation history view')).toBeNull()
   })
 
   test('announces an active wiki generation run in the tab name', () => {
