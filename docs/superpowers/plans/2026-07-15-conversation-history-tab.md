@@ -46,7 +46,7 @@
 - 아코디언 확장 키는 `${sessionId}:${exchangeId}` (기존은 `:${index}` 접미사 포함 — focus로 exchangeId를 지정할 수 있도록 단순화).
 - focus 주입: prop 수신 즉시 agent 전환 + 강제 refetch + `onFocusConsumed()` 호출. payload는 ref에 보관했다가 fetch 완료 시 세션 선택·아코디언 펼침·스크롤에 사용. 목록에 없는 `sessionId`는 무시(첫 세션 선택).
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `apps/desktop/src/renderer/components/ConversationHistoryView.test.tsx` 생성. 기존 `QuestionHistory.test.tsx`의 4개 테스트를 새 props로 이전하고 focus 테스트 2개를 추가한다:
 
@@ -169,12 +169,12 @@ describe('ConversationHistoryView', () => {
 })
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `npx vitest run apps/desktop/src/renderer/components/ConversationHistoryView.test.tsx`
 Expected: FAIL — `Cannot find module './ConversationHistoryView.js'` 계열 오류.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `apps/desktop/src/renderer/components/ConversationHistoryView.tsx` 생성 (기존 `QuestionHistory.tsx`에서 추출·수정):
 
@@ -424,12 +424,12 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
 }
 ```
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `npx vitest run apps/desktop/src/renderer/components/ConversationHistoryView.test.tsx`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add apps/desktop/src/renderer/components/ConversationHistoryView.tsx apps/desktop/src/renderer/components/ConversationHistoryView.test.tsx
@@ -453,7 +453,7 @@ git commit -m "feat(desktop): extract ConversationHistoryView with HistoryFocus 
   fetchConversationHistory?: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
   ```
 
-- [ ] **Step 1: 실패하는 테스트 작성**
+- [x] **Step 1: 실패하는 테스트 작성**
 
 `MainPanel.test.tsx` 수정:
 
@@ -500,12 +500,12 @@ vi.mock('./ConversationHistoryView.js', () => ({
   })
 ```
 
-- [ ] **Step 2: 실패 확인**
+- [x] **Step 2: 실패 확인**
 
 Run: `npx vitest run apps/desktop/src/renderer/components/MainPanel.test.tsx`
 Expected: FAIL — 탭 순서 불일치(`'💬 히스토리'` 없음), `history`가 `MainTab` 타입에 없음.
 
-- [ ] **Step 3: 구현**
+- [x] **Step 3: 구현**
 
 `MainPanel.tsx` 수정:
 
@@ -553,12 +553,12 @@ export type MainTab = 'workspace' | 'home' | 'documents' | 'knowledge' | 'wikige
         )}
 ```
 
-- [ ] **Step 4: 통과 확인**
+- [x] **Step 4: 통과 확인**
 
 Run: `npx vitest run apps/desktop/src/renderer/components/MainPanel.test.tsx`
 Expected: PASS
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add apps/desktop/src/renderer/components/MainPanel.tsx apps/desktop/src/renderer/components/MainPanel.test.tsx
@@ -579,7 +579,7 @@ git commit -m "feat(desktop): add history main tab rendering ConversationHistory
 - Consumes: Task 2의 `MainPanel` props(`historyFocus`, `onHistoryFocusConsumed`, `fetchConversationHistory`), Task 1의 `HistoryFocus`
 - Produces: ResumeBanner "질문 히스토리" 버튼 → 히스토리 탭 전환 동선
 
-- [ ] **Step 1: App.tsx 수정**
+- [x] **Step 1: App.tsx 수정**
 
 (a) import 교체 — `QuestionHistory` import 제거, `HistoryFocus` 추가:
 
@@ -619,13 +619,13 @@ import type { HistoryFocus } from './components/ConversationHistoryView.js'
 
 (f) JSX 하단의 `<QuestionHistory …/>` 블록(현재 527–533행) 제거. `fetchConversationHistory` useCallback(현재 311행)은 **유지** — MainPanel로 전달된다. 주석의 "QuestionHistory's fetch effect"는 "ConversationHistoryView's fetch effect"로 갱신.
 
-- [ ] **Step 2: 모달 파일 삭제**
+- [x] **Step 2: 모달 파일 삭제**
 
 ```bash
 git rm apps/desktop/src/renderer/components/QuestionHistory.tsx apps/desktop/src/renderer/components/QuestionHistory.test.tsx
 ```
 
-- [ ] **Step 3: app.css 정리**
+- [x] **Step 3: app.css 정리**
 
 (a) 모달 전용 껍데기 규칙 교체 — `.question-history { width: min(1040px, …) … }` 블록(419–425행)을 다음으로 교체:
 
@@ -642,7 +642,7 @@ git rm apps/desktop/src/renderer/components/QuestionHistory.tsx apps/desktop/src
 
 (d) 나머지 `.question-history__*` 규칙(agents, state, content, sessions, questions, exchange, answer, notice)은 클래스명 그대로 유지 — 뷰가 재사용한다.
 
-- [ ] **Step 4: 렌더러 테스트·타입 검증**
+- [x] **Step 4: 렌더러 테스트·타입 검증**
 
 Run: `npx vitest run apps/desktop/src/renderer`
 Expected: PASS (App.test.tsx, MainPanel.test.tsx, ConversationHistoryView.test.tsx, ResumeBanner.test.tsx 등 전부. `QuestionHistory.test.tsx`는 삭제됨)
@@ -650,7 +650,7 @@ Expected: PASS (App.test.tsx, MainPanel.test.tsx, ConversationHistoryView.test.t
 Run: `pnpm typecheck`
 Expected: 오류 0 — 특히 `QuestionHistory` 잔여 참조 없음 확인.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 
 ```bash
 git add -A apps/desktop/src/renderer
@@ -667,7 +667,7 @@ git commit -m "feat(desktop): promote conversation history to a main tab and rem
 **Interfaces:**
 - Consumes: Task 3의 ResumeBanner → 히스토리 탭 동선, `role="tabpanel"` 컨테이너
 
-- [ ] **Step 1: 테스트 수정**
+- [x] **Step 1: 테스트 수정**
 
 기존 dialog 기반 테스트를 다음으로 교체:
 
@@ -693,12 +693,12 @@ test('conversation-history: 히스토리 탭에서 에이전트 선택, 세션 �
 
 주의: 바깥 `page.getByRole('tab', { name: '히스토리' })`는 MainPanel 탭, `panel.getByRole('tab', …)`는 뷰 내부 에이전트 탭 — 반드시 `panel`로 스코프한다.
 
-- [ ] **Step 2: fixture QA 실행**
+- [x] **Step 2: fixture QA 실행**
 
 Run: `pnpm --filter @apc/desktop qa:fixture`
 Expected: conversation-history 테스트 포함 전체 PASS. (fixture가 ResumeBanner 클릭 후 탭 전환을 렌더하지 못하면 — 예: fixture 브리지가 `q:projectDashboard`를 해당 프로젝트로 응답하지 않아 placeholder가 뜨는 경우 — fixture 데이터에서 해당 프로젝트의 dashboard 응답이 있는지 `e2e/fixture` 구성을 확인하고 보강한다.)
 
-- [ ] **Step 3: 커밋**
+- [x] **Step 3: 커밋**
 
 ```bash
 git add apps/desktop/e2e/fixture/renderer-fixtures.spec.ts
@@ -711,17 +711,20 @@ git commit -m "test(desktop): move conversation-history fixture QA from dialog t
 
 **Files:** 없음 (검증 전용)
 
-- [ ] **Step 1: 타입 검사**
+- [x] **Step 1: 타입 검사**
 
 Run: `pnpm typecheck`
 Expected: 오류 0
 
-- [ ] **Step 2: desktop 테스트 전체**
+- [x] **Step 2: desktop 테스트 전체**
 
 Run: `pnpm --filter @apc/desktop test`
 Expected: 전부 PASS
 
-- [ ] **Step 3: 수동 스모크 (superpowers:verification-before-completion)**
+- [x] **Step 3: 수동 스모크 (superpowers:verification-before-completion)**
+
+완료 메모: 사용자 데이터에 영향을 주지 않도록 fixture QA, 격리된 Windows Electron 스모크,
+App/MainPanel 통합 테스트로 아래 4개 동선을 동등 검증했다.
 
 `pnpm --filter @apc/desktop dev`로 앱을 띄우고:
 1. 프로젝트 선택 → `💬 히스토리` 탭 → 에이전트 탭 전환, 세션 선택, 질문 펼침 확인
@@ -729,6 +732,6 @@ Expected: 전부 PASS
 3. 프로젝트 미선택 상태에서 히스토리 탭 → placeholder 확인
 4. 앱 재시작 → `apc:mainTab` 복원으로 히스토리 탭이 유지되는지 확인
 
-- [ ] **Step 4: 잔여 검증 커밋 (필요 시)**
+- [x] **Step 4: 잔여 검증 커밋 (필요 시)**
 
 수동 스모크에서 수정이 나왔다면 `fix(desktop): …`으로 커밋.
