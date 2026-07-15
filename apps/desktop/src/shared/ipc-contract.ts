@@ -1,5 +1,9 @@
 import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry, GitSyncStatus, GitSyncResult } from '@apc/shared'
 
+/** Wiki authoring is intentionally single-engine. Keep this runtime constant shared by renderer and
+ * main so stale localStorage or an older renderer cannot silently route a wiki run to another CLI. */
+export const WIKI_GENERATION_ENGINE = 'codex' as const
+
 export const CH = {
   // queries
   listProjects: 'q:listProjects',
@@ -50,6 +54,7 @@ export const CH = {
   taskSetBlockedBy: 'c:taskSetBlockedBy',
   resumeCard: 'q:resumeCard',
   questionLog: 'q:questionLog',
+  conversationHistory: 'q:conversationHistory',
   nextNoteAdd: 'c:nextNoteAdd',
   nextNoteToggle: 'c:nextNoteToggle',
   nextNoteDelete: 'c:nextNoteDelete',
@@ -100,11 +105,34 @@ export type SelectProfileReq = { taskId: string; profileId: string }
 export type TaskSetBlockedByReq = { taskId: string; blockedBy: string[] }
 export type TaskSetBlockedByRes = { ok: boolean; reason?: string }
 
-// Resume card / question log / next-note surface (P3): ResumeCard and QuestionLogEntry are the
-// response types — ResumeCard is exported from @apc/dashboard-api, QuestionLogEntry from @apc/shared.
-// Renderer imports them from there (see api.ts), so no duplicate definition here.
+// Resume card / conversation history / next-note surface (P3): the legacy QuestionLogEntry stays in
+// @apc/shared; the richer session + Q&A DTOs live here because they are desktop IPC view models.
 export type ResumeCardReq = { projectId: string }
 export type QuestionLogReq = { projectId?: string; limit?: number }
+export type ConversationHistoryReq = { projectId: string; agent: AgentType; limit?: number }
+export type ConversationExchange = {
+  id: string
+  askedAt?: string
+  question: string
+  answer: string | null
+}
+export type ConversationSession = {
+  id: string
+  agent: AgentType
+  startedAt?: string
+  endedAt?: string
+  branch?: string
+  preview: string
+  exchanges: ConversationExchange[]
+}
+export type ConversationHistoryRes = {
+  projectId: string
+  agent: AgentType
+  sessions: ConversationSession[]
+  scannedSources: number
+  skippedSources: number
+  truncated: boolean
+}
 export type NextNoteAddReq = { projectId: string; text: string }
 export type NextNoteAddRes = { ok: boolean; note?: NextNote }
 export type NextNoteToggleReq = { id: string; done: boolean }

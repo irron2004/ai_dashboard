@@ -19,6 +19,7 @@ import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
 import { readProjectDoc } from './project-files.js'
+import { loadConversationHistory } from './conversation-history.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -37,9 +38,10 @@ import type {
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
   DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
-  ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
+  ResumeCardReq, QuestionLogReq, ConversationHistoryReq, ConversationHistoryRes,
+  NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
 } from '../shared/ipc-contract.js'
-import type { UnifiedSearchResponse, QuestionLogEntry } from '@apc/shared'
+import { isHumanQuestionText, type UnifiedSearchResponse, type QuestionLogEntry } from '@apc/shared'
 
 /** Coalesces chunks for the same label/stream into 50ms batches so a chatty engine cannot flood the renderer. */
 function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: HarnessEngineLogEvent) => void) | undefined {
@@ -58,6 +60,10 @@ function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: Harness
       }, 50)
     }
   }
+}
+
+function lastHumanUserTurn(turns: { role: string; text: string; timestamp?: string }[]) {
+  return [...turns].reverse().find((t) => t.role === 'user' && isHumanQuestionText(t.text))
 }
 
 export type Container = {
@@ -110,6 +116,7 @@ export type Container = {
    *  the card would show: ingest (new sessions/questions/req: tasks) or a nextNote mutation. */
   invalidateResumeCards: () => void
   questionLog: (req: QuestionLogReq) => QuestionLogEntry[]
+  conversationHistory: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
   nextNoteAdd: (req: NextNoteAddReq) => NextNoteAddRes
   nextNoteToggle: (req: NextNoteToggleReq) => NextNoteMutRes
   nextNoteDelete: (req: NextNoteDeleteReq) => NextNoteMutRes
@@ -457,7 +464,7 @@ export function buildContainer(opts: {
         latestSession: async (repoPath) => {
           const found = await latestSessionDetail(['claude', 'codex', 'opencode'], repoPath)
           if (!found) return null
-          const lastUser = [...found.session.turns].reverse().find((t) => t.role === 'user' && t.text.trim())
+          const lastUser = lastHumanUserTurn(found.session.turns)
           return {
             agent: found.agent,
             sessionId: found.session.id,
@@ -470,6 +477,17 @@ export function buildContainer(opts: {
     },
     invalidateResumeCards: () => resumeCardCache.clear(),
     questionLog: (req) => questionLog.listRecent(req),
+    conversationHistory: async (req) => {
+      const project = registry.get(req.projectId)
+      if (!project) throw new Error(`Project not found: ${req.projectId}`)
+      return loadConversationHistory({
+        adapters: ingestAdapters,
+        projectId: project.id,
+        repoPaths: project.repoPaths,
+        agent: req.agent,
+        limit: req.limit,
+      })
+    },
     // nextNotes are embedded in resumeCard; clear the whole cache rather than tracking projectId from
     // the note id (toggle/delete only have the note id, format note:${projectId}:${ISO}:${rand}) — cache
     // is cheap to rebuild, so correctness over a micro-optimized single-project invalidation.

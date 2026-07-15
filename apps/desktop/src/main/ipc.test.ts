@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { handlers } from './ipc.js'
 import { buildContainer } from './container.js'
 import { CH } from '../shared/ipc-contract.js'
-import type { ProjectDashboardReq, SubmitReviewReq, ListProfilesReq, NextNoteAddRes } from '../shared/ipc-contract.js'
+import type { ProjectDashboardReq, SubmitReviewReq, ListProfilesReq, NextNoteAddRes, ConversationHistoryRes } from '../shared/ipc-contract.js'
 import { latestSessionDetail, type AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession, SourceCursor, QuestionLogEntry } from '@apc/shared'
 import type { ResumeCard } from '@apc/dashboard-api'
@@ -159,8 +159,10 @@ describe('IPC handlers (no Electron)', () => {
         return { session, position: '{}' }
       },
     }
+    const runnerCalls: Array<{ agent: string }> = []
     const runner = {
-      async run() {
+      async run(input: { agent: string }) {
+        runnerCalls.push(input)
         return {
           ok: true,
           output: JSON.stringify({ workSummary: 'did it', filesTouched: [], openProblems: [], nextTasks: [], currentProposalMarkdown: '## Current\n- x\n' }),
@@ -173,6 +175,7 @@ describe('IPC handlers (no Electron)', () => {
     const res = (await handlers(c2)[CH.generateProject]({ projectId: 'p1', engine: 'claude', selectedPreflightCategoryIds: ['agent-conversations'] })) as { ok: boolean; proposalPath?: string }
     expect(res.ok).toBe(true)
     expect(res.proposalPath).toBe('projects/p1/current.proposal.md')
+    expect(runnerCalls.map((call) => call.agent)).toEqual(['codex'])
   })
 
   test('c:generateProject requires the preflight conversation category', async () => {
@@ -233,6 +236,7 @@ describe('IPC handlers (no Electron)', () => {
     const ran = (await h[CH.harnessRun]({ projectId: 'p1', engine: 'claude' })) as { ok: boolean; runId: string; finalState: string; reason?: string }
     expect(ran, JSON.stringify(ran)).toMatchObject({ ok: true })
     expect(ran.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(runner.calls.every((call) => call.agent === 'codex')).toBe(true)
 
     const shown = (await h[CH.harnessGetRun]({ runId: ran.runId })) as { ok: boolean; runState: { state: string } }
     expect(shown.runState.state).toBe('HUMAN_REVIEW_REQUIRED')
@@ -358,13 +362,53 @@ describe('IPC handlers (no Electron)', () => {
     const payload = { projectId: 'p1', engine: 'claude' as const }
     const res = await h[CH.harnessProposePolicy](payload)
     expect(called).toBe(true)
-    expect(calledWith).toEqual(payload)
+    expect(calledWith).toEqual({ projectId: 'p1', engine: 'codex' })
     expect((res as { ok: boolean }).ok).toBe(true)
   })
 
   test('c:harnessProposePolicy rejects an unknown engine (strict parse)', async () => {
     const h = handlers(container as any)
     await expect(h[CH.harnessProposePolicy]({ projectId: 'p1', engine: 'evil' })).rejects.toThrow()
+  })
+
+  test('wiki start boundaries overwrite stale engine selections with codex', async () => {
+    const generateProject = vi.fn(async () => ({ ok: true }))
+    const harnessRun = vi.fn(async () => ({ ok: true, runId: 'R', finalState: 'HUMAN_REVIEW_REQUIRED' }))
+    const harnessProposePolicy = vi.fn(async () => ({ ok: true }))
+    const h = handlers({ ...container, generateProject, harnessRun, harnessProposePolicy } as any)
+
+    await h[CH.generateProject]({ projectId: 'p1', engine: 'claude', selectedPreflightCategoryIds: ['agent-conversations'] })
+    await h[CH.harnessRun]({ projectId: 'p1', engine: 'opencode' })
+    await h[CH.harnessProposePolicy]({ projectId: 'p1', engine: 'claude' })
+
+    expect(generateProject).toHaveBeenCalledWith(expect.objectContaining({ engine: 'codex' }))
+    expect(harnessRun).toHaveBeenCalledWith(expect.objectContaining({ engine: 'codex' }))
+    expect(harnessProposePolicy).toHaveBeenCalledWith(expect.objectContaining({ engine: 'codex' }))
+  })
+
+  test.each([CH.harnessResume, CH.harnessConfirmNodes])('%s blocks continuation of a legacy claude wiki run', async (channel) => {
+    const harnessResume = vi.fn()
+    const harnessConfirmNodes = vi.fn()
+    const legacyContainer = {
+      ...container,
+      harnessGetRun: () => ({
+        ok: true,
+        runState: { runId: 'RUN-claude', projectId: 'p1', engine: 'claude', state: 'PROJECT_SCANNED', history: [], artifacts: {} },
+        artifacts: [],
+      }),
+      harnessResume,
+      harnessConfirmNodes,
+    }
+    const h = handlers(legacyContainer as any)
+    const payload = channel === CH.harnessResume
+      ? { runId: 'RUN-claude' }
+      : { runId: 'RUN-claude', approvedNodes: { nodes: [] } }
+    const res = await h[channel](payload) as { ok: boolean; reason?: string }
+
+    expect(res.ok).toBe(false)
+    expect(res.reason).toMatch(/새 Codex 위키 run/)
+    expect(harnessResume).not.toHaveBeenCalled()
+    expect(harnessConfirmNodes).not.toHaveBeenCalled()
   })
 
   test.each([
@@ -582,6 +626,61 @@ describe('IPC handlers (no Electron)', () => {
     expect(card?.resumeTarget).toEqual({ agent: 'codex', sessionId: 's9' })
   })
 
+  test('q:resumeCard skips Knowledge Harness prompt turns when choosing the last question', async () => {
+    const harnessPrompt = [
+      '# Knowledge Harness Rules',
+      '## Role: wiki-graph-lead',
+      'You are the WikiGraphLead agent. Merge the NodeProposals into the existing graph.',
+      '## Input',
+      '```json',
+      '{"proposals":[]}',
+      '```',
+      '## Output',
+      'Respond with ONLY a single JSON object',
+    ].join('\n\n')
+    vi.mocked(latestSessionDetail).mockResolvedValueOnce({
+      agent: 'claude',
+      session: {
+        id: 'kh1', agentType: 'claude', repoPath: '/work/apc',
+        sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x', sessionHeader: {} },
+        startedAt: '2026-07-01T00:00:00Z',
+        turns: [
+          { role: 'user', text: '사람 질문', timestamp: '2026-07-01T00:01:00Z', toolCalls: [] },
+          { role: 'assistant', text: '답변', toolCalls: [] },
+          { role: 'user', text: harnessPrompt, timestamp: '2026-07-01T00:05:00Z', toolCalls: [] },
+        ],
+        filesTouched: [],
+      },
+    })
+    const h = handlers(container)
+    const card = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(card?.lastQuestion).toEqual({ text: '사람 질문', ts: '2026-07-01T00:01:00Z', agent: 'claude' })
+  })
+
+  test('q:resumeCard leaves lastQuestion empty for a harness-only latest session', async () => {
+    vi.mocked(latestSessionDetail).mockResolvedValueOnce({
+      agent: 'claude',
+      session: {
+        id: 'kh2', agentType: 'claude', repoPath: '/work/apc',
+        sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '/x', sessionHeader: {} },
+        startedAt: '2026-07-01T00:00:00Z',
+        turns: [
+          {
+            role: 'user',
+            text: '# Knowledge Harness Rules\n\n## Role: knowledge-node-extractor\n\n## Input\n\n```json\n{}\n```\n\n## Output',
+            timestamp: '2026-07-01T00:05:00Z',
+            toolCalls: [],
+          },
+        ],
+        filesTouched: [],
+      },
+    })
+    const h = handlers(container)
+    const card = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+    expect(card?.lastQuestion).toBeNull()
+    expect(card?.resumeTarget).toEqual({ agent: 'claude', sessionId: 'kh2' })
+  })
+
   test('q:resumeCard caches per project — a second read for the same project skips latestSessionDetail', async () => {
     const h = handlers(container)
     const before = vi.mocked(latestSessionDetail).mock.calls.length
@@ -647,5 +746,39 @@ describe('IPC handlers (no Electron)', () => {
     await h[CH.ingestAll](undefined)
     const log = await h[CH.questionLog]({ projectId: 'p1' }) as QuestionLogEntry[]
     expect(log.map((e) => e.text)).toContain('질문 있어요?')
+  })
+
+  test('q:conversationHistory reads live agent sessions without requiring ingest and includes answers', async () => {
+    const session: NormalizedSession = {
+      id: 'codex-live-1', agentType: 'codex', repoPath: '/work/apc',
+      startedAt: '2026-07-15T10:00:00Z', endedAt: '2026-07-15T10:05:00Z',
+      sourceMeta: { provider: 'codex', sourceKind: 'jsonl-file', rawLocator: '/x/codex-live-1.jsonl', sessionHeader: {} },
+      turns: [
+        { role: 'user', text: '히스토리 화면을 만들어 줘', timestamp: '2026-07-15T10:00:00Z', toolCalls: [] },
+        { role: 'assistant', text: '세션과 질문을 연결했습니다.', timestamp: '2026-07-15T10:01:00Z', toolCalls: [] },
+      ],
+      filesTouched: [],
+    }
+    const fake: AgentIngestAdapter = {
+      agentKind: 'codex',
+      async discoverSources(): Promise<AgentSource[]> {
+        return [{ id: 'codex:live-1', agentKind: 'codex', kind: 'jsonl-file', locator: '/x/codex-live-1.jsonl', mtimeMs: Date.parse(session.endedAt!) }]
+      },
+      async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+        return { session, position: '{}' }
+      },
+    }
+    const c2 = buildContainer({ dbFile: ':memory:', vaultRoot: vaultDir, ingestAdapters: [fake] })
+    c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
+    const h = handlers(c2)
+
+    const result = await h[CH.conversationHistory]({ projectId: 'p1', agent: 'codex' }) as ConversationHistoryRes
+
+    expect(result.sessions).toHaveLength(1)
+    expect(result.sessions[0].exchanges[0]).toMatchObject({
+      question: '히스토리 화면을 만들어 줘',
+      answer: '세션과 질문을 연결했습니다.',
+    })
+    await expect(h[CH.conversationHistory]({ projectId: 'p1', agent: 'unknown' })).rejects.toThrow()
   })
 })

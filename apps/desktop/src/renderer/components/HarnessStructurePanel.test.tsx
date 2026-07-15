@@ -34,18 +34,18 @@ describe('HarnessStructurePanel', () => {
     expect(screen.getByText('node-extractor').closest('.structure-panel__card')?.className).toContain('--now')
   })
 
-  test('engine badge reflects config and changes flow to onModelChange', () => {
+  test('wiki engine is visibly locked to codex and cannot be changed', () => {
     const onModelChange = vi.fn()
     render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} onModelChange={onModelChange} />)
-    fireEvent.click(screen.getByText('project-discovery'))
-    fireEvent.change(screen.getByLabelText('엔진'), { target: { value: 'codex' } })
-    expect(onModelChange).toHaveBeenCalledWith({ engine: 'codex' })
+    const engine = screen.getByLabelText('엔진') as HTMLInputElement
+    expect(engine.value).toBe('codex')
+    expect(engine.disabled).toBe(true)
+    expect(screen.queryByText('claude')).toBeNull()
   })
 
   test('engine settings: model + sandbox flow to onModelChange (codex)', () => {
     const onModelChange = vi.fn()
     const config = createDefaultHarnessConfig()
-    config.model.engine = 'codex'
     render(<HarnessStructurePanel config={config} activeState={null} {...noop} onModelChange={onModelChange} />)
     fireEvent.change(screen.getByLabelText('모델'), { target: { value: 'gpt-5.5' } })
     expect(onModelChange).toHaveBeenCalledWith({ model: 'gpt-5.5' })
@@ -60,11 +60,11 @@ describe('HarnessStructurePanel', () => {
     expect(onModelChange).toHaveBeenCalledWith({ workerConcurrency: 3 })
   })
 
-  test('claude shows permission mode, not codex sandbox', () => {
-    const config = createDefaultHarnessConfig() // engine defaults to claude
-    render(<HarnessStructurePanel config={config} activeState={null} {...noop} />)
-    expect(screen.getByLabelText('permission mode')).toBeDefined()
-    expect(screen.queryByLabelText('sandbox')).toBeNull()
+  test('codex controls are shown and claude permission mode is absent', () => {
+    render(<HarnessStructurePanel config={createDefaultHarnessConfig()} activeState={null} {...noop} />)
+    expect(screen.getByLabelText('sandbox')).toBeDefined()
+    expect(screen.getByLabelText('approval')).toBeDefined()
+    expect(screen.queryByLabelText('permission mode')).toBeNull()
   })
 
   test('close button calls onClose', () => {

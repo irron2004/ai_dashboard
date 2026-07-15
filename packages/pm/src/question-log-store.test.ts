@@ -28,6 +28,32 @@ describe('QuestionLogStore', () => {
     expect(rows[0]).toMatchObject({ sessionId: 's1', agent: 'claude', projectId: 'p1' })
   })
 
+  test('record skips internal machine prompts', () => {
+    store.record(session({
+      turns: [
+        { role: 'user', text: '진짜 질문', timestamp: '2026-07-07T10:00:00Z', toolCalls: [] },
+        {
+          role: 'user',
+          text: '# Knowledge Harness Rules\n\n## Role: wiki-graph-lead\n\n## Input\n{}\n\n## Output\nRespond with ONLY a single JSON object',
+          timestamp: '2026-07-07T10:01:00Z',
+          toolCalls: [],
+        },
+      ],
+    }))
+    expect(store.listRecent({ projectId: 'p1' }).map((r) => r.text)).toEqual(['진짜 질문'])
+  })
+
+  test('listRecent hides previously recorded internal prompts', () => {
+    db.prepare('INSERT INTO question_log (session_id, project_id, ts, agent, text) VALUES (?, ?, ?, ?, ?)').run(
+      'old', 'p1', '2026-07-07T10:02:00Z', 'claude',
+      '# Knowledge Harness Rules\n\n## Role: knowledge-node-extractor\n\n## Input\n{}\n\n## Output',
+    )
+    db.prepare('INSERT INTO question_log (session_id, project_id, ts, agent, text) VALUES (?, ?, ?, ?, ?)').run(
+      'real', 'p1', '2026-07-07T10:01:00Z', 'claude', '사람 질문',
+    )
+    expect(store.listRecent({ projectId: 'p1' }).map((r) => r.text)).toEqual(['사람 질문'])
+  })
+
   test('record is idempotent per session (re-record → no duplicates)', () => {
     store.record(session())
     store.record(session())

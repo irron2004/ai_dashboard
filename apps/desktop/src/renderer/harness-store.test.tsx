@@ -25,7 +25,7 @@ const mockApi = api as unknown as {
   harnessPromoteCanonical: ReturnType<typeof vi.fn>
 }
 
-const RUN_STATE = { runId: 'RUN-1', projectId: 'p1', engine: 'claude', state: 'HUMAN_REVIEW_REQUIRED', history: [], artifacts: {} }
+const RUN_STATE = { runId: 'RUN-1', projectId: 'p1', engine: 'codex', state: 'HUMAN_REVIEW_REQUIRED', history: [], artifacts: {} }
 
 describe('harness store actions (api mocked)', () => {
   beforeEach(() => {
@@ -67,21 +67,21 @@ describe('harness store actions (api mocked)', () => {
     expect(useStore.getState().harnessMessage).toContain('conflict.md')
   })
 
-  test('startHarnessRun runs then loads the run; selects it and reports final state', async () => {
+  test('startHarnessRun forces codex even when an old in-memory config names another engine', async () => {
     const cfg = createDefaultHarnessConfig()
-    cfg.model.engine = 'opencode'
+    ;(cfg.model as unknown as { engine: string }).engine = 'opencode'
     useStore.setState({ harnessConfigs: { p1: cfg } })
     mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-2', finalState: 'HUMAN_REVIEW_REQUIRED' })
     mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-2' }, artifacts: [] })
     await useStore.getState().startHarnessRun()
-    expect(mockApi.harnessRun).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1', engine: 'opencode' }))
+    expect(mockApi.harnessRun).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1', engine: 'codex' }))
     expect(useStore.getState().selectedHarnessRunId).toBe('RUN-2')
     expect(useStore.getState().harnessMessage).toContain('RUN-2')
   })
 
   test('startHarnessRun(true) forwards materialize:true to api.harnessRun', async () => {
     const cfg = createDefaultHarnessConfig()
-    cfg.model.engine = 'opencode'
+    ;(cfg.model as unknown as { engine: string }).engine = 'opencode'
     useStore.setState({ harnessConfigs: { p1: cfg } })
     mockApi.harnessRun.mockResolvedValue({ ok: true, runId: 'RUN-3', finalState: 'HUMAN_REVIEW_REQUIRED' })
     mockApi.harnessGetRun.mockResolvedValue({ ok: true, runState: { ...RUN_STATE, runId: 'RUN-3' }, artifacts: [] })

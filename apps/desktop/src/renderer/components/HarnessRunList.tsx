@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { WIKI_GENERATION_ENGINE } from '../../shared/ipc-contract.js'
 import {
   HARNESS_STATE_ORDER, formatTimestamp, isRunResumable, runModeLabel, runStartedAt, runUpdatedAt,
   stateProgress, stateTone, type HarnessRunBundle,
@@ -167,9 +168,8 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
                   </div>
 
                   <div className="harness-run-list__footer">
-                    <span>{updatedAt}</span>
-                    <span>{bundle.artifacts.length} artifacts</span>
-                    {isRunResumable(runState.state) && (
+                    <span>{updatedAt} · {bundle.artifacts.length} artifacts</span>
+                    {runState.engine === WIKI_GENERATION_ENGINE && isRunResumable(runState.state) && (
                       <button
                         type="button"
                         className="harness-run-list__resume"

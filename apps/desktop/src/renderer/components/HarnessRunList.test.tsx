@@ -3,10 +3,10 @@ import { describe, expect, test, vi } from 'vitest'
 import type { HarnessRunBundle } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 
-function bundle(runId: string, state: string, mode?: 'full-docs' | 'recent-sessions'): HarnessRunBundle {
+function bundle(runId: string, state: string, mode?: 'full-docs' | 'recent-sessions', engine: 'codex' | 'claude' = 'codex'): HarnessRunBundle {
   return {
     runState: {
-      runId, state, engine: 'claude', projectId: 'p1',
+      runId, state, engine, projectId: 'p1',
       history: [{ state: 'CREATED', at: '2026-06-12T01:00:00Z' }],
     } as unknown as HarnessRunBundle['runState'],
     artifacts: [],
@@ -56,6 +56,12 @@ describe('HarnessRunList (실행 이력)', () => {
   test('card shows mode label when bundle has mode', () => {
     render(<HarnessRunList {...baseProps} runs={[bundle('RUN-1', 'MERGED', 'full-docs')]} onStartRun={vi.fn()} onResumeRun={vi.fn()} />)
     expect(screen.getByText(/전체 문서/)).toBeDefined()
+    expect(screen.getByText(/· 0 artifacts/)).toBeDefined()
+  })
+
+  test('legacy claude runs cannot expose a resume action', () => {
+    render(<HarnessRunList {...baseProps} runs={[bundle('RUN-claude', 'FAILED', undefined, 'claude')]} onStartRun={vi.fn()} onResumeRun={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /이어하기/ })).toBeNull()
   })
 
   test('Enter on the resume button does not also select the card', () => {

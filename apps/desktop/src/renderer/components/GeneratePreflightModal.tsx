@@ -1,15 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId } from '../../shared/ipc-contract.js'
+import { WIKI_GENERATION_ENGINE, type GeneratePreflightCategoryId } from '../../shared/ipc-contract.js'
 import { useStore } from '../store.js'
 import { api } from '../api.js'
 
-// Display/shortcut order: claude | opencode | codex
-const AGENTS: AgentType[] = ['claude', 'opencode', 'codex']
-
 export function GeneratePreflightModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { selectedProjectId, preflighting, generatePreflight, generating, generation, generate, clearGeneratePreflight, clearGeneration } = useStore()
-  const [selectedGenerateEngine, setSelectedGenerateEngine] = useState<AgentType>('claude')
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
 
@@ -56,7 +51,7 @@ export function GeneratePreflightModal({ open, onClose }: { open: boolean; onClo
     .every((category) => selectedCategoryIds.includes(category.id)) ?? false
 
   const runGenerateFromPreflight = () => {
-    void generate(selectedGenerateEngine, selectedCategoryIds)
+    void generate(selectedCategoryIds)
   }
 
   return (
@@ -111,18 +106,16 @@ export function GeneratePreflightModal({ open, onClose }: { open: boolean; onClo
             <div className="generate-preflight__confirm">
               <label>
                 Engine
-                <select value={selectedGenerateEngine} disabled={generating} onChange={(e) => setSelectedGenerateEngine(e.target.value as AgentType)}>
-                  {AGENTS.map((item) => <option key={item} value={item}>{item}</option>)}
-                </select>
+                <input aria-label="Engine" value={WIKI_GENERATION_ENGINE} readOnly disabled />
               </label>
-              <p>진행하시겠습니까? 정확한 퍼센트 대신 현재 단계와 결과를 표시합니다.</p>
+              <p>Codex로만 생성합니다. 정확한 퍼센트 대신 현재 단계와 결과를 표시합니다.</p>
             </div>
           </>
         )}
 
         {generating && (
           <div className="generate-preflight__status">
-            Generating with {selectedGenerateEngine}. The app is summarizing the latest matching LLM CLI session and writing a proposal…
+            Generating with {WIKI_GENERATION_ENGINE}. The app is summarizing the latest matching LLM CLI session and writing a proposal…
           </div>
         )}
 

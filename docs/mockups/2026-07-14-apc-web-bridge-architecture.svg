@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" font-family="'Segoe UI', -apple-system, sans-serif">
+  <title>APC fixture 브라우저 QA, Electron 스모크, 읽기 전용 원격 제품 구조</title>
+  <desc>실제 renderer는 ApcBridge 아래에서 FixtureBridge 또는 Electron preload를 사용한다. status-web은 범용 IPC 프록시가 아닌 별도 읽기 전용 제품 경로다.</desc>
+  <rect width="980" height="560" rx="14" fill="#091017"/>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#61738c"/>
+    </marker>
+  </defs>
+
+  <text x="490" y="34" text-anchor="middle" font-size="16" font-weight="700" fill="#eaf1fb">APC QA 표면 — 결정적 fixture 먼저, Electron은 얇게, 원격 웹은 읽기 전용</text>
+
+  <rect x="350" y="54" width="280" height="56" rx="10" fill="#1c1636" stroke="#7f77dd" stroke-width="1.3"/>
+  <text x="490" y="77" text-anchor="middle" font-size="14" font-weight="650" fill="#cecbf6">실제 Renderer (React + Vite)</text>
+  <text x="490" y="97" text-anchor="middle" font-size="11" fill="#8a80c9">실제 app.css · 동일 컴포넌트 · xterm 포함</text>
+
+  <line x1="490" y1="110" x2="490" y2="137" stroke="#61738c" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="370" y="139" width="240" height="52" rx="10" fill="#141c28" stroke="#61738c" stroke-width="1.2"/>
+  <text x="490" y="161" text-anchor="middle" font-size="13" font-weight="650" fill="#eaf1fb">ApcBridge · window.apc</text>
+  <text x="490" y="179" text-anchor="middle" font-size="11" fill="#8ea0b6">invoke 1 · send 7 · on* 8</text>
+
+  <line x1="430" y1="191" x2="245" y2="230" stroke="#61738c" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="550" y1="191" x2="735" y2="230" stroke="#61738c" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <rect x="70" y="232" width="350" height="64" rx="10" fill="#0d1d30" stroke="#378add" stroke-width="1.3"/>
+  <text x="245" y="256" text-anchor="middle" font-size="13" font-weight="650" fill="#b5d4f4">FixtureBridge · Track 1A</text>
+  <text x="245" y="277" text-anchor="middle" font-size="11" fill="#6fa3d8">고정 invoke 응답 · 이벤트 · workspace restore · run 상태</text>
+
+  <rect x="560" y="232" width="350" height="64" rx="10" fill="#0c2420" stroke="#1d9e75" stroke-width="1.3"/>
+  <text x="735" y="256" text-anchor="middle" font-size="13" font-weight="650" fill="#9fe1cb">Electron preload · Track 1B</text>
+  <text x="735" y="277" text-anchor="middle" font-size="11" fill="#5dbfa0">ipcRenderer → ipcMain · 실제 앱 조립 경계</text>
+
+  <line x1="245" y1="296" x2="245" y2="329" stroke="#61738c" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="735" y1="296" x2="735" y2="329" stroke="#61738c" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <rect x="70" y="331" width="350" height="76" rx="10" fill="#111d2a" stroke="#378add" stroke-width="1.1"/>
+  <text x="245" y="355" text-anchor="middle" font-size="13" font-weight="650" fill="#b5d4f4">시나리오 데이터 → Playwright Chromium</text>
+  <text x="245" y="376" text-anchor="middle" font-size="10.8" fill="#8ea0b6">empty · dense · generating · 401/긴 경로</text>
+  <text x="245" y="394" text-anchor="middle" font-size="10.8" fill="#8ea0b6">20+ changes · large graph · 긴 한글/좁은 viewport</text>
+
+  <rect x="560" y="331" width="350" height="76" rx="10" fill="#10251f" stroke="#1d9e75" stroke-width="1.1"/>
+  <text x="735" y="355" text-anchor="middle" font-size="13" font-weight="650" fill="#9fe1cb">ipcMain → Container → 임시 userData</text>
+  <text x="735" y="376" text-anchor="middle" font-size="10.8" fill="#77c9ac">부팅 · preload · 실제 IPC · 탭 · 단축키</text>
+  <text x="735" y="394" text-anchor="middle" font-size="10.8" fill="#77c9ac">APC_E2E_USER_DATA_DIR · Windows x64 smoke</text>
+
+  <line x1="490" y1="427" x2="490" y2="457" stroke="#45576e" stroke-width="1.2" stroke-dasharray="5 5"/>
+  <text x="490" y="442" text-anchor="middle" font-size="10.5" fill="#61738c">QA 필수 경로와 제품 경계 분리</text>
+
+  <rect x="140" y="459" width="700" height="70" rx="11" fill="#2b1c10" stroke="#d89a30" stroke-width="1.2"/>
+  <text x="255" y="485" text-anchor="middle" font-size="13" font-weight="650" fill="#f4d2a2">status-web</text>
+  <line x1="330" y1="493" x2="440" y2="493" stroke="#9c7740" stroke-width="1.3" marker-end="url(#arr)"/>
+  <text x="515" y="485" text-anchor="middle" font-size="13" font-weight="650" fill="#f4d2a2">읽기 전용 DB/API</text>
+  <line x1="595" y1="493" x2="690" y2="493" stroke="#9c7740" stroke-width="1.3" marker-end="url(#arr)"/>
+  <text x="755" y="485" text-anchor="middle" font-size="13" font-weight="650" fill="#f4d2a2">원격 대시보드</text>
+  <text x="490" y="515" text-anchor="middle" font-size="10.8" fill="#c49a5a">명시적 read-only API allowlist · 토큰 인증 · 범용 IPC 프록시 아님</text>
+
+  <text x="490" y="549" text-anchor="middle" font-size="10.5" fill="#61738c">spec: docs/superpowers/specs/2026-07-14-agent-qa-surface-design.md</text>
+</svg>

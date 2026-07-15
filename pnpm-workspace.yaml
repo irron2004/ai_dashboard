@@ -4,6 +4,9 @@ packages:
 # Flat node_modules so node-gyp / electron-rebuild can build native modules (node-pty,
 # better-sqlite3) on Windows. pnpm 11 reads nodeLinker from here, not just .npmrc.
 nodeLinker: hoisted
+# @electron/rebuild pulls @electron/node-gyp from a git repository. pnpm 11 blocks
+# that as an exotic subdependency unless this is explicitly allowed.
+blockExoticSubdeps: false
 allowBuilds:
   '@homebridge/node-pty-prebuilt-multiarch': true
   better-sqlite3: true

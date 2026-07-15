@@ -1,0 +1,47 @@
+appId: com.apc.desktop
+productName: Agent Project Console
+copyright: Copyright (c) 2026 APC
+
+# electron is hoisted to the workspace-root node_modules, so electron-builder
+# cannot reliably auto-detect it from apps/desktop/package.json.
+electronVersion: 31.7.7
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+
+extraResources:
+  - from: ../../wiki-domains
+    to: wiki-domains
+    filter:
+      - "**/*"
+
+# Native .node addons must be outside app.asar. The app loads these modules at
+# runtime, after they are rebuilt for Electron's ABI on the target machine.
+asarUnpack:
+  - "**/*.node"
+  - node_modules/better-sqlite3/**
+  - node_modules/@homebridge/node-pty-prebuilt-multiarch/**
+
+npmRebuild: false
+buildDependenciesFromSource: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Agent Project Console

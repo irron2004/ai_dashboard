@@ -51,7 +51,8 @@ describe('wiki policy store actions (api mocked)', () => {
       effectivePreview: 'BASE\n\n## Project Tailoring',
       body: '## Project Tailoring',
     })
-    await useStore.getState().proposeWikiPolicy('p1', 'claude')
+    await useStore.getState().proposeWikiPolicy('p1')
+    expect(mockApi.harnessProposePolicy).toHaveBeenCalledWith({ projectId: 'p1', engine: 'codex' })
     expect(useStore.getState().wikiPolicyPreview).toBe('BASE\n\n## Project Tailoring')
     expect(useStore.getState().wikiPolicy?.proposal.project_id).toBe('p1')
     expect(useStore.getState().wikiPolicy?.body).toBe('## Project Tailoring')   // real body, not ''
@@ -59,13 +60,13 @@ describe('wiki policy store actions (api mocked)', () => {
 
   test('proposeWikiPolicy sets wikiPolicyBusy=false after completion', async () => {
     mockApi.harnessProposePolicy.mockResolvedValue({ ok: true, proposal: PROPOSAL, effectivePreview: 'X' })
-    await useStore.getState().proposeWikiPolicy('p1', 'claude')
+    await useStore.getState().proposeWikiPolicy('p1')
     expect(useStore.getState().wikiPolicyBusy).toBe(false)
   })
 
   test('proposeWikiPolicy stores a failure message on ok:false', async () => {
     mockApi.harnessProposePolicy.mockResolvedValue({ ok: false, reason: 'context too short' })
-    await useStore.getState().proposeWikiPolicy('p1', 'claude')
+    await useStore.getState().proposeWikiPolicy('p1')
     expect(useStore.getState().wikiPolicyMessage).toContain('context too short')
     expect(useStore.getState().wikiPolicy).toBeNull()
     expect(useStore.getState().wikiPolicyBusy).toBe(false)
@@ -73,7 +74,7 @@ describe('wiki policy store actions (api mocked)', () => {
 
   test('proposeWikiPolicy clears wikiPolicyBusy even when the api rejects', async () => {
     mockApi.harnessProposePolicy.mockRejectedValue(new Error('ipc down'))
-    await useStore.getState().proposeWikiPolicy('p1', 'claude')
+    await useStore.getState().proposeWikiPolicy('p1')
     expect(useStore.getState().wikiPolicyBusy).toBe(false)
     expect(useStore.getState().wikiPolicyMessage).toContain('ipc down')
   })

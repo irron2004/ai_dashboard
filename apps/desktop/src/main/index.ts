@@ -7,13 +7,22 @@ import { PtyManager } from './pty-manager.js'
 import { SessionStore } from './session-store.js'
 import { adapterFor, findLatestSession } from '@apc/agents'
 import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq, type PtyResizeReq, type TestSshReq, type PaneRef, type WorkspaceRestore } from '../shared/ipc-contract.js'
+import { configureE2EUserDataPath } from './e2e-user-data.js'
 
 // electron-vite injects import.meta.dirname-equivalent paths; on Node 24 ESM import.meta.dirname exists.
 const here = import.meta.dirname
 
+// Must run before app.ready: both Chromium session state and apc.db derive from userData.
+configureE2EUserDataPath(app)
+
 // Guard so before-quit is registered only once even if createWindow is called again
 // (e.g. macOS dock re-activation via app.on('activate')).
 let quitHandlerRegistered = false
+
+function configurePackagedResources(): void {
+  if (!app.isPackaged || process.env.APC_PAPER_CONTRACT_DIR) return
+  process.env.APC_PAPER_CONTRACT_DIR = join(process.resourcesPath, 'wiki-domains', 'paper', 'runtime')
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -130,6 +139,9 @@ function createWindow(): void {
 process.on('uncaughtException', (err) => { console.error('[main] uncaughtException:', err) })
 process.on('unhandledRejection', (err) => { console.error('[main] unhandledRejection:', err) })
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  configurePackagedResources()
+  createWindow()
+})
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

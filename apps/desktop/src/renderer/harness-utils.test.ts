@@ -1,8 +1,26 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, isRunResumable, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, buildPaperGraphData, resolveStagedRel } from './harness-utils.js'
+import { appendTailLines, createDefaultHarnessConfig, isRunResumable, modelSettingsToEngineOptions, normalizeHarnessConfigForWiki, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, buildPaperGraphData, resolveStagedRel } from './harness-utils.js'
 import type { HarnessRunArtifact, HarnessRunBundle } from './harness-utils.js'
 
 const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
+
+describe('codex-only wiki configuration', () => {
+  test('defaults to codex and drops claude-only permission options', () => {
+    const config = createDefaultHarnessConfig()
+    expect(config.model.engine).toBe('codex')
+    ;(config.model as unknown as { permissionMode: string }).permissionMode = 'bypassPermissions'
+    expect(modelSettingsToEngineOptions(config.model).permissionMode).toBeUndefined()
+  })
+
+  test('normalizes a persisted legacy engine to codex', () => {
+    const legacy = createDefaultHarnessConfig()
+    ;(legacy.model as unknown as { engine: string; permissionMode: string }).engine = 'claude'
+    ;(legacy.model as unknown as { engine: string; permissionMode: string }).permissionMode = 'plan'
+    const loaded = normalizeHarnessConfigForWiki(legacy)
+    expect(loaded.model.engine).toBe('codex')
+    expect(loaded.model.permissionMode).toBeUndefined()
+  })
+})
 
 describe('buildPaperGraphData (autosci graph from nodes + edges.jsonl)', () => {
   const nodes = [

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent, ProjectStructureHintDto } from '../shared/ipc-contract.js'
+import { WIKI_GENERATION_ENGINE, type GeneratePreflightCategoryId, type GeneratePreflightRes, type ProjectDashboardRes, type GenerateProjectRes, type HarnessCanonicalProposalsRes, type WikiPolicyRecordDto, type HarnessLiveNode, type HarnessNodesEvent, type ProjectStructureHintDto } from '../shared/ipc-contract.js'
 import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
@@ -72,7 +72,7 @@ type ApcStore = {
   wikiPolicyPreview: string | null
   wikiPolicyBusy: boolean
   wikiPolicyMessage: string | null
-  proposeWikiPolicy(projectId: string, engine: AgentType): Promise<void>
+  proposeWikiPolicy(projectId: string): Promise<void>
   approveWikiPolicy(projectId: string): Promise<void>
   loadWikiPolicy(projectId: string): Promise<void>
   revertWikiPolicy(projectId: string): Promise<void>
@@ -89,7 +89,7 @@ type ApcStore = {
   resumeAgentSession(key: string, sessionId: string): void
   stopAgent(key: string): void
   prepareGenerate(): Promise<void>
-  generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
+  generate(selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
   clearGeneratePreflight(): void
   clearGeneration(): void
   loadProjects(): Promise<void>
@@ -252,12 +252,12 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
-  async generate(engine, selectedPreflightCategoryIds) {
+  async generate(selectedPreflightCategoryIds) {
     const { selectedProjectId } = get()
     if (!selectedProjectId) { set({ error: 'Select a project first.' }); return }
     set({ generating: true, generation: null })
     try {
-      const generation = await api.generateProject({ projectId: selectedProjectId, engine, selectedPreflightCategoryIds })
+      const generation = await api.generateProject({ projectId: selectedProjectId, engine: WIKI_GENERATION_ENGINE, selectedPreflightCategoryIds })
       set({ generation })
       if (!generation.ok) set({ error: generation.reason ?? 'Generate failed' })
     } catch (e) {
@@ -403,12 +403,16 @@ export const useStore = create<ApcStore>((set, get) => ({
   async startHarnessRun(materialize = false, fullRegen = false, interactive = false, projectContext?: ProjectStructureHintDto) {
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
-    const config = getHarnessConfig(get(), projectId)
+    const storedConfig = getHarnessConfig(get(), projectId)
+    const config: HarnessConfig = {
+      ...storedConfig,
+      model: { ...storedConfig.model, engine: WIKI_GENERATION_ENGINE, permissionMode: undefined },
+    }
     set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
     try {
       const started = await api.harnessRun({
         projectId,
-        engine: config.model.engine,
+        engine: WIKI_GENERATION_ENGINE,
         materialize,
         engineOptions: modelSettingsToEngineOptions(config.model),
         workerConcurrency: config.model.workerConcurrency,
@@ -578,7 +582,10 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) return
     const current = getHarnessConfig(get(), projectId)
-    const next = { ...current, model: { ...current.model, ...patch } }
+    const next: HarnessConfig = {
+      ...current,
+      model: { ...current.model, ...patch, engine: WIKI_GENERATION_ENGINE, permissionMode: undefined },
+    }
     set((state) => updateHarnessConfig(state as ApcStore, projectId, next))
     saveHarnessConfig(projectId, next)
   },
@@ -626,10 +633,10 @@ export const useStore = create<ApcStore>((set, get) => ({
     })
   },
 
-  async proposeWikiPolicy(projectId, engine) {
+  async proposeWikiPolicy(projectId) {
     set({ wikiPolicyBusy: true, wikiPolicyMessage: null })
     try {
-      const res = await api.harnessProposePolicy({ projectId, engine })
+      const res = await api.harnessProposePolicy({ projectId, engine: WIKI_GENERATION_ENGINE })
       if (res.ok && res.proposal) {
         set({
           wikiPolicyPreview: res.effectivePreview ?? null,

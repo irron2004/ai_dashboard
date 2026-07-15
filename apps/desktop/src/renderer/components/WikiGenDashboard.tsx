@@ -270,7 +270,7 @@ export function WikiGenDashboard() {
             policy={wikiPolicy}
             policyPreview={wikiPolicyPreview}
             policyBusy={wikiPolicyBusy}
-            onProposePolicy={() => selectedProjectId && proposeWikiPolicy(selectedProjectId, config.model.engine)}
+            onProposePolicy={() => selectedProjectId && proposeWikiPolicy(selectedProjectId)}
             onApprovePolicy={() => selectedProjectId && approveWikiPolicy(selectedProjectId)}
             onRevertPolicy={() => selectedProjectId && revertWikiPolicy(selectedProjectId)}
           />

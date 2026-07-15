@@ -2,6 +2,8 @@
 node_modules/
 out/
 dist/
+dist-windows*/
+apps/desktop/e2e/artifacts/
 .claude/
 .superpowers/
 .venv-substrate/

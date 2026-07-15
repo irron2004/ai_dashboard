@@ -12,6 +12,7 @@ import { GlobalMenu } from './components/GlobalMenu.js'
 import { ResumeBanner } from './components/ResumeBanner.js'
 import { QuestionHistory } from './components/QuestionHistory.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
+import type { ConversationHistoryReq } from '../shared/ipc-contract.js'
 import './app.css'
 
 // Display/shortcut order: claude | opencode | codex
@@ -51,7 +52,9 @@ export function App() {
   })
   const [searchOpen, setSearchOpen] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
-  const [historyScope, setHistoryScope] = useState<{ open: boolean; scope: string | null }>({ open: false, scope: null })
+  const [historyScope, setHistoryScope] = useState<{ open: boolean; projectId: string | null; agent: AgentType }>({
+    open: false, projectId: null, agent: 'codex',
+  })
   const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -303,9 +306,9 @@ export function App() {
 
   const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
-  // Stable identity so QuestionHistory's fetch effect (deps include fetchLog) doesn't re-fire on every
+  // Stable identity so QuestionHistory's fetch effect doesn't re-fire on every
   // App re-render while the panel is open.
-  const fetchQuestionLog = useCallback((req: { projectId?: string; limit?: number }) => api.questionLog(req), [])
+  const fetchConversationHistory = useCallback((req: ConversationHistoryReq) => api.conversationHistory(req), [])
 
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
@@ -337,7 +340,14 @@ export function App() {
             setAgent(t.agent)
             resumeAgentSession(`${selectedProjectId}:${t.agent}`, t.sessionId)
           }}
-          onOpenHistory={() => { dismissResumeBanner(); setHistoryScope({ open: true, scope: selectedProjectId }) }}
+          onOpenHistory={() => {
+            dismissResumeBanner()
+            setHistoryScope({
+              open: true,
+              projectId: selectedProjectId,
+              agent: resumeCard.lastQuestion?.agent ?? resumeCard.resumeTarget?.agent ?? agent,
+            })
+          }}
           onAddNote={(text) => void addNextNote(text)}
         />
       )}
@@ -516,13 +526,10 @@ export function App() {
 
       <QuestionHistory
         open={historyScope.open}
-        scope={historyScope.scope}
-        fetchLog={fetchQuestionLog}
+        projectId={historyScope.projectId}
+        initialAgent={historyScope.agent}
+        fetchHistory={fetchConversationHistory}
         onClose={() => setHistoryScope((s) => ({ ...s, open: false }))}
-        onPick={(entry) => {
-          setHistoryScope((s) => ({ ...s, open: false }))
-          openProject(entry.projectId)
-        }}
       />
 
       {error && (

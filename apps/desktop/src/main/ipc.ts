@@ -1,13 +1,13 @@
 import { z } from 'zod'
 import { join } from 'node:path'
-import { CH } from '../shared/ipc-contract.js'
+import { CH, WIKI_GENERATION_ENGINE } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq, TasksListReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
-  ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
+  ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
   GitStatusReq, GitFetchReq, GitPullReq, GitCommitPushReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
@@ -18,6 +18,17 @@ import { diffProjectFile, listProjectChanges } from './project-changes.js'
 
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
+}
+
+function blockLegacyWikiContinuation(container: Container, runId: string) {
+  const shown = container.harnessGetRun({ runId })
+  if (!shown.ok || !shown.runState || shown.runState.engine === WIKI_GENERATION_ENGINE) return null
+  return {
+    ok: false,
+    runId,
+    finalState: shown.runState.state,
+    reason: `이 run은 ${shown.runState.engine}로 생성되어 이어갈 수 없습니다. 새 Codex 위키 run을 시작하세요.`,
+  }
 }
 
 export function handlers(container: Container): Record<string, (payload: unknown) => Promise<unknown>> {
@@ -118,21 +129,26 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.generateProject]: async (payload: unknown) => {
       const req = payload as GenerateProjectReq
-      return container.generateProject(req)
+      return container.generateProject({ ...req, engine: WIKI_GENERATION_ENGINE })
     },
 
     [CH.harnessRun]: async (payload: unknown) => {
-      return container.harnessRun(payload as HarnessRunReq)
+      const req = payload as HarnessRunReq
+      return container.harnessRun({ ...req, engine: WIKI_GENERATION_ENGINE })
     },
 
     [CH.harnessResume]: async (payload: unknown) => {
       const req = z.object({ runId: z.string() }).strict().parse(payload)
+      const blocked = blockLegacyWikiContinuation(container, req.runId)
+      if (blocked) return blocked
       return container.harnessResume(req)
     },
 
     [CH.harnessConfirmNodes]: async (payload: unknown) => {
       const nodeSchema = z.object({ id: z.string().optional(), title: z.string(), type: z.string().optional(), source_proposal_id: z.string().optional() })
       const req = z.object({ runId: z.string(), approvedNodes: z.object({ nodes: z.array(nodeSchema) }) }).strict().parse(payload)
+      const blocked = blockLegacyWikiContinuation(container, req.runId)
+      if (blocked) return blocked
       return container.harnessConfirmNodes(req as HarnessConfirmNodesReq)
     },
 
@@ -159,7 +175,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
     [CH.harnessProposePolicy]: async (payload: unknown) => {
       // strict parse: engine + repoPaths flow into the LLM runner, so validate at the boundary
       const req = z.object({ projectId: z.string(), engine: AgentKind, repoPaths: z.array(z.string()).optional() }).strict().parse(payload)
-      return container.harnessProposePolicy(req)
+      return container.harnessProposePolicy({ ...req, engine: WIKI_GENERATION_ENGINE })
     },
 
     [CH.harnessApprovePolicy]: async (payload: unknown) => {
@@ -231,7 +247,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
         run,
         session,
         projectId: req.projectId,
-        engine: req.engine,
+        engine: WIKI_GENERATION_ENGINE,
         currentCanonical: req.currentCanonical,
         endedAt: new Date().toISOString(),
       })
@@ -268,6 +284,14 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
     [CH.questionLog]: async (payload: unknown) => {
       return container.questionLog(payload as QuestionLogReq)
+    },
+    [CH.conversationHistory]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        agent: AgentKind,
+        limit: z.number().int().min(1).max(100).optional(),
+      }).strict().parse(payload) as ConversationHistoryReq
+      return container.conversationHistory(req)
     },
     [CH.nextNoteAdd]: async (payload: unknown) => {
       return container.nextNoteAdd(payload as NextNoteAddReq)

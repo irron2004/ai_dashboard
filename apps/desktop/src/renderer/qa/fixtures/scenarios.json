@@ -1,0 +1,79 @@
+{
+  "empty-project": {
+    "projectCount": 0,
+    "documentCount": 0,
+    "taskCount": 0,
+    "changeCount": 0,
+    "graphNodeCount": 0,
+    "graphEdgeCount": 0,
+    "generating": false,
+    "seedFailedRun": false,
+    "longLabels": false
+  },
+  "many-projects-docs": {
+    "projectCount": 18,
+    "documentCount": 240,
+    "taskCount": 24,
+    "changeCount": 8,
+    "graphNodeCount": 24,
+    "graphEdgeCount": 42,
+    "generating": false,
+    "seedFailedRun": false,
+    "longLabels": false
+  },
+  "wiki-generating": {
+    "projectCount": 1,
+    "documentCount": 64,
+    "taskCount": 10,
+    "changeCount": 6,
+    "graphNodeCount": 36,
+    "graphEdgeCount": 60,
+    "generating": true,
+    "seedFailedRun": false,
+    "longLabels": false
+  },
+  "auth-failure-long-path": {
+    "projectCount": 1,
+    "documentCount": 48,
+    "taskCount": 8,
+    "changeCount": 5,
+    "graphNodeCount": 18,
+    "graphEdgeCount": 28,
+    "generating": false,
+    "seedFailedRun": true,
+    "longLabels": false
+  },
+  "many-changes": {
+    "projectCount": 1,
+    "documentCount": 72,
+    "taskCount": 12,
+    "changeCount": 24,
+    "graphNodeCount": 24,
+    "graphEdgeCount": 40,
+    "generating": false,
+    "seedFailedRun": false,
+    "longLabels": false
+  },
+  "large-graph": {
+    "projectCount": 1,
+    "documentCount": 120,
+    "taskCount": 14,
+    "changeCount": 8,
+    "graphNodeCount": 96,
+    "graphEdgeCount": 180,
+    "generating": false,
+    "seedFailedRun": false,
+    "longLabels": false
+  },
+  "long-korean-narrow": {
+    "projectCount": 1,
+    "documentCount": 56,
+    "taskCount": 12,
+    "changeCount": 8,
+    "graphNodeCount": 30,
+    "graphEdgeCount": 52,
+    "generating": false,
+    "seedFailedRun": false,
+    "longLabels": true
+  }
+}

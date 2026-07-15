@@ -1,13 +1,10 @@
 import { useState } from 'react'
-import type { AgentType } from '@apc/shared'
-import type { WikiPolicyRecordDto } from '../../shared/ipc-contract.js'
+import { WIKI_GENERATION_ENGINE, type WikiPolicyRecordDto } from '../../shared/ipc-contract.js'
 import {
   GATE_WIRING, GATE_WIRING_LABEL, HARNESS_FEATURE_GATES, STRUCTURE_STAGES, stageForState,
-  REASONING_EFFORTS, CODEX_SANDBOXES, CODEX_APPROVALS, CLAUDE_PERMISSION_MODES,
+  REASONING_EFFORTS, CODEX_SANDBOXES, CODEX_APPROVALS,
   type HarnessAgentPromptKey, type HarnessConfig, type HarnessFeatureGateKey, type StructureStageId,
 } from '../harness-utils.js'
-
-const ENGINES: AgentType[] = ['claude', 'opencode', 'codex']
 
 type Props = {
   config: HarnessConfig
@@ -81,16 +78,14 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
       </section>
 
       <section className="structure-panel__engine-cfg">
-        <h3>엔진 / 모델 / 권한 (하니스별)</h3>
-        <p className="muted">모든 에이전트 호출에 적용됩니다. 비워두면 엔진 기본값을 씁니다.</p>
+        <h3>Codex 모델 / 권한 (하니스별)</h3>
+        <p className="muted">위키 생성의 모든 에이전트 호출은 Codex로 고정됩니다. 모델을 비워두면 Codex 기본값을 씁니다.</p>
         <label>
           엔진
-          <select aria-label="엔진" value={config.model.engine} onChange={(e) => onModelChange({ engine: e.target.value as AgentType })}>
-            {ENGINES.map((engine) => <option key={engine} value={engine}>{engine}</option>)}
-          </select>
+          <input aria-label="엔진" value={WIKI_GENERATION_ENGINE} readOnly disabled />
         </label>
         <label>
-          모델 (예: {config.model.engine === 'claude' ? 'claude-opus-4-8' : config.model.engine === 'codex' ? 'gpt-5.5' : 'provider/model'})
+          모델 (예: gpt-5.5)
           <input
             aria-label="모델"
             type="text"
@@ -110,42 +105,27 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
             onChange={(e) => onModelChange({ workerConcurrency: Math.max(1, Number(e.target.value) || 1) })}
           />
         </label>
-        {config.model.engine !== 'claude' && (
-          <label>
-            reasoning effort
-            <select aria-label="reasoning effort" value={config.model.reasoningEffort ?? ''} onChange={(e) => onModelChange({ reasoningEffort: (e.target.value || undefined) as HarnessConfig['model']['reasoningEffort'] })}>
-              <option value="">엔진 기본값</option>
-              {REASONING_EFFORTS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </label>
-        )}
-        {config.model.engine === 'codex' && (
-          <>
-            <label>
-              sandbox
-              <select aria-label="sandbox" value={config.model.sandbox ?? ''} onChange={(e) => onModelChange({ sandbox: (e.target.value || undefined) as HarnessConfig['model']['sandbox'] })}>
-                <option value="">엔진 기본값</option>
-                {CODEX_SANDBOXES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </label>
-            <label>
-              approval
-              <select aria-label="approval" value={config.model.approval ?? ''} onChange={(e) => onModelChange({ approval: (e.target.value || undefined) as HarnessConfig['model']['approval'] })}>
-                <option value="">엔진 기본값</option>
-                {CODEX_APPROVALS.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </label>
-          </>
-        )}
-        {config.model.engine === 'claude' && (
-          <label>
-            permission mode
-            <select aria-label="permission mode" value={config.model.permissionMode ?? ''} onChange={(e) => onModelChange({ permissionMode: (e.target.value || undefined) as HarnessConfig['model']['permissionMode'] })}>
-              <option value="">엔진 기본값</option>
-              {CLAUDE_PERMISSION_MODES.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </label>
-        )}
+        <label>
+          reasoning effort
+          <select aria-label="reasoning effort" value={config.model.reasoningEffort ?? ''} onChange={(e) => onModelChange({ reasoningEffort: (e.target.value || undefined) as HarnessConfig['model']['reasoningEffort'] })}>
+            <option value="">엔진 기본값</option>
+            {REASONING_EFFORTS.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+        <label>
+          sandbox
+          <select aria-label="sandbox" value={config.model.sandbox ?? ''} onChange={(e) => onModelChange({ sandbox: (e.target.value || undefined) as HarnessConfig['model']['sandbox'] })}>
+            <option value="">엔진 기본값</option>
+            {CODEX_SANDBOXES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label>
+          approval
+          <select aria-label="approval" value={config.model.approval ?? ''} onChange={(e) => onModelChange({ approval: (e.target.value || undefined) as HarnessConfig['model']['approval'] })}>
+            <option value="">엔진 기본값</option>
+            {CODEX_APPROVALS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
       </section>
 
       <div className="structure-panel__pipe">
@@ -164,7 +144,7 @@ export function HarnessStructurePanel({ config, activeState, onModelChange, onSa
             <span className="structure-panel__card-name">
               <span className="structure-panel__card-icon">{s.icon}</span>
               <span className="structure-panel__card-label">{s.name}</span>
-              {s.kind === 'agent' && <em className="structure-panel__engine">{config.model.engine}</em>}
+              {s.kind === 'agent' && <em className="structure-panel__engine">{WIKI_GENERATION_ENGINE}</em>}
             </span>
             <span className="structure-panel__card-desc">{s.desc}</span>
           </button>

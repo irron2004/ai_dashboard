@@ -1,5 +1,5 @@
 import type { Db } from '@apc/core'
-import type { NormalizedSession, QuestionLogEntry } from '@apc/shared'
+import { isHumanQuestionText, type NormalizedSession, type QuestionLogEntry } from '@apc/shared'
 
 type Row = { session_id: string; project_id: string; ts: string; agent: string; text: string }
 
@@ -18,20 +18,21 @@ export class QuestionLogStore {
       'INSERT INTO question_log (session_id, project_id, ts, agent, text) VALUES (?, ?, ?, ?, ?)',
     )
     for (const t of session.turns) {
-      if (t.role !== 'user' || !t.text.trim()) continue
+      if (t.role !== 'user' || !isHumanQuestionText(t.text)) continue
       const ts = t.timestamp ?? session.startedAt ?? session.endedAt ?? ''
       ins.run(session.id, projectId, ts, session.agentType, t.text)
     }
   }
 
   listRecent(opts: { projectId?: string; limit?: number } = {}): QuestionLogEntry[] {
-    const limit = opts.limit ?? 50
+    const limit = Math.max(0, opts.limit ?? 50)
+    const scanLimit = limit * 4
     const rows = (opts.projectId
-      ? this.db.prepare('SELECT * FROM question_log WHERE project_id = ? ORDER BY ts DESC, rowid DESC LIMIT ?').all(opts.projectId, limit)
-      : this.db.prepare('SELECT * FROM question_log ORDER BY ts DESC, rowid DESC LIMIT ?').all(limit)) as Row[]
+      ? this.db.prepare('SELECT * FROM question_log WHERE project_id = ? ORDER BY ts DESC, rowid DESC LIMIT ?').all(opts.projectId, scanLimit)
+      : this.db.prepare('SELECT * FROM question_log ORDER BY ts DESC, rowid DESC LIMIT ?').all(scanLimit)) as Row[]
     return rows.map((r) => ({
       projectId: r.project_id, sessionId: r.session_id, ts: r.ts,
       agent: r.agent as QuestionLogEntry['agent'], text: r.text,
-    }))
+    })).filter((r) => isHumanQuestionText(r.text)).slice(0, limit)
   }
 }

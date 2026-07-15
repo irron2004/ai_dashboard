@@ -26,6 +26,7 @@ import type {
   HarnessNodesEvent,
   PaneRef, WorkspaceRestore,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
+  ConversationHistoryReq, ConversationHistoryRes,
   NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse, Task, NextNote, QuestionLogEntry } from '@apc/shared'
@@ -103,6 +104,9 @@ export const api = {
   },
   questionLog(req: { projectId?: string; limit?: number } = {}): Promise<QuestionLogEntry[]> {
     return window.apc.invoke(CH.questionLog, req) as Promise<QuestionLogEntry[]>
+  },
+  conversationHistory(req: ConversationHistoryReq): Promise<ConversationHistoryRes> {
+    return window.apc.invoke(CH.conversationHistory, req) as Promise<ConversationHistoryRes>
   },
   nextNoteAdd(req: NextNoteAddReq): Promise<NextNoteAddRes> {
     return window.apc.invoke(CH.nextNoteAdd, req) as Promise<NextNoteAddRes>

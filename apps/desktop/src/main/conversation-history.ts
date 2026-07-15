@@ -1,0 +1,129 @@
+import type { AgentIngestAdapter } from '@apc/agents'
+import { repoPathMatches } from '@apc/app-services'
+import { isHumanQuestionText, type AgentSource, type NormalizedSession } from '@apc/shared'
+import type {
+  ConversationHistoryReq,
+  ConversationHistoryRes,
+  ConversationSession,
+} from '../shared/ipc-contract.js'
+
+export const CONVERSATION_HISTORY_DEFAULT_LIMIT = 40
+export const CONVERSATION_HISTORY_MAX_LIMIT = 100
+export const CONVERSATION_HISTORY_SOURCE_SCAN_LIMIT = 200
+
+function rankTime(value: string | undefined): number {
+  if (!value) return 0
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+/**
+ * Pair each human user prompt with assistant text up to the next user prompt. A non-human,
+ * non-empty user prompt deliberately closes the active unit so an internal harness response cannot
+ * be appended to the preceding real conversation.
+ */
+export function toConversationSession(session: NormalizedSession): ConversationSession | null {
+  const exchanges: ConversationSession['exchanges'] = []
+  let active: { index: number; answers: string[] } | null = null
+
+  for (const turn of session.turns) {
+    const text = turn.text.trim()
+    if (turn.role === 'user' && text) {
+      if (!isHumanQuestionText(text)) {
+        active = null
+        continue
+      }
+      const index = exchanges.length
+      exchanges.push({
+        id: turn.uuid ?? `question-${index + 1}`,
+        askedAt: turn.timestamp ?? session.startedAt,
+        question: text,
+        answer: null,
+      })
+      active = { index, answers: [] }
+      continue
+    }
+
+    if (turn.role === 'assistant' && text && active) {
+      active.answers.push(text)
+      exchanges[active.index].answer = active.answers.join('\n\n')
+    }
+  }
+
+  if (exchanges.length === 0) return null
+  return {
+    id: session.id,
+    agent: session.agentType,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    branch: session.branch,
+    preview: exchanges[0].question,
+    exchanges,
+  }
+}
+
+type LoadConversationHistoryOpts = {
+  adapters: readonly AgentIngestAdapter[]
+  projectId: string
+  repoPaths: readonly string[]
+  agent: ConversationHistoryReq['agent']
+  limit?: number
+}
+
+type RankedSession = { session: ConversationSession; rank: number }
+
+function canBelongToProject(source: AgentSource, repoPaths: readonly string[]): boolean {
+  return !source.repoPath || repoPathMatches(source.repoPath, repoPaths)
+}
+
+/** Read recent live CLI transcripts for one agent. This intentionally does not depend on ingest:
+ * the history dialog must work immediately after opening the app, before `c:ingestAll` has run. */
+export async function loadConversationHistory(opts: LoadConversationHistoryOpts): Promise<ConversationHistoryRes> {
+  const requestedLimit = Number.isFinite(opts.limit) ? Math.trunc(opts.limit!) : CONVERSATION_HISTORY_DEFAULT_LIMIT
+  const limit = Math.max(1, Math.min(CONVERSATION_HISTORY_MAX_LIMIT, requestedLimit))
+  const empty: ConversationHistoryRes = {
+    projectId: opts.projectId,
+    agent: opts.agent,
+    sessions: [],
+    scannedSources: 0,
+    skippedSources: 0,
+    truncated: false,
+  }
+  if (opts.repoPaths.length === 0) return empty
+
+  const adapter = opts.adapters.find((candidate) => candidate.agentKind === opts.agent)
+  if (!adapter) return empty
+
+  const discovered = await adapter.discoverSources(() => undefined)
+  const candidates = discovered
+    .filter((source) => canBelongToProject(source, opts.repoPaths))
+    .sort((left, right) => (right.mtimeMs ?? 0) - (left.mtimeMs ?? 0))
+  const taken = candidates.slice(0, CONVERSATION_HISTORY_SOURCE_SCAN_LIMIT)
+  const byId = new Map<string, RankedSession>()
+  let skippedSources = 0
+
+  for (const source of taken) {
+    try {
+      const { session } = await adapter.parseSource(source)
+      const candidatePath = session.repoPath ?? session.worktreePath ?? source.repoPath
+      if (!repoPathMatches(candidatePath, opts.repoPaths)) continue
+      const view = toConversationSession(session)
+      if (!view) continue
+      const rank = Math.max(rankTime(session.endedAt), rankTime(session.startedAt), source.mtimeMs ?? 0)
+      const previous = byId.get(session.id)
+      if (!previous || rank > previous.rank) byId.set(session.id, { session: view, rank })
+    } catch {
+      skippedSources += 1
+    }
+  }
+
+  const ranked = [...byId.values()].sort((left, right) => right.rank - left.rank)
+  return {
+    projectId: opts.projectId,
+    agent: opts.agent,
+    sessions: ranked.slice(0, limit).map((item) => item.session),
+    scannedSources: taken.length,
+    skippedSources,
+    truncated: candidates.length > taken.length || ranked.length > limit,
+  }
+}
