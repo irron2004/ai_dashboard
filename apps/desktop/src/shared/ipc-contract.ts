@@ -80,6 +80,7 @@ export const CH = {
   changesList: 'q:changesList',
   changesDiff: 'q:changesDiff',
   gitStatus: 'q:gitStatus',
+  gitWorktrees: 'q:gitWorktrees',
   gitFetch: 'c:gitFetch',
   gitPull: 'c:gitPull',
   gitCommitPush: 'c:gitCommitPush',
@@ -303,6 +304,17 @@ export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }
 
 export type GitStatusReq = { projectId: string; fetch?: boolean }
 export type GitStatusRes = GitSyncStatus
+export type GitWorktreeDto = {
+  path: string
+  branch: string | null
+  head: string
+  detached: boolean
+  isMain: boolean
+  locked?: string
+  prunable?: string
+}
+export type GitWorktreesReq = { projectId: string }
+export type GitWorktreesRes = { ok: boolean; worktrees: GitWorktreeDto[]; reason?: string }
 export type GitFetchReq = { projectId: string }
 export type GitPullReq = { projectId: string }
 export type GitCommitPushReq = { projectId: string; files: string[]; message: string }

@@ -1,11 +1,14 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentType } from '@apc/shared'
-import { useStore, type AgentRunStatus } from './store.js'
+import { useStore } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
 import { MainPanel, type MainTab, type ProjectLoadState } from './components/MainPanel.js'
-import { AgentTerminal } from './components/AgentTerminal.js'
-import { AgentDockHeader } from './components/AgentDockHeader.js'
+import {
+  AgentWorkspaceDock,
+  STATUS_COLOR as AGENT_STATUS_COLOR,
+  type AgentResumeRequest,
+} from './components/AgentWorkspaceDock.js'
 import { SearchModal } from './components/SearchModal.js'
 import { DiffPanel } from './components/DiffPanel.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
@@ -15,32 +18,21 @@ import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import type { ConversationHistoryReq } from '../shared/ipc-contract.js'
 import './app.css'
 
-// Display/shortcut order: claude | opencode | codex
-const AGENTS: AgentType[] = ['claude', 'opencode', 'codex']
-
 // Keep this many recently-visited projects' agent terminals mounted (alive) so switching back and forth
 // among them never reloads claude/codex/opencode. The oldest beyond this is unmounted (reloads on revisit).
 const MAX_KEPT_DOCKS = 8
 
-export const STATUS_COLOR: Record<AgentRunStatus, string> = {
-  idle: '#666',         // not started — grey
-  running: '#4ade80',   // 동작중 — green
-  attention: '#facc15', // 사용자 허가 필요 — yellow
-  done: '#378add',      // 완료 — blue; red is reserved for actual errors
-}
+export const STATUS_COLOR = AGENT_STATUS_COLOR
 
 export function App() {
   const {
-    projects, selectedProjectId, dashboard, error, agentStatus, openPanes,
+    projects, selectedProjectId, dashboard, error,
     harnessLoading, workspaceOverview,
     resumeCard, resumeBannerOpen, loadResumeCard, openResumeBanner, dismissResumeBanner, addNextNote,
-    loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, setAgentStatus, loadWorkspaceOverview,
+    loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, loadWorkspaceOverview,
   } = useStore()
-  const restartAgent = useStore((s) => s.restartAgent)
-  const resumeAgentSession = useStore((s) => s.resumeAgentSession)
-  const stopAgent = useStore((s) => s.stopAgent)
-  const restartNonce = useStore((s) => s.restartNonce)
   const [agent, setAgent] = useState<AgentType>('claude')
+  const [agentResumeRequest, setAgentResumeRequest] = useState<AgentResumeRequest | null>(null)
   // Projects whose agent terminals are kept mounted (insertion order; capped at MAX_KEPT_DOCKS).
   const [openedIds, setOpenedIds] = useState<string[]>([])
   const [mainTab, setMainTab] = useState<MainTab>(() => {
@@ -53,7 +45,6 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
   const [historyFocus, setHistoryFocus] = useState<HistoryFocus | null>(null)
-  const [sizes, setSizes] = useState<number[]>([1, 1, 1]) // horizontal column flex per agent; drag to resize
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:sidebarCollapsed') === '1' } catch { return false }
@@ -71,7 +62,6 @@ export function App() {
     return v
   }), [])
   const RAIL_W = 56                                        // collapsed icon-rail width
-  const termRef = useRef<HTMLDivElement | null>(null)
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
     { open: false, running: false, log: '', ok: false },
   )
@@ -79,7 +69,7 @@ export function App() {
   const effectiveSidebarW = sidebarCollapsed ? RAIL_W : sidebarW
   const appLayoutStyle: CSSProperties & Record<'--sidebar-width' | '--dock-height', string> = {
     '--sidebar-width': `${effectiveSidebarW}px`,
-    '--dock-height': dockCollapsed ? '30px' : `${dockHeight}px`,
+    '--dock-height': dockCollapsed ? '48px' : `${dockHeight}px`,
   }
   const toggleSidebar = () => setSidebarCollapsed((prev) => {
     const next = !prev
@@ -107,34 +97,6 @@ export function App() {
       }
     }
   }, [])
-
-  // Drag a divider between terminal column i and i+1 (horizontal resize).
-  const startColDrag = (i: number) => (e: ReactMouseEvent) => {
-    e.preventDefault()
-    if (dragRef.current) {
-      window.removeEventListener('mousemove', dragRef.current.onMove)
-      window.removeEventListener('mouseup', dragRef.current.onUp)
-    }
-    const startX = e.clientX
-    const start = [...sizes]
-    const w = termRef.current?.clientWidth ?? 1
-    const total = start.reduce((x, y) => x + y, 0)
-    const onMove = (ev: MouseEvent) => {
-      const d = ((ev.clientX - startX) / w) * total
-      const next = [...start]
-      next[i] = Math.max(0.15, start[i] + d)
-      next[i + 1] = Math.max(0.15, start[i + 1] - d)
-      setSizes(next)
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      dragRef.current = null
-    }
-    dragRef.current = { onMove, onUp }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
 
   // Drag the dock's top edge up/down to resize the agent-terminal panel height. Dragging up (clientY
   // decreasing) makes the dock taller. Persist the final height; one window 'resize' on release lets the
@@ -213,19 +175,13 @@ export function App() {
     return m
   }, [workspaceOverview])
 
-  // Keyboard: Ctrl+1..9 → project by index; Shift+1/2/3 → agent.
+  // Keyboard: Ctrl+1..9 → project by index. Dynamic agent shortcuts live in AgentWorkspaceDock.
   // Use e.code (Digit1..) because Shift turns e.key '1' into '!'. Capture phase + stopPropagation
   // so a focused terminal doesn't also receive the keystroke.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.code.startsWith('Digit')) return
       const n = Number(e.code.slice(5))
-      if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && n >= 1 && n <= AGENTS.length) {
-        e.preventDefault(); e.stopPropagation()
-        setAgent(AGENTS[n - 1])
-        toggleDock(false)   // 접혀 있으면 펼치면서 해당 에이전트 포커스
-        return
-      }
       if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && n >= 1 && n <= 9 && projects[n - 1]) {
         e.preventDefault(); e.stopPropagation()
         openProject(projects[n - 1].id)
@@ -266,22 +222,12 @@ export function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // The active agent pane grows; the others shrink. Focus/typing in a pane makes it active.
-  useEffect(() => {
-    setSizes(AGENTS.map((a) => (a === agent ? 2 : 1)))
-  }, [agent])
-
   // Keep the selected project's dock mounted (FIFO-capped). Its terminals were display:none while hidden,
   // so nudge a resize once it becomes visible to re-fit xterm.
   useEffect(() => {
     if (!selectedProjectId) return
     setOpenedIds((prev) => {
       const next = prev.includes(selectedProjectId) ? prev : [...prev, selectedProjectId].slice(-MAX_KEPT_DOCKS)
-      // Report panes that are newly added (gained) and those that were evicted (lost).
-      const gained = next.filter((id) => !prev.includes(id))
-      const lost = prev.filter((id) => !next.includes(id))
-      for (const pid of gained) for (const a of AGENTS) api.paneOpened({ projectId: pid, agent: a })
-      for (const pid of lost) for (const a of AGENTS) api.paneClosed({ projectId: pid, agent: a })
       return next
     })
     const t = setTimeout(() => window.dispatchEvent(new Event('resize')), 60)
@@ -301,8 +247,6 @@ export function App() {
     prevProjectRef.current = selectedProjectId
     void loadResumeCard(selectedProjectId)
   }, [selectedProjectId, loadResumeCard])
-
-  const statusOf = (pid: string | null, a: AgentType): AgentRunStatus => agentStatus[`${pid}:${a}`] ?? 'idle'
 
   // Stable identity so ConversationHistoryView's fetch effect doesn't re-fire on every App render.
   const fetchConversationHistory = useCallback((req: ConversationHistoryReq) => api.conversationHistory(req), [])
@@ -335,7 +279,9 @@ export function App() {
             dismissResumeBanner()
             toggleDock(false)
             setAgent(t.agent)
-            resumeAgentSession(`${selectedProjectId}:${t.agent}`, t.sessionId)
+            if (selectedProjectId) {
+              setAgentResumeRequest({ projectId: selectedProjectId, agent: t.agent, sessionId: t.sessionId, nonce: Date.now() })
+            }
           }}
           onOpenHistory={() => {
             dismissResumeBanner()
@@ -385,8 +331,8 @@ export function App() {
         />
       </main>
 
-      {/* Agent Work Execution Panel — horizontal claude | opencode | codex; drag dividers to resize */}
-      <div ref={termRef} className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}>
+      {/* Agent workspaces — one tab per Git worktree, with user-configurable agent panes. */}
+      <div className="app-layout__terminal" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}>
         {!dockCollapsed && (
           <div
             className="dock-resize"
@@ -397,95 +343,16 @@ export function App() {
             title="드래그해서 터미널 높이 조절"
           />
         )}
-        <div
-          className="dock-bar"
-          onClick={() => toggleDock()}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleDock() } }}
-          role="button"
-          tabIndex={0}
-          aria-expanded={!dockCollapsed}
-          title={dockCollapsed ? '터미널 펼치기' : '터미널 접기'}
-        >
-          <span className="dock-bar__chev">{dockCollapsed ? '▲' : '▼'} agents</span>
-          {AGENTS.map((a, i) => (
-            <span
-              key={a}
-              className="dock-bar__agent"
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); toggleDock(false); setAgent(a) }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleDock(false); setAgent(a) } }}
-              title={`Shift+${i + 1}`}
-            >
-              <span
-                className={statusOf(selectedProjectId, a) === 'attention' ? 'dock-bar__dot dock-bar__dot--blink' : 'dock-bar__dot'}
-                style={{ color: STATUS_COLOR[statusOf(selectedProjectId, a)] }}
-              >●</span>
-              {a}
-            </span>
-          ))}
-        </div>
-        <div style={{ flex: 1, minHeight: 0, display: dockCollapsed ? 'none' : 'block', position: 'relative' }}>
-          {!selectedProjectId && (
-            <div className="app-layout__placeholder">Select a project to open agent terminals</div>
-          )}
-          {/* One dock per recently-visited project, all kept MOUNTED — only the selected one is shown.
-              Each AgentTerminal key is `${pid}:${a}` (stable per project) so switching projects never
-              unmounts/remounts it → claude/codex/opencode stay alive (no reload). */}
-          {openedIds.map((pid) => {
-            const pcwd = projects.find((p) => p.id === pid)?.repoPaths[0] ?? '.'
-            return (
-              <div
-                key={pid}
-                style={{ display: pid === selectedProjectId ? 'flex' : 'none', flexDirection: 'row', height: '100%', minHeight: 0 }}
-              >
-                {AGENTS.map((a, i) => (
-                  <Fragment key={a}>
-                    {i > 0 && (
-                      <div
-                        onMouseDown={startColDrag(i - 1)}
-                        title="드래그하여 크기 조정"
-                        style={{ width: 6, cursor: 'col-resize', background: '#333', flex: '0 0 auto' }}
-                      />
-                    )}
-                    <div
-                      style={{
-                        flex: sizes[i], display: 'flex', flexDirection: 'column', minWidth: 0,
-                        border: a === agent ? '1px solid #4a8a4a' : '1px solid #2c2c2c',
-                        borderRadius: 4, overflow: 'hidden',
-                      }}
-                    >
-                      <AgentDockHeader
-                        agent={a}
-                        status={statusOf(pid, a)}
-                        selected={a === agent}
-                        shortcut={i + 1}
-                        statusColor={STATUS_COLOR[statusOf(pid, a)]}
-                        onStart={() => restartAgent(`${pid}:${a}`)}
-                        onStop={() => stopAgent(`${pid}:${a}`)}
-                        onSelect={() => setAgent(a)}
-                      />
-                      <div style={{ flex: 1, minHeight: 0 }}>
-                        <AgentTerminal
-                          key={`${pid}:${a}`}
-                          sessionId={`${pid}:${a}`}
-                          command={a}
-                          args={[]}
-                          cwd={pcwd}
-                          agent={a}
-                          restartNonce={restartNonce[`${pid}:${a}`] ?? 0}
-                          resumeSessionId={openPanes[`${pid}:${a}`]?.sessionId}
-                          onStatus={(s) => setAgentStatus(`${pid}:${a}`, s)}
-                          onActivate={() => setAgent(a)}
-                        />
-                      </div>
-                    </div>
-                  </Fragment>
-                ))}
-              </div>
-            )
-          })}
-        </div>
+        <AgentWorkspaceDock
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          openedProjectIds={openedIds}
+          collapsed={dockCollapsed}
+          onToggleCollapsed={toggleDock}
+          onActiveAgentChange={setAgent}
+          resumeRequest={agentResumeRequest}
+          onResumeHandled={() => setAgentResumeRequest(null)}
+        />
       </div>
 
       {upd.open && (

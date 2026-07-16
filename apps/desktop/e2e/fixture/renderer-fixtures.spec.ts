@@ -127,6 +127,24 @@ test('conversation-history: 세 에이전트, 최신순, 3일 이전 더 불러�
   await expectViewportContained(page)
 })
 
+test('worktree-agent-dock: worktree 전환과 동적 에이전트 추가를 실제 renderer에서 처리한다', async ({ page }) => {
+  await openFixture(page, 'many-projects-docs')
+
+  const featureWorktree = page.getByRole('tab', { name: 'feat/fixture-browser-qa', exact: true })
+  await expect(featureWorktree).toBeVisible()
+  await featureWorktree.click()
+  await expect(featureWorktree).toHaveAttribute('aria-selected', 'true')
+  const activePanes = page.locator('.agent-panes:visible')
+  await expect(activePanes.getByText('이 worktree에는 아직 에이전트가 없습니다.', { exact: true })).toBeVisible()
+  await expect(activePanes.locator('.agent-pane')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '에이전트 추가', exact: true }).click()
+  await page.getByRole('menuitem', { name: /Codex/ }).click()
+  await expect(page.getByRole('button', { name: 'Codex 에이전트 제거', exact: true })).toBeVisible()
+  await expect(activePanes.locator('.agent-pane')).toHaveCount(1)
+  await expectViewportContained(page)
+})
+
 test('Windows 핵심 컴포넌트 snapshot: 실패 run list', async ({ page }) => {
   test.skip(process.platform !== 'win32', 'Pixel golden은 Windows 기준 환경에서만 비교한다.')
   await openFixture(page, 'auth-failure-long-path')

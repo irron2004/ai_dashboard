@@ -8,13 +8,14 @@ import type {
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
   ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
-  GitStatusReq, GitFetchReq, GitPullReq, GitCommitPushReq,
+  GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitPushReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import { AgentKind } from '@apc/shared'
 import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
 import { diffProjectFile, listProjectChanges } from './project-changes.js'
+import { listGitWorktrees } from './git-worktrees.js'
 
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
@@ -347,6 +348,13 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const project = container.registry.get(req.projectId)
       if (!project) return { ok: false, reason: 'project not found', detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] }
       return container.gitSync.status(project.repoPaths[0] ?? '', { fetch: req.fetch })
+    },
+
+    [CH.gitWorktrees]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload) as GitWorktreesReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, worktrees: [], reason: 'project not found' }
+      return listGitWorktrees(project.repoPaths[0] ?? '')
     },
 
     [CH.gitFetch]: async (payload: unknown) => {

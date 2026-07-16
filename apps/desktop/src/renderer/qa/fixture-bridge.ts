@@ -284,6 +284,16 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
           files: model.changes.map((file) => ({ path: file.path, status: file.status === 'new' ? 'untracked' : file.status, staged: false, unstaged: true, conflict: false })),
           warnings: [],
         })
+      case CH.gitWorktrees: {
+        const root = selectedProject?.repoPaths[0] ?? 'C:\\qa\\workspace'
+        return Promise.resolve({
+          ok: true,
+          worktrees: [
+            { path: root, branch: 'main', head: 'fixture-main', detached: false, isMain: true },
+            { path: `${root}-fixture-worktree`, branch: 'feat/fixture-browser-qa', head: 'fixture-feature', detached: false, isMain: false },
+          ],
+        })
+      }
       case CH.gitFetch:
       case CH.gitPull:
       case CH.gitCommitPush:

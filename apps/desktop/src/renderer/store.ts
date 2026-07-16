@@ -86,7 +86,7 @@ type ApcStore = {
   restartAgent(key: string): void
   /** Resumes `key`'s pane at a specific session (from a resume-card target) and bumps restartNonce in the
    *  SAME set() so AgentTerminal's respawn effect (deps: restartNonce) picks up the new resumeSessionId. */
-  resumeAgentSession(key: string, sessionId: string): void
+  resumeAgentSession(key: string, sessionId: string, agent?: AgentType): void
   stopAgent(key: string): void
   prepareGenerate(): Promise<void>
   generate(selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
@@ -214,9 +214,9 @@ export const useStore = create<ApcStore>((set, get) => ({
       }
     })
   },
-  resumeAgentSession(key, sessionId) {
+  resumeAgentSession(key, sessionId, requestedAgent) {
     set((s) => {
-      const agent = s.openPanes[key]?.agent ?? (key.split(':').pop() as AgentType)
+      const agent = requestedAgent ?? s.openPanes[key]?.agent ?? (key.split(':').pop() as AgentType)
       // Mirror restartAgent's stoppingKeys reset (a prior ⏹ stop shouldn't linger across resume) and
       // bump restartNonce in the SAME set() as the sessionId write — AgentTerminal's respawn effect only
       // depends on restartNonce, so both must land in one render for it to pick up the new resumeSessionId.
