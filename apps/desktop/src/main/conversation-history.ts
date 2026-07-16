@@ -150,7 +150,8 @@ export async function loadConversationHistory(opts: LoadConversationHistoryOpts)
       const candidatePath = session.repoPath ?? session.worktreePath ?? source.repoPath
       if (!repoPathMatches(candidatePath, opts.repoPaths)) continue
       if (!isResumeVisibleSession(session)) continue
-      const rank = Math.max(rankTime(session.endedAt), rankTime(session.startedAt), source.mtimeMs ?? 0)
+      const transcriptRank = Math.max(rankTime(session.endedAt), rankTime(session.startedAt))
+      const rank = transcriptRank || source.mtimeMs || 0
       if (cutoff !== undefined && rank < cutoff) {
         hasOlder = true
         continue

@@ -152,6 +152,31 @@ describe('conversation history', () => {
     expect(all.truncated).toBe(false)
   })
 
+  test('sorts by transcript time instead of the local cache write time', async () => {
+    const rows = [
+      {
+        source: {
+          id: 'newer-session', agentKind: 'codex' as const, kind: 'jsonl-file' as const,
+          locator: '/newer-session', mtimeMs: Date.parse('2026-07-16T11:00:00Z'),
+        },
+        session: session('newer-session', '/work/apc', '2026-07-15T12:00:00Z'),
+      },
+      {
+        source: {
+          id: 'older-session', agentKind: 'codex' as const, kind: 'jsonl-file' as const,
+          locator: '/older-session', mtimeMs: Date.parse('2026-07-16T12:00:00Z'),
+        },
+        session: session('older-session', '/work/apc', '2026-07-14T12:00:00Z'),
+      },
+    ]
+
+    const result = await loadConversationHistory({
+      adapters: [adapter(rows)], projectId: 'p1', repoPaths: ['/work/apc'], agent: 'codex', includeOlder: true,
+    })
+
+    expect(result.sessions.map((item) => item.id)).toEqual(['newer-session', 'older-session'])
+  })
+
   test('does not cap the full resume-compatible result at 200 sources', async () => {
     const rows = Array.from({ length: 205 }, (_, index) => ({
       source: {
