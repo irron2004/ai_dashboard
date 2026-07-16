@@ -197,4 +197,48 @@ describe('conversation history', () => {
     expect(result.sessions.map((item) => item.id)).toEqual(['wsl', 'windows'])
     expect(result.scannedSources).toBe(2)
   })
+
+  test('matches the Codex resume picker by excluding subagent and exec sessions', async () => {
+    const withCodexMeta = (
+      value: NormalizedSession,
+      sessionMeta: Record<string, unknown>,
+    ): NormalizedSession => ({
+      ...value,
+      sourceMeta: {
+        ...value.sourceMeta,
+        sessionHeader: { ...value.sourceMeta.sessionHeader, sessionMeta },
+      },
+    })
+    const rows = [
+      {
+        source: { id: 'interactive', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/interactive', mtimeMs: 40 },
+        session: withCodexMeta(session('interactive', '/work/apc', '2026-07-16T12:00:00Z'), {
+          source: 'cli', thread_source: 'user', originator: 'codex-tui',
+        }),
+      },
+      {
+        source: { id: 'subagent', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/subagent', mtimeMs: 30 },
+        session: withCodexMeta(session('subagent', '/work/apc', '2026-07-16T11:00:00Z'), {
+          source: { subagent: { thread_spawn: { parent_thread_id: 'interactive' } } },
+          thread_source: 'subagent', originator: 'codex-tui',
+        }),
+      },
+      {
+        source: { id: 'exec', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/exec', mtimeMs: 20 },
+        session: withCodexMeta(session('exec', '/work/apc', '2026-07-16T10:00:00Z'), {
+          source: 'exec', thread_source: 'user', originator: 'codex_exec',
+        }),
+      },
+      {
+        source: { id: 'legacy', agentKind: 'codex' as const, kind: 'jsonl-file' as const, locator: '/legacy', mtimeMs: 10 },
+        session: session('legacy', '/work/apc', '2026-07-16T09:00:00Z'),
+      },
+    ]
+
+    const result = await loadConversationHistory({
+      adapters: [adapter(rows)], projectId: 'p1', repoPaths: ['/work/apc'], agent: 'codex', includeOlder: true,
+    })
+
+    expect(result.sessions.map((item) => item.id)).toEqual(['interactive', 'legacy'])
+  })
 })

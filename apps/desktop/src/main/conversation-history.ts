@@ -85,6 +85,26 @@ function canBelongToProject(source: AgentSource, repoPaths: readonly string[]): 
   return !source.repoPath || repoPathMatches(source.repoPath, repoPaths)
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
+}
+
+/** Codex's default resume picker hides exec and spawned subagent threads. Keep legacy transcripts
+ * whose headers predate these fields, but apply the same exclusions when the metadata is present. */
+function isResumeVisibleSession(session: NormalizedSession): boolean {
+  if (session.agentType !== 'codex') return true
+  const sessionMeta = asRecord(session.sourceMeta.sessionHeader.sessionMeta)
+  if (!sessionMeta) return true
+
+  const threadSource = sessionMeta.thread_source
+  if (typeof threadSource === 'string' && threadSource !== 'user') return false
+  if (sessionMeta.source === 'exec' || sessionMeta.originator === 'codex_exec') return false
+  if (asRecord(sessionMeta.source)?.subagent !== undefined) return false
+  return true
+}
+
 /** Read recent live CLI transcripts for one agent. This intentionally does not depend on ingest:
  * the history dialog must work immediately after opening the app, before `c:ingestAll` has run. */
 export async function loadConversationHistory(opts: LoadConversationHistoryOpts): Promise<ConversationHistoryRes> {
@@ -129,6 +149,7 @@ export async function loadConversationHistory(opts: LoadConversationHistoryOpts)
       const { session } = await adapter.parseSource(source)
       const candidatePath = session.repoPath ?? session.worktreePath ?? source.repoPath
       if (!repoPathMatches(candidatePath, opts.repoPaths)) continue
+      if (!isResumeVisibleSession(session)) continue
       const rank = Math.max(rankTime(session.endedAt), rankTime(session.startedAt), source.mtimeMs ?? 0)
       if (cutoff !== undefined && rank < cutoff) {
         hasOlder = true

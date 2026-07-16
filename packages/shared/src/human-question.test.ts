@@ -47,11 +47,39 @@ describe('human question filtering', () => {
 
   test('filters Codex-injected environment and AGENTS context stored as user turns', () => {
     const environment = '<environment_context>\n  <cwd>C:\\work\\apc</cwd>\n  <shell>powershell</shell>\n</environment_context>'
-    const agents = '# AGENTS.md instructions for C:\\work\\apc\n\n<INSTRUCTIONS>\nUse pnpm.\n</INSTRUCTIONS>'
+    const agents = [
+      '# AGENTS.md instructions for C:\\work\\apc',
+      '<INSTRUCTIONS>\nUse pnpm.\n</INSTRUCTIONS>',
+      environment,
+    ].join('\n\n')
 
     expect(isInternalMachinePrompt(environment)).toBe(true)
     expect(isInternalMachinePrompt(agents)).toBe(true)
     expect(isHumanQuestionText(environment)).toBe(false)
     expect(isHumanQuestionText(agents)).toBe(false)
+  })
+
+  test('filters Codex goal continuation context stored as a user turn', () => {
+    const goal = [
+      '<codex_internal_context source="goal">',
+      'Continue working toward the active thread goal. The objective is internal orchestration state.',
+      '</codex_internal_context>',
+    ].join('\n')
+
+    expect(isInternalMachinePrompt(goal)).toBe(true)
+    expect(isHumanQuestionText(goal)).toBe(false)
+  })
+
+  test('filters Codex turn-abort and transport error records stored as user turns', () => {
+    const aborted = '<turn_aborted>\nThe user interrupted the previous turn on purpose.'
+    const transportError = [
+      'Error response',
+      'Error code: 404',
+      'Message: File not found.',
+      'Error code explanation: 404 - Nothing matches the given URI.',
+    ].join('\n')
+
+    expect(isHumanQuestionText(aborted)).toBe(false)
+    expect(isHumanQuestionText(transportError)).toBe(false)
   })
 })

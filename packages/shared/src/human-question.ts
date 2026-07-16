@@ -20,7 +20,10 @@ export function isInternalMachinePrompt(text: string): boolean {
   // Codex records these runtime-injected context blocks as role=user response items. They are not
   // questions typed by the user and must not appear in conversation history or question_log.
   if (t.startsWith('<environment_context>') && t.endsWith('</environment_context>')) return true
-  if (t.startsWith('# AGENTS.md instructions') && t.includes('<INSTRUCTIONS>') && t.endsWith('</INSTRUCTIONS>')) return true
+  if (t.startsWith('# AGENTS.md instructions') && t.includes('<INSTRUCTIONS>') && t.includes('</INSTRUCTIONS>')) return true
+  if (t.startsWith('<codex_internal_context') && t.endsWith('</codex_internal_context>')) return true
+  if (t.startsWith('<turn_aborted>')) return true
+  if (t.startsWith('Error response\nError code:') && t.includes('\nMessage:') && t.includes('\nError code explanation:')) return true
 
   const hasLlmAgentShape = t.includes('## Role:') && t.includes('## Input') && t.includes('## Output')
   const hasJsonOnlyContract = t.includes('Respond with ONLY a single JSON object')
