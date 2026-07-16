@@ -1,0 +1,28 @@
+# edges.yaml — project-docs 프로파일.
+# 시맨틱 엣지(relates_to)는 confidence+evidence 강제 (스펙 §3).
+# 구조 엣지(blocks/part_of)는 evidence 선택.
+
+# 검증됨: graphgate 엔진(본 계약의 기본 엔진)에서 direction: symmetric은 선언적 표기일 뿐이다.
+# add-edge는 {from,to}로 레코드 1건만 그대로 저장한다(kernel/graph.py GraphGate.add_edge) —
+# 역방향 레코드는 생성되지 않으므로 소비자는 역방향 레코드의 존재를 가정하면 안 된다.
+relates_to:
+  endpoints: { from: '*', to: '*' }
+  direction: symmetric
+  workflow:  ingest
+  attributes:
+    confidence: { type: enum, values: [high, medium, low], required: true }
+    evidence:   { type: str, required: true }
+
+blocks:
+  endpoints: { from: tasks, to: tasks }
+  direction: directed
+  workflow:  structure
+  attributes:
+    evidence: { type: str }
+
+part_of:
+  endpoints: { from: '*', to: topics }
+  direction: directed
+  workflow:  structure
+  attributes:
+    evidence: { type: str }

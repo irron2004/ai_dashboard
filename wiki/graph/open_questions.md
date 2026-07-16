@@ -1,0 +1,55 @@
+# Project Gaps
+
+_Auto-generated open questions. Do not edit._
+
+- [topic/agent-runtime-and-sessions] [[docs-superpowers-plans-2026-06-01-agent-project-console-foundation]] — `docs/superpowers/plans/2026-06-01-agent-project-console-foundation.md`
+- [topic/agent-runtime-and-sessions] [[docs-superpowers-plans-2026-06-01-agent-project-console-ingest-engine]] — `docs/superpowers/plans/2026-06-01-agent-project-console-ingest-engine.md`
+- [topic/agent-runtime-and-sessions] [[docs-superpowers-plans-2026-06-11-conversation-qa-chunking]] — `docs/superpowers/plans/2026-06-11-conversation-qa-chunking.md`
+- [topic/agent-runtime-and-sessions] [[docs-superpowers-plans-2026-06-23-cli-session-persistence]] — `docs/superpowers/plans/2026-06-23-cli-session-persistence.md`
+- [topic/autosci-core-integration] [[docs-superpowers-plans-2026-06-19-autosci-core-wiki-substrate-integration]] — `docs/superpowers/plans/2026-06-19-autosci-core-wiki-substrate-integration.md`
+- [topic/desktop-experience] [[docs-superpowers-plans-2026-06-01-agent-project-console-electron-ui]] — `docs/superpowers/plans/2026-06-01-agent-project-console-electron-ui.md`
+- [topic/desktop-experience] [[docs-superpowers-plans-2026-06-12-ui-three-tab-restructure]] — `docs/superpowers/plans/2026-06-12-ui-three-tab-restructure.md`
+- [topic/desktop-experience] [[docs-superpowers-plans-2026-06-30-agent-launch-icon]] — `docs/superpowers/plans/2026-06-30-agent-launch-icon.md`
+- [topic/desktop-experience] [[docs-superpowers-plans-2026-07-07-resume-recall-surface]] — `docs/superpowers/plans/2026-07-07-resume-recall-surface.md`
+- [topic/desktop-experience] [[docs-superpowers-plans-2026-07-14-diff-panel]] — `docs/superpowers/plans/2026-07-14-diff-panel.md`
+- [topic/graph-and-visualization] [[docs-superpowers-plans-2026-06-22-autosci-cytoscape-graph-visualization]] — `docs/superpowers/plans/2026-06-22-autosci-cytoscape-graph-visualization.md`
+- [topic/graph-and-visualization] [[docs-superpowers-plans-2026-06-22-project-wiki-direct-visualization]] — `docs/superpowers/plans/2026-06-22-project-wiki-direct-visualization.md`
+- [topic/graph-and-visualization] [[docs-superpowers-plans-2026-06-22-standalone-web-wiki-viewer]] — `docs/superpowers/plans/2026-06-22-standalone-web-wiki-viewer.md`
+- [topic/graph-and-visualization] [[docs-superpowers-plans-2026-06-30-work-wiki-graph]] — `docs/superpowers/plans/2026-06-30-work-wiki-graph.md`
+- [topic/graph-and-visualization] [[docs-superpowers-plans-2026-07-06-wiki-graph-visibility]] — `docs/superpowers/plans/2026-07-06-wiki-graph-visibility.md`
+- [topic/knowledge-and-search] [[docs-superpowers-plans-2026-06-01-agent-project-console-knowledge-retrieval-core]] — `docs/superpowers/plans/2026-06-01-agent-project-console-knowledge-retrieval-core.md`
+- [topic/knowledge-and-search] [[docs-superpowers-plans-2026-06-09-unified-search-a]] — `docs/superpowers/plans/2026-06-09-unified-search-a.md`
+- [topic/knowledge-and-search] [[docs-superpowers-plans-2026-06-09-unified-search-b]] — `docs/superpowers/plans/2026-06-09-unified-search-b.md`
+- [topic/paper-domain] [[docs-superpowers-plans-2026-06-20-paper-domain-plan1-domain-plumbing]] — `docs/superpowers/plans/2026-06-20-paper-domain-plan1-domain-plumbing.md`
+- [topic/paper-domain] [[docs-superpowers-plans-2026-06-20-paper-domain-plan2-validate-gate]] — `docs/superpowers/plans/2026-06-20-paper-domain-plan2-validate-gate.md`
+- [topic/paper-domain] [[docs-superpowers-plans-2026-06-20-paper-domain-plan3-render-node]] — `docs/superpowers/plans/2026-06-20-paper-domain-plan3-render-node.md`
+- [topic/paper-domain] [[docs-superpowers-plans-2026-06-20-paper-domain-plan3b-node-extractor]] — `docs/superpowers/plans/2026-06-20-paper-domain-plan3b-node-extractor.md`
+- [topic/paper-domain] [[docs-superpowers-plans-2026-06-20-paper-domain-plan4-wire-and-route]] — `docs/superpowers/plans/2026-06-20-paper-domain-plan4-wire-and-route.md`
+- [topic/paper-domain] [[docs-superpowers-plans-2026-06-21-paper-domain-plan5-base-states-and-finish]] — `docs/superpowers/plans/2026-06-21-paper-domain-plan5-base-states-and-finish.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-06-01-agent-project-console-pm-domain]] — `docs/superpowers/plans/2026-06-01-agent-project-console-pm-domain.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-06-07-pm-home-integration]] — `docs/superpowers/plans/2026-06-07-pm-home-integration.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-06-30-session-task-capture]] — `docs/superpowers/plans/2026-06-30-session-task-capture.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-07-02-context-composer]] — `docs/superpowers/plans/2026-07-02-context-composer.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-07-02-multiproject-home]] — `docs/superpowers/plans/2026-07-02-multiproject-home.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-07-02-status-web]] — `docs/superpowers/plans/2026-07-02-status-web.md`
+- [topic/project-management] [[docs-superpowers-plans-2026-07-02-task-dependencies]] — `docs/superpowers/plans/2026-07-02-task-dependencies.md`
+- [topic/remote-and-packaging] [[docs-superpowers-plans-2026-06-08-harness-ssh-engine-runner]] — `docs/superpowers/plans/2026-06-08-harness-ssh-engine-runner.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-01-agent-project-console-harness-studio]] — `docs/superpowers/plans/2026-06-01-agent-project-console-harness-studio.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-01-agent-project-console-llm-wiki-engine]] — `docs/superpowers/plans/2026-06-01-agent-project-console-llm-wiki-engine.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-02-generate-llm-wiki-ui]] — `docs/superpowers/plans/2026-06-02-generate-llm-wiki-ui.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-02-knowledge-harness-phase1]] — `docs/superpowers/plans/2026-06-02-knowledge-harness-phase1.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-02-knowledge-harness-phase2]] — `docs/superpowers/plans/2026-06-02-knowledge-harness-phase2.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-02-knowledge-harness-phase3]] — `docs/superpowers/plans/2026-06-02-knowledge-harness-phase3.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-02-knowledge-harness-phase4]] — `docs/superpowers/plans/2026-06-02-knowledge-harness-phase4.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-08-docs-to-wiki-coverage]] — `docs/superpowers/plans/2026-06-08-docs-to-wiki-coverage.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-08-harness-config-apply]] — `docs/superpowers/plans/2026-06-08-harness-config-apply.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-08-harness-live-progress]] — `docs/superpowers/plans/2026-06-08-harness-live-progress.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-08-harness-run-ux-and-cwd]] — `docs/superpowers/plans/2026-06-08-harness-run-ux-and-cwd.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-10-harness-structured-logging]] — `docs/superpowers/plans/2026-06-10-harness-structured-logging.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-13-wiki-policy-advisor]] — `docs/superpowers/plans/2026-06-13-wiki-policy-advisor.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-17-wiki-node-viewing-and-stub-cleanup]] — `docs/superpowers/plans/2026-06-17-wiki-node-viewing-and-stub-cleanup.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-19-interactive-node-confirmation]] — `docs/superpowers/plans/2026-06-19-interactive-node-confirmation.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-06-30-harness-core-submodule-consolidation]] — `docs/superpowers/plans/2026-06-30-harness-core-submodule-consolidation.md`
+- [topic/wiki-and-knowledge-harness] [[docs-superpowers-plans-2026-07-01-dev-harness-orchestration]] — `docs/superpowers/plans/2026-07-01-dev-harness-orchestration.md`
+- [overview/ai-dashboard-overview] 77 of 145 wiki pages are not endpoints of a typed edge. All 134 source-backed pages still have a validated topic assignment, but additional evidence-backed semantic relationships can improve typed graph coverage.
+- [overview/ai-dashboard-overview] Of 50 task pages, 49 remain open and one is done because its source checklist proved completion. Historical handoffs should be used for a later status review rather than inferring completion from age.

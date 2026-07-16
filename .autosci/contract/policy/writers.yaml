@@ -1,0 +1,17 @@
+# writers.yaml — Field- and edge-level write permissions (project-docs profile).
+#
+# STATUS: SPEC, NOT A RUNTIME GATE.
+# Nothing in kernel/ reads this file at write time. It is a declarative
+# contract for SKILL.md authors and for Claude when reading the repo's
+# rules — "this is who is supposed to write this." Enforcement is at the
+# prompt level, not at the CLI.
+#
+# Default: a field or edge not listed here may be written by any skill.
+
+fields:
+  tasks.status:     { writers: [ingest, transition] }
+  decisions.status: { writers: [ingest] }
+edges:
+  relates_to: [ingest]
+  blocks:     [ingest]
+  part_of:    [ingest]

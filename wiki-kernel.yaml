@@ -1,0 +1,3 @@
+contract_dir: .autosci/contract
+wiki_dir: wiki
+overlay_dirs: []

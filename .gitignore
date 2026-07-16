@@ -3,10 +3,17 @@ node_modules/
 out/
 dist/
 dist-windows*/
+apps/desktop/dist-*/
 apps/desktop/e2e/artifacts/
+.playwright-mcp/
 .claude/
+!/.claude/
+/.claude/*
+!/.claude/skills/
+!/.claude/skills/**
 .superpowers/
 .venv-substrate/
+.autosci/derived/
 
 # AutoSci reference clone (not part of this repo)
 AutoSci/
