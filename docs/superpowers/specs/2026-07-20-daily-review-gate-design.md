@@ -1,7 +1,7 @@
 # Learning Gate (Daily Review Gate) 설계
 
 - 날짜: 2026-07-20
-- 상태: 설계 확정 대기 (두 설계안 비교·통합 완료)
+- 상태: M0~M1 구현 진행 (2026-07-20 무결성 리뷰 반영)
 - 관련: `2026-06-02-pm-workbench-prd-v0.2.md`(daily/decision 문서 유형 기계획), `2026-07-02-product-diagnosis-and-roadmap.md`
 
 ## 0. 배경과 목표
@@ -139,28 +139,30 @@ ReviewReceipt {
 
 **pre-push hook 판정** (앱이 안 떠 있어도 동작):
 
-1. 앱이 receipt 발급 시 `~/.apc/gate/<repo-key>.json`에 `{ reviewedShas: [...] }` 기록
+1. 앱이 receipt 발급 시 `git rev-parse --git-common-dir` 아래의 APC 관리 파일에 reviewed SHA를 기록한다. worktree들은 이 상태를 공유한다. hook 설치 경로는 `core.hooksPath`를 존중한다.
 2. hook은 push되는 각 커밋이 **어느 receipt의 `reviewedHeadSha`와 같거나 그 조상**인지 검사
 3. 미커버 커밋 존재 → 차단: `"⛔ 리뷰되지 않은 커밋 3개. 회고 탭에서 마감하거나 미니 리뷰를 실행하세요."`
-4. 게이트 파일 없음 → 통과 (안전 기본값 — repo를 벽돌로 만들지 않음)
+4. APC gate가 활성화되지 않은 repo는 통과한다. 사용자가 hook을 설치하거나 첫 receipt를 발급해 gate를 활성화한 뒤에는 reviewed SHA가 하나도 없어도 차단한다.
 5. **우회**: `APC_GATE_SKIP="사유" git push` — 사유 필수. skip 이벤트가 `gate_events`에 기록되고 다음 회고에 부채 항목으로 자동 등록, 주간 뷰에 🚩 표시. (완전 차단은 hook 삭제로 이어진다 — 우회는 가능하되 보이게)
 
-이 결합으로: 아침에 어제 리뷰한 커밋 push → 통과(receipt 커버). 회고 후 새 커밋 → 미커버 → 차단. rebase로 SHA가 바뀌면 → 미커버 → 재리뷰(내용이 바뀔 수 있으므로 의도된 동작). GitSyncPanel도 push 전 동일 검증을 **메인 프로세스에서 재수행**한다(렌더러 상태를 신뢰하지 않음).
+이 결합으로: 아침에 어제 리뷰한 커밋 push → 통과(receipt 커버). 회고 후 새 커밋 → 미커버 → 차단. rebase로 SHA가 바뀌면 → 미커버 → 재리뷰(내용이 바뀔 수 있으므로 의도된 동작). GitSyncPanel은 fetch/rebase를 먼저 끝낸 **최종 HEAD**에 대해 메인 프로세스에서 재검증한 직후 push한다(렌더러 상태를 신뢰하지 않음).
 
-**앱 내 commit은 게이트하지 않는다.** dock 터미널의 agent 커밋과 동일하게 로컬 커밋은 자유 — 강제선은 push 하나로 통일. PR branch protection 연동은 후속.
+**M1은 앱 내 commit을 게이트하지 않는다.** dock 터미널의 agent 커밋과 동일하게 로컬 커밋은 자유 — 강제선은 push 하나로 통일한다. 따라서 M1은 hard security boundary가 아니라 학습을 위한 로컬 guardrail이다(`--no-verify` 등 로컬 우회는 완전히 막을 수 없음). commit gate와 PR branch protection 연동은 후속이다.
 
 ## 6. 게이트 판정 조건 (전부 결정론적)
 
 Receipt 발급 조건:
 
-- [ ] 변경 스냅샷 hash가 리뷰 시작 시점과 동일 (도중에 파일이 바뀌면 재시작)
-- [ ] critical 질문 전부 응답 ("모름" 제외)
-- [ ] non-critical 질문 전부 응답 또는 "모름"(→ 학습 부채 Task)
-- [ ] AI 요약을 확인·수정함 (무수정 승인 여부 기록)
-- [ ] 최소 1개의 검증 근거 첨부 (테스트 결과·실행 로그·수동 확인 서술)
-- [ ] 위험·미확인 사항 명시
+- [ ] 메인 프로세스가 `retroPrepare` 시 저장한 대상 repo/worktree와 현재 대상이 동일
+- [ ] 메인 프로세스가 저장한 `preparedHeadSha`와 발급 시점 HEAD가 동일 (렌더러가 SHA를 주장하지 않음)
+- [ ] 해당 대상의 critical 질문 전부 응답 ("모름" 제외)
+- [ ] 최소 1개의 검증 근거 입력 (테스트 결과·실행 로그·수동 확인 서술)
+- [ ] 위험·미확인 사항 명시 (`없음`도 명시적 답으로 허용)
+- [ ] Receipt에 질문 ID와 답변·근거 snapshot hash를 고정
 
-데일리 회고 완료 조건(= 그날의 남은 repo 전체 receipt 발급): 위 조건 + **인박스 zero** + 마감 롤업 2문 응답. LLM은 답변의 빈 곳을 지적하는 피드백만 제공하고 차단 권한이 없다.
+M2부터 AI 요약 확인·수정과 동적 질문을 위 조건에 추가한다. non-critical 마감 질문 2개는 미니 리뷰 receipt를 막지 않지만 데일리 회고 완료에는 필수다.
+
+데일리 회고 완료 조건은 준비 시 저장된 대상 repo/worktree 전부의 현재 HEAD가 해당 target receipt로 커버되고, 마감 롤업 2문에 응답한 상태다. M2부터 **인박스 zero**를 추가한다. LLM은 답변의 빈 곳을 지적하는 피드백만 제공하고 차단 권한이 없다.
 
 ## 7. 데이터 모델·서비스·IPC (기존 규약 준수)
 

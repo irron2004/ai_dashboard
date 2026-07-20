@@ -8,6 +8,22 @@
 
 **Tech Stack:** TypeScript 5.5, Electron 31, React 18.3, Zustand 4.5, node:sqlite(Zod 스키마), vitest 2. 테스트는 실제 git 임시 repo 사용.
 
+## 2026-07-20 Implementation Corrections (이하 기존 코드 블록보다 우선)
+
+구현 전 무결성 리뷰에서 발견된 아래 교정을 M0~M1의 최종 계약으로 삼는다.
+
+1. **서버 보유 snapshot:** `retroPrepare`가 `RetroTarget { id, retroId, projectId, repoPath, branch, preparedHeadSha, preparedAt }`를 DB에 저장한다. `receiptIssue`는 렌더러가 보낸 `expectedHeadSha`를 신뢰하지 않고 `targetId`만 받아 저장된 SHA와 현재 HEAD를 비교한다. HEAD drift 시 대상 질문·검증 근거를 초기화하고 재리뷰한다.
+2. **대상별 teach-back:** 고정 critical 5문은 각 RetroTarget에 귀속한다. 마감 2문만 하루 전체 질문이다. Receipt는 대상 질문 ID와 답변·검증 근거 snapshot hash를 보존한다.
+3. **Receipt 조건:** 대상 critical 5문 응답 + 검증 근거 1개 이상 + 위험·미확인 사항의 명시적 입력 + prepared/current HEAD 동일이 모두 필요하다. M2의 AI 요약·동적 질문은 M1 조건에 포함하지 않는다.
+4. **완료 불변식:** `retroComplete`는 질문 응답뿐 아니라 준비된 모든 target이 현재 HEAD와 일치하는 Receipt를 가졌는지 서버에서 확인한다. target 없는 날은 마감 질문만으로 완료할 수 있다.
+5. **push 순서:** 앱 push는 `fetch → 필요 시 rebase → 최종 HEAD gate 검증 → git push` 순서다. IPC에서 rebase 전에 한 번 검사하는 방식은 금지한다.
+6. **gate 활성 상태:** 미관리 repo만 fail-open이다. hook 설치 또는 첫 receipt 발급 후에는 gate가 enabled이며 reviewed SHA 0개도 fail-closed다. 로컬 hook은 `core.hooksPath`를 존중하고 기존 pre-push hook을 보존·체인한다. `--no-verify`를 막는 원격 enforcement는 후속임을 UI에 명시한다.
+7. **일관성:** gate 파일은 atomic write하고, gate 기록 실패 시 DB receipt를 보상 삭제한다. skip drain은 rename 방식으로 concurrent append를 잃지 않는다.
+8. **계획 누락 파일:** `gitCommitPush` 제거 시 `apps/desktop/src/renderer/qa/fixture-bridge.ts`, `HomeView.test.tsx`를 함께 변경한다. 회고 탭 추가 시 `MainPanel.test.tsx`의 탭 순서·키보드 기대값도 변경한다.
+9. **테스트 보강:** 임의/nonexistent retro target 발급 거부, receipt 없는 회고 완료 거부, rebase 뒤 SHA 변경 차단, 최초 활성화 fail-closed, `core.hooksPath`, 기존 hook 체인, linked worktree 공통 gate, skip 부채 UI를 실제 Git 저장소 테스트에 포함한다.
+
+M1의 제품 강제선은 **push**다. 로컬 commit 및 PR 원격 강제는 이번 범위 밖이며, UI와 문서에서 이를 숨기지 않는다.
+
 ## Global Constraints
 
 - 모든 명령은 repo root(`ai_dashboard-main/`)에서 실행: `pnpm typecheck`(권위), `npx vitest run <pattern>`, `pnpm test`(전체 ~2.5분)
