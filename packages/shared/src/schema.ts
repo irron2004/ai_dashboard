@@ -99,3 +99,67 @@ export const ReviewSchema = z.object({
   nextTasks: z.array(z.string()).default([]),
 })
 export type Review = z.infer<typeof ReviewSchema>
+
+// Learning Gate: a server-prepared target owns the reviewed Git snapshot. The renderer never
+// supplies the SHA that authorizes a receipt.
+export const RetroSchema = z.object({
+  id: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  startedAt: z.string().min(1),
+  completedAt: z.string().optional(),
+})
+export type Retro = z.infer<typeof RetroSchema>
+
+export const RetroTargetSchema = z.object({
+  id: z.string().min(1),
+  retroId: z.string().min(1),
+  projectId: z.string().min(1),
+  repoPath: z.string().min(1),
+  branch: z.string().optional(),
+  preparedHeadSha: z.string().regex(/^[0-9a-f]{40}$/),
+  preparedAt: z.string().min(1),
+  verificationEvidence: z.string().min(1).optional(),
+  riskNotes: z.string().min(1).optional(),
+  receiptId: z.string().min(1).optional(),
+})
+export type RetroTarget = z.infer<typeof RetroTargetSchema>
+
+export const RetroQuestionKind = z.enum(['template', 'dynamic', 'followup', 'closing'])
+export const RetroQuestionSchema = z.object({
+  id: z.string().min(1),
+  retroId: z.string().min(1),
+  targetId: z.string().min(1).optional(),
+  projectId: z.string().min(1).optional(),
+  kind: RetroQuestionKind,
+  critical: z.boolean().default(false),
+  text: z.string().min(1),
+  answer: z.string().min(1).optional(),
+  skipped: z.boolean().default(false),
+  answeredAt: z.string().optional(),
+})
+export type RetroQuestion = z.infer<typeof RetroQuestionSchema>
+
+export const ReviewReceiptSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  repoPath: z.string().min(1),
+  branch: z.string().optional(),
+  reviewedHeadSha: z.string().regex(/^[0-9a-f]{40}$/),
+  diffHash: z.string().optional(),
+  retroId: z.string().min(1),
+  targetId: z.string().min(1),
+  answeredQuestionIds: z.array(z.string().min(1)).min(1),
+  evidenceRefs: z.array(z.string().min(1)).min(1),
+  answerSnapshotHash: z.string().regex(/^[0-9a-f]{64}$/),
+  issuedAt: z.string().min(1),
+})
+export type ReviewReceipt = z.infer<typeof ReviewReceiptSchema>
+
+export const GateEventSchema = z.object({
+  id: z.string().min(1),
+  repoPath: z.string().min(1),
+  kind: z.enum(['skip']),
+  reason: z.string().min(1),
+  ts: z.string().min(1),
+})
+export type GateEvent = z.infer<typeof GateEventSchema>

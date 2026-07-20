@@ -6,7 +6,10 @@ test('migratePm creates tasks, agent_runs, reviews', () => {
   const db = openDb(':memory:'); migrate(db); migratePm(db)
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
     .map((r) => (r as { name: string }).name)
-  expect(tables).toEqual(expect.arrayContaining(['tasks', 'agent_runs', 'reviews']))
+  expect(tables).toEqual(expect.arrayContaining([
+    'tasks', 'agent_runs', 'reviews', 'retros', 'retro_targets', 'retro_questions',
+    'review_receipts', 'gate_events',
+  ]))
 })
 
 test('migratePm is idempotent', () => {
