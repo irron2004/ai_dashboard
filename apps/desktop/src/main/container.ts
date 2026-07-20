@@ -1,6 +1,20 @@
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
-import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy, NextNoteStore, QuestionLogStore, ReceiptStore, RetroStore } from '@apc/pm'
+import {
+  migratePm,
+  TaskStore,
+  TaskCommandService,
+  AgentRunStore,
+  AgentActivityStore,
+  ReviewService,
+  VaultWriter,
+  validateBlockedBy,
+  NextNoteStore,
+  NoteTaskService,
+  QuestionLogStore,
+  ReceiptStore,
+  RetroStore,
+} from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
@@ -19,9 +33,19 @@ import { readProjectWiki } from '@apc/graph-view/node'
 import { fetchRemoteProjectDocs } from './remote-docs.js'
 import { fetchRemoteConversations } from './remote-conversations.js'
 import { fetchWslConversations, toWslProjectTarget } from './wsl-conversations.js'
-import { parseSsh } from './ssh-exec.js'
 import { readProjectDoc } from './project-files.js'
-import { CONVERSATION_HISTORY_RECENT_WINDOW_MS, loadConversationHistory } from './conversation-history.js'
+import {
+  CONVERSATION_HISTORY_RECENT_WINDOW_MS,
+  latestConversationQuestion,
+  loadConversationHistory,
+} from './conversation-history.js'
+import { AgentRuntimeCoordinator } from './agent-runtime-coordinator.js'
+import { LiveQuestionService } from './live-question-service.js'
+import { LocalFilePreviewService } from './file-preview.js'
+import { RemoteFilePreviewService } from './remote-file-preview.js'
+import { listGitWorktrees } from './git-worktrees.js'
+import { buildPtyEnvironment, localPtyEnvironmentKind } from './pty-environment.js'
+import { parseSsh, sshExec, type SshExec } from './ssh-exec.js'
 import type {
   GeneratePreflightCategory, GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes,
   GeneratePreflightCategoryId,
@@ -42,8 +66,22 @@ import type {
   DevHarnessReadTranscriptReq, DevHarnessReadTranscriptRes,
   ResumeCardReq, QuestionLogReq, ConversationHistoryReq, ConversationHistoryRes,
   NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
+  NextNotesListReq, NextNotesListRes, NextNoteUpdateReq, NextNoteSetPinnedReq,
+  NextNoteSetLifecycleReq, NextNoteConvertToTaskReq, NextNoteMutationRes, NextNoteConvertToTaskRes,
+  TaskCreateReq, TaskUpdateReq, TaskDeleteReq, TaskMutRes,
+  AgentActivitySnapshotReq, AgentActivitySnapshotRes, AgentQuestionReconcileReq, AgentQuestionReconcileRes,
+  HarnessListRunsReq, HarnessListRunsRes, HarnessGetProgressReq, HarnessGetProgressRes,
+  HarnessReadLogReq, HarnessReadLogRes,
+  FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes,
+  ClipboardReadTextRes, TerminalPreferences, TerminalSetPreferencesReq, TerminalPreferencesRes,
+  TerminalDiagnosticsReq, TerminalDiagnosticsRes,
 } from '../shared/ipc-contract.js'
-import { isHumanQuestionText, type UnifiedSearchResponse, type QuestionLogEntry } from '@apc/shared'
+import {
+  isHumanQuestionText,
+  type AgentActivity,
+  type UnifiedSearchResponse,
+  type QuestionLogEntry,
+} from '@apc/shared'
 
 /** Coalesces chunks for the same label/stream into 50ms batches so a chatty engine cannot flood the renderer. */
 function batchEngineLog(emit?: (e: HarnessEngineLogEvent) => void): ((e: HarnessEngineLogEvent) => void) | undefined {
@@ -73,7 +111,13 @@ export type Container = {
   db: ReturnType<typeof openDb>
   registry: ProjectRegistry
   tasks: TaskStore
+  taskCommands: TaskCommandService
+  nextNotes: NextNoteStore
+  noteTasks: NoteTaskService
   runs: AgentRunStore
+  activityStore: AgentActivityStore
+  activityCoordinator: AgentRuntimeCoordinator
+  liveQuestions: LiveQuestionService
   reviews: ReviewService
   cursors: IngestCursorStore
   searchIndex: SearchIndex
@@ -109,6 +153,9 @@ export type Container = {
   harnessListStagedDocs: (req: HarnessListStagedDocsReq) => HarnessListStagedDocsRes
   harnessReadGraphEdges: (req: HarnessReadGraphEdgesReq) => HarnessReadGraphEdgesRes
   harnessExportWiki: (req: HarnessExportWikiReq) => Promise<HarnessExportWikiRes>
+  harnessListRuns: (req: HarnessListRunsReq) => HarnessListRunsRes
+  harnessGetProgress: (req: HarnessGetProgressReq) => HarnessGetProgressRes
+  harnessReadLog: (req: HarnessReadLogReq) => HarnessReadLogRes
   devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
   devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
   composeContext: (req: ComposeContextReq) => ComposeContextRes
@@ -123,9 +170,25 @@ export type Container = {
   invalidateResumeCards: () => void
   questionLog: (req: QuestionLogReq) => QuestionLogEntry[]
   conversationHistory: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
+  taskCreate: (req: TaskCreateReq) => TaskMutRes
+  taskUpdate: (req: TaskUpdateReq) => TaskMutRes
+  taskDelete: (req: TaskDeleteReq) => TaskMutRes
   nextNoteAdd: (req: NextNoteAddReq) => NextNoteAddRes
   nextNoteToggle: (req: NextNoteToggleReq) => NextNoteMutRes
   nextNoteDelete: (req: NextNoteDeleteReq) => NextNoteMutRes
+  nextNotesList: (req: NextNotesListReq) => NextNotesListRes
+  nextNoteUpdate: (req: NextNoteUpdateReq) => NextNoteMutationRes
+  nextNoteSetPinned: (req: NextNoteSetPinnedReq) => NextNoteMutationRes
+  nextNoteSetLifecycle: (req: NextNoteSetLifecycleReq) => NextNoteMutationRes
+  nextNoteConvertToTask: (req: NextNoteConvertToTaskReq) => NextNoteConvertToTaskRes
+  agentActivitySnapshot: (req: AgentActivitySnapshotReq) => AgentActivitySnapshotRes
+  agentQuestionReconcile: (req: AgentQuestionReconcileReq) => Promise<AgentQuestionReconcileRes>
+  fileRefsResolve: (req: FileRefsResolveReq) => Promise<FileRefsResolveRes>
+  filePreviewRead: (req: FilePreviewReadReq) => Promise<FilePreviewReadRes>
+  clipboardReadText: () => ClipboardReadTextRes
+  terminalGetPreferences: () => TerminalPreferencesRes
+  terminalSetPreferences: (req: TerminalSetPreferencesReq) => TerminalPreferencesRes
+  terminalDiagnostics: (req: TerminalDiagnosticsReq) => Promise<TerminalDiagnosticsRes>
 }
 
 let _idCounter = 0
@@ -192,11 +255,15 @@ export function buildContainer(opts: {
   harnessRunsRoot?: string
   emitHarnessProgress?: (e: { runId: string; state: string }) => void
   emitHarnessEngineLog?: (e: HarnessEngineLogEvent) => void
+  emitHarnessActivity?: (e: import('@apc/shared').WikiRunEvent) => void
+  emitAgentActivity?: (e: AgentActivity) => void
   emitDevHarnessLog?: (e: DevHarnessLogEvent) => void
   emitDevHarnessStarted?: (e: DevHarnessStartedEvent) => void
   emitHarnessNodes?: (e: HarnessNodesEvent) => void
   remoteConversationFetcher?: typeof fetchRemoteConversations
   wslConversationFetcher?: typeof fetchWslConversations
+  readClipboardText?: () => string
+  sshExecutor?: SshExec
   now?: () => number
 }): Container {
   const db = openDb(opts.dbFile)
@@ -205,16 +272,36 @@ export function buildContainer(opts: {
   migrateHarness(db)
   migrateKnowledge(db)
 
+  const now = opts.now ?? Date.now
+  const nowIso = () => new Date(now()).toISOString()
+
   const searchDb = new DatabaseSync(':memory:')
 
-  const registry = new ProjectRegistry(db)
-  const tasks = new TaskStore(db)
-  const nextNotes = new NextNoteStore(db)
+  const registry = new ProjectRegistry(db, nowIso)
+  const tasks = new TaskStore(db, nowIso)
+  const nextNotes = new NextNoteStore(db, nowIso)
   const questionLog = new QuestionLogStore(db)
   const runs = new AgentRunStore(db)
   // resumeCard is expensive: latestSessionDetail re-discovers + parses ALL sessions for 3 engines on
   // every call (no incremental cursor). Cache per project; invalidated on ingest + note mutations below.
   const resumeCardCache = new Map<string, ResumeCard | null>()
+  const projectExists = (projectId: string) => Boolean(registry.get(projectId))
+  const taskCommands = new TaskCommandService(tasks, projectExists, undefined, nowIso)
+  const noteTasks = new NoteTaskService(
+    db,
+    nextNotes,
+    tasks,
+    projectExists,
+    (projectId, noteId) => `task:${projectId}:note:${noteId}`,
+    nowIso,
+  )
+  const activityStore = new AgentActivityStore(db, nowIso)
+  const activityCoordinator = new AgentRuntimeCoordinator(activityStore, {
+    now: nowIso,
+    emit: opts.emitAgentActivity,
+  })
+  activityCoordinator.normalizeStartup()
+  const liveQuestions = new LiveQuestionService(activityCoordinator, { now: nowIso })
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
   const searchIndex = new SearchIndex(searchDb)
@@ -252,7 +339,6 @@ export function buildContainer(opts: {
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
   const remoteConversationFetcher = opts.remoteConversationFetcher ?? fetchRemoteConversations
   const wslConversationFetcher = opts.wslConversationFetcher ?? fetchWslConversations
-  const now = opts.now ?? Date.now
   const vaultWriter = new VaultWriter(vault)
   const wiki = new WikiEngine(opts.agentRunner ?? new RoutingAgentRunner())
   const runService = new RunService({ wiki, vaultWriter, tasks, runs })
@@ -358,11 +444,21 @@ export function buildContainer(opts: {
       (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
       batchEngineLog(opts.emitHarnessEngineLog),
       (e) => opts.emitHarnessNodes?.(e),
+      (e) => opts.emitHarnessActivity?.(e),
     )
   }
-  const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(req)
-  const harnessConfirmNodes = (req: HarnessConfirmNodesReq): Promise<HarnessRunRes> => harness.confirmNodes(req)
+  const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(
+    req,
+    (e) => opts.emitHarnessActivity?.(e),
+  )
+  const harnessConfirmNodes = (req: HarnessConfirmNodesReq): Promise<HarnessRunRes> => harness.confirmNodes(
+    req,
+    (e) => opts.emitHarnessActivity?.(e),
+  )
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
+  const harnessListRuns = (req: HarnessListRunsReq): HarnessListRunsRes => harness.listRuns(req)
+  const harnessGetProgress = (req: HarnessGetProgressReq): HarnessGetProgressRes => harness.getProgress(req)
+  const harnessReadLog = (req: HarnessReadLogReq): HarnessReadLogRes => harness.readLog(req)
   // Promote writes into the local working vault; persist it to the workspace so an ssh project's next
   // run (which re-pulls and wipes the working copy) doesn't lose the approved draft. Best-effort — a
   // failed sync leaves the local promote intact, and a later export retries the push.
@@ -462,13 +558,245 @@ export function buildContainer(opts: {
     return { ok: true }
   }
 
+  const conversationHistory = async (req: ConversationHistoryReq): Promise<ConversationHistoryRes> => {
+    const project = registry.get(req.projectId)
+    if (!project) throw new Error(`Project not found: ${req.projectId}`)
+    const safeProjectId = project.id.replace(/[^a-z0-9._-]+/gi, '_')
+    const cacheRoot = join(opts.vaultRoot, '..', 'apc-conversation-cache', safeProjectId, req.agent)
+    const adapters: AgentIngestAdapter[] = []
+    const repoPaths = [...project.repoPaths]
+    const nowMs = now()
+    const fetchOptions = req.includeOlder
+      ? {}
+      : { sinceMs: nowMs - CONVERSATION_HISTORY_RECENT_WINDOW_MS }
+    const hasLocalRepo = project.repoPaths.some((repoPath) => !repoPath.startsWith('ssh://'))
+    if (hasLocalRepo) adapters.push(...ingestAdapters)
+
+    for (const [index, repoPath] of project.repoPaths.entries()) {
+      const ssh = parseSsh(repoPath)
+      if (ssh) {
+        adapters.push(...await remoteConversationFetcher(
+          repoPath,
+          join(cacheRoot, `ssh-${index}`),
+          [req.agent],
+          fetchOptions,
+        ))
+        repoPaths.push(ssh.path)
+        continue
+      }
+
+      const wslTarget = toWslProjectTarget(repoPath)
+      if (!wslTarget) continue
+      repoPaths.push(wslTarget.path)
+      try {
+        adapters.push(...await wslConversationFetcher(
+          repoPath,
+          join(cacheRoot, `wsl-${index}`),
+          [req.agent],
+          fetchOptions,
+        ))
+      } catch {
+        // WSL is optional. A stopped/unavailable distro must not hide Windows-native history.
+      }
+    }
+
+    return loadConversationHistory({
+      adapters,
+      projectId: project.id,
+      repoPaths,
+      agent: req.agent,
+      includeOlder: req.includeOlder,
+      limit: req.limit,
+      nowMs,
+    })
+  }
+
+  const invalidateResumeOnSuccess = <T extends { ok: boolean }>(result: T): T => {
+    if (result.ok) resumeCardCache.clear()
+    return result
+  }
+  const taskCreate = (req: TaskCreateReq): TaskMutRes => invalidateResumeOnSuccess(taskCommands.create(req))
+  const taskUpdate = (req: TaskUpdateReq): TaskMutRes => invalidateResumeOnSuccess(taskCommands.update(req))
+  const taskDelete = (req: TaskDeleteReq): TaskMutRes => invalidateResumeOnSuccess(taskCommands.delete(req))
+  const nextNoteAdd = (req: NextNoteAddReq): NextNoteAddRes => {
+    if (!projectExists(req.projectId)) return { ok: false, reason: 'project-not-found' }
+    const text = req.text.trim()
+    if (!text) return { ok: false, reason: 'empty-text' }
+    const note = nextNotes.add(req.projectId, text)
+    resumeCardCache.clear()
+    return { ok: true, note }
+  }
+  const nextNoteToggle = (req: NextNoteToggleReq): NextNoteMutRes => {
+    const result = nextNotes.setLifecycle(req.projectId, req.id, req.done ? 'completed' : 'active')
+    if (result.ok) resumeCardCache.clear()
+    return result.ok ? { ok: true } : result
+  }
+  const nextNoteDelete = (req: NextNoteDeleteReq): NextNoteMutRes => {
+    const result = nextNotes.deleteForProject(req.projectId, req.id)
+    if (result.ok) resumeCardCache.clear()
+    return result.ok ? { ok: true } : result
+  }
+  const nextNotesList = (req: NextNotesListReq): NextNotesListRes => projectExists(req.projectId)
+    ? { ok: true, notes: nextNotes.listByProject(req.projectId, req) }
+    : { ok: false, reason: 'project-not-found' }
+  const nextNoteUpdate = (req: NextNoteUpdateReq): NextNoteMutationRes => (
+    invalidateResumeOnSuccess(nextNotes.updateText(req.projectId, req.noteId, req.text))
+  )
+  const nextNoteSetPinned = (req: NextNoteSetPinnedReq): NextNoteMutationRes => (
+    invalidateResumeOnSuccess(nextNotes.setPinned(req.projectId, req.noteId, req.pinned))
+  )
+  const nextNoteSetLifecycle = (req: NextNoteSetLifecycleReq): NextNoteMutationRes => (
+    invalidateResumeOnSuccess(nextNotes.setLifecycle(req.projectId, req.noteId, req.lifecycle))
+  )
+  const nextNoteConvertToTask = (req: NextNoteConvertToTaskReq): NextNoteConvertToTaskRes => {
+    const result = invalidateResumeOnSuccess(noteTasks.convert(req))
+    return result.ok
+      ? { ok: true, note: result.note, task: result.task }
+      : result
+  }
+
+  const agentActivitySnapshot = (req: AgentActivitySnapshotReq): AgentActivitySnapshotRes => ({
+    activities: activityStore.list(req.projectId),
+    asOf: nowIso(),
+  })
+  const agentQuestionReconcile = async (req: AgentQuestionReconcileReq): Promise<AgentQuestionReconcileRes> => {
+    const activity = activityStore.get(req.paneId)
+    if (!activity || activity.launchId !== req.launchId) return { ok: false, reason: 'stale-launch' }
+    const sessionId = req.sessionId ?? activity.pane.sessionId ?? activity.lastQuestion?.sessionId
+    if (!sessionId) return { ok: false, reason: 'session-id-required' }
+    const history = await conversationHistory({
+      projectId: activity.pane.projectId,
+      agent: activity.pane.agent,
+      includeOlder: true,
+    })
+    const service = new LiveQuestionService(activityCoordinator, {
+      now: nowIso,
+      findConfirmedQuestion: async (requestedSessionId) => latestConversationQuestion(history, requestedSessionId),
+    })
+    const result = await service.reconcile(req.paneId, req.launchId, sessionId)
+    return result.ok ? { ok: true, activity: result.activity } : result
+  }
+
+  const localFilePreview = new LocalFilePreviewService({
+    getProject: (projectId) => registry.get(projectId),
+    listWorktrees: listGitWorktrees,
+    now,
+  })
+  const sshExecutor = opts.sshExecutor ?? sshExec
+  const remoteFilePreview = new RemoteFilePreviewService({
+    getProject: (projectId) => registry.get(projectId),
+    exec: sshExecutor,
+    now,
+  })
+  const fileRefsResolve = async (req: FileRefsResolveReq): Promise<FileRefsResolveRes> => {
+    const project = registry.get(req.projectId)
+    if (!project) return localFilePreview.resolve(req)
+    const hasLocal = [...project.repoPaths, ...project.vaultPaths].some((path) => !path.startsWith('ssh://'))
+    const hasRemote = project.repoPaths.some((path) => path.startsWith('ssh://'))
+    if (hasLocal && !hasRemote) return localFilePreview.resolve(req)
+    if (hasRemote && !hasLocal) return remoteFilePreview.resolve(req)
+
+    const local = await localFilePreview.resolve(req)
+    if (!hasRemote || local.unresolved.length === 0) return local
+    const remote = await remoteFilePreview.resolve({
+      ...req,
+      candidates: local.unresolved.map(({ candidate }) => candidate),
+    })
+    return { resolved: [...local.resolved, ...remote.resolved], unresolved: remote.unresolved }
+  }
+  const filePreviewRead = async (req: FilePreviewReadReq): Promise<FilePreviewReadRes> => {
+    const project = registry.get(req.projectId)
+    if (!project) return { ok: false, reason: '프로젝트를 찾을 수 없습니다.' }
+    const hasLocal = [...project.repoPaths, ...project.vaultPaths].some((path) => !path.startsWith('ssh://'))
+    const hasRemote = project.repoPaths.some((path) => path.startsWith('ssh://'))
+    if (hasLocal) {
+      const local = await localFilePreview.read(req)
+      if (local.ok || !hasRemote) return local
+    }
+    return hasRemote
+      ? remoteFilePreview.read(req)
+      : { ok: false, reason: '등록된 파일 미리보기 경로가 없습니다.' }
+  }
+
+  db.exec('CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT)')
+  const terminalPreferenceKey = 'terminal_preferences_v1'
+  const defaultTerminalPreferences: TerminalPreferences = {
+    fontFamily: '"Cascadia Mono", "D2Coding", "Noto Sans Mono CJK KR", "NanumGothicCoding", "Consolas", monospace',
+    fontSize: 13,
+  }
+  const terminalGetPreferences = (): TerminalPreferencesRes => {
+    const row = db.prepare('SELECT value FROM app_state WHERE key = ?').get(terminalPreferenceKey) as { value: string } | undefined
+    if (!row) return { ok: true, preferences: defaultTerminalPreferences }
+    try {
+      const saved = JSON.parse(row.value) as Partial<TerminalPreferences>
+      return {
+        ok: true,
+        preferences: {
+          fontFamily: typeof saved.fontFamily === 'string' && saved.fontFamily.trim()
+            ? saved.fontFamily
+            : defaultTerminalPreferences.fontFamily,
+          fontSize: typeof saved.fontSize === 'number' && Number.isFinite(saved.fontSize)
+            ? Math.min(32, Math.max(8, Math.round(saved.fontSize)))
+            : defaultTerminalPreferences.fontSize,
+        },
+      }
+    } catch {
+      return { ok: true, preferences: defaultTerminalPreferences }
+    }
+  }
+  const terminalSetPreferences = (req: TerminalSetPreferencesReq): TerminalPreferencesRes => {
+    const current = terminalGetPreferences().preferences ?? defaultTerminalPreferences
+    const preferences: TerminalPreferences = {
+      fontFamily: req.fontFamily?.trim() || current.fontFamily,
+      fontSize: req.fontSize === undefined ? current.fontSize : Math.min(32, Math.max(8, Math.round(req.fontSize))),
+    }
+    db.prepare(
+      `INSERT INTO app_state (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(terminalPreferenceKey, JSON.stringify(preferences))
+    return { ok: true, preferences }
+  }
+  const terminalDiagnostics = async (req: TerminalDiagnosticsReq): Promise<TerminalDiagnosticsRes> => {
+    const target = parseSsh(req.cwd)
+    const remoteCharmap = target
+      ? await sshExecutor(target, 'locale charmap', { timeoutMs: 8_000 }).then((result) => (
+          result.ok ? result.stdout.trim() : undefined
+        )).catch(() => undefined)
+      : undefined
+    const diagnostic = buildPtyEnvironment({
+      kind: target ? 'ssh' : localPtyEnvironmentKind(process.env),
+      env: process.env,
+      remoteCharmap,
+    }).diagnostic
+    return {
+      ok: true,
+      environment: {
+        kind: diagnostic.kind,
+        term: diagnostic.term,
+        colorTerm: diagnostic.colorTerm,
+        locale: diagnostic.locale,
+        utf8: diagnostic.utf8,
+      },
+      warnings: diagnostic.warnings,
+    }
+  }
+  const clipboardReadText = (): ClipboardReadTextRes => {
+    if (!opts.readClipboardText) return { ok: false, reason: '클립보드를 읽을 수 없습니다.' }
+    try { return { ok: true, text: opts.readClipboardText() } }
+    catch { return { ok: false, reason: '클립보드를 읽을 수 없습니다.' } }
+  }
+
   return {
     vaultRoot: opts.vaultRoot,
-    db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
+    db, registry, tasks, taskCommands, nextNotes, noteTasks, runs,
+    activityStore, activityCoordinator, liveQuestions,
+    reviews, cursors, searchIndex, search, vault, taskProfiles,
     ingest, gitSync, receipts, retroStore, gate, retroService,
     ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
-    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
+    harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy,
+    harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
+    harnessListRuns, harnessGetProgress, harnessReadLog,
     devHarnessRun, devHarnessCancel, composeContext, devHarnessReadTranscript,
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
@@ -494,63 +822,12 @@ export function buildContainer(opts: {
     },
     invalidateResumeCards: () => resumeCardCache.clear(),
     questionLog: (req) => questionLog.listRecent(req),
-    conversationHistory: async (req) => {
-      const project = registry.get(req.projectId)
-      if (!project) throw new Error(`Project not found: ${req.projectId}`)
-      const safeProjectId = project.id.replace(/[^a-z0-9._-]+/gi, '_')
-      const cacheRoot = join(opts.vaultRoot, '..', 'apc-conversation-cache', safeProjectId, req.agent)
-      const adapters: AgentIngestAdapter[] = []
-      const repoPaths = [...project.repoPaths]
-      const nowMs = now()
-      const fetchOptions = req.includeOlder
-        ? {}
-        : { sinceMs: nowMs - CONVERSATION_HISTORY_RECENT_WINDOW_MS }
-      const hasLocalRepo = project.repoPaths.some((repoPath) => !repoPath.startsWith('ssh://'))
-      if (hasLocalRepo) adapters.push(...ingestAdapters)
-
-      for (const [index, repoPath] of project.repoPaths.entries()) {
-        const ssh = parseSsh(repoPath)
-        if (ssh) {
-          adapters.push(...await remoteConversationFetcher(
-            repoPath,
-            join(cacheRoot, `ssh-${index}`),
-            [req.agent],
-            fetchOptions,
-          ))
-          repoPaths.push(ssh.path)
-          continue
-        }
-
-        const wslTarget = toWslProjectTarget(repoPath)
-        if (!wslTarget) continue
-        repoPaths.push(wslTarget.path)
-        try {
-          adapters.push(...await wslConversationFetcher(
-            repoPath,
-            join(cacheRoot, `wsl-${index}`),
-            [req.agent],
-            fetchOptions,
-          ))
-        } catch {
-          // WSL is optional. A stopped/unavailable distro must not hide Windows-native history.
-        }
-      }
-
-      return loadConversationHistory({
-        adapters,
-        projectId: project.id,
-        repoPaths,
-        agent: req.agent,
-        includeOlder: req.includeOlder,
-        limit: req.limit,
-        nowMs,
-      })
-    },
-    // nextNotes are embedded in resumeCard; clear the whole cache rather than tracking projectId from
-    // the note id (toggle/delete only have the note id, format note:${projectId}:${ISO}:${rand}) — cache
-    // is cheap to rebuild, so correctness over a micro-optimized single-project invalidation.
-    nextNoteAdd: (req) => { const note = nextNotes.add(req.projectId, req.text); resumeCardCache.clear(); return { ok: true, note } },
-    nextNoteToggle: (req) => { nextNotes.toggleDone(req.id, req.done); resumeCardCache.clear(); return { ok: true } },
-    nextNoteDelete: (req) => { nextNotes.delete(req.id); resumeCardCache.clear(); return { ok: true } },
+    conversationHistory,
+    taskCreate, taskUpdate, taskDelete,
+    nextNoteAdd, nextNoteToggle, nextNoteDelete, nextNotesList,
+    nextNoteUpdate, nextNoteSetPinned, nextNoteSetLifecycle, nextNoteConvertToTask,
+    agentActivitySnapshot, agentQuestionReconcile,
+    fileRefsResolve, filePreviewRead,
+    clipboardReadText, terminalGetPreferences, terminalSetPreferences, terminalDiagnostics,
   }
 }

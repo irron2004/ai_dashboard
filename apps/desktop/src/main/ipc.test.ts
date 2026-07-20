@@ -241,6 +241,25 @@ describe('IPC handlers (no Electron)', () => {
     const shown = (await h[CH.harnessGetRun]({ runId: ran.runId })) as { ok: boolean; runState: { state: string } }
     expect(shown.runState.state).toBe('HUMAN_REVIEW_REQUIRED')
 
+    const listed = await h[CH.harnessListRuns]({ projectId: 'p1', limit: 20 }) as {
+      ok: boolean; runs?: Array<{ runId: string }>
+    }
+    expect(listed).toMatchObject({ ok: true })
+    expect(listed.runs?.map((item) => item.runId)).toContain(ran.runId)
+
+    const replay = await h[CH.harnessGetProgress]({ runId: ran.runId }) as {
+      ok: boolean; events?: unknown[]; summary?: { status: string }
+    }
+    expect(replay.ok).toBe(true)
+    expect(replay.events?.length).toBeGreaterThan(0)
+    expect(replay.summary?.status).toBe('completed')
+
+    const log = await h[CH.harnessReadLog]({ runId: ran.runId, offset: 0, limit: 64 }) as {
+      ok: boolean; content?: string; nextOffset?: number
+    }
+    expect(log.ok).toBe(true)
+    expect(log.nextOffset).toBeTypeOf('number')
+
     const promoted = (await h[CH.harnessPromote]({ runId: ran.runId })) as { ok: boolean; promoted: string[] }
     expect(promoted.ok).toBe(true)
     expect(promoted.promoted).toContain('concepts/n1.md')
@@ -588,13 +607,13 @@ describe('IPC handlers (no Electron)', () => {
     expect(card?.nextNotes.map((n) => n.text)).toContain('7/10 상장 반영')
     expect(card?.hasHistory).toBe(true)
 
-    const toggled = await h[CH.nextNoteToggle]({ id: noteId, done: true })
+    const toggled = await h[CH.nextNoteToggle]({ projectId: 'p1', id: noteId, done: true })
     expect(toggled).toEqual({ ok: true })
     // listByProject defaults to excluding done notes, so a toggled-done note drops out of the card.
     const afterToggle = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
     expect(afterToggle?.nextNotes.map((n) => n.text)).not.toContain('7/10 상장 반영')
 
-    const deleted = await h[CH.nextNoteDelete]({ id: noteId })
+    const deleted = await h[CH.nextNoteDelete]({ projectId: 'p1', id: noteId })
     expect(deleted).toEqual({ ok: true })
   })
 
@@ -876,5 +895,181 @@ describe('IPC handlers (no Electron)', () => {
       sshPath, expect.stringContaining('apc-conversation-cache'), ['codex'], {},
     )
     expect(wslFetcher).not.toHaveBeenCalled()
+  })
+
+  test('project context handlers preserve user/agent provenance and reject undeclared fields', async () => {
+    const h = handlers(container)
+    expect(container.registry.proposeContext('p1', 'goal', '에이전트가 제안한 목표')).toMatchObject({ ok: true })
+
+    const confirmed = await h[CH.projectContextConfirm]({ projectId: 'p1', field: 'goal' }) as {
+      ok: boolean; project?: { goalSource?: string; goalConfirmedAt?: string }
+    }
+    expect(confirmed).toMatchObject({ ok: true, project: { goalSource: 'agent' } })
+    expect(confirmed.project?.goalConfirmedAt).toBeTruthy()
+
+    const updated = await h[CH.updateProject]({
+      id: 'p1', name: 'APC', projectType: 'git', repoPath: '/work/apc', domain: 'project-docs',
+      goal: '사용자가 확정한 목표', currentFocus: '중앙 IPC 연결',
+    }) as { goal?: string; goalSource?: string; currentFocusSource?: string }
+    expect(updated).toMatchObject({
+      goal: '사용자가 확정한 목표', goalSource: 'user', currentFocusSource: 'user',
+    })
+    await expect(h[CH.updateProject]({
+      id: 'p1', name: 'APC', projectType: 'git', repoPath: '/work/apc', injected: true,
+    })).rejects.toThrow()
+  })
+
+  test('task and note command handlers enforce project ownership and provenance', async () => {
+    container.registry.register({
+      id: 'p2', name: 'Other', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: ['/work/other'], vaultPaths: [], sourcePaths: [],
+    })
+    const h = handlers(container)
+    const created = await h[CH.taskCreate]({
+      projectId: 'p1', title: '  사용자 작업  ', priority: 'high', dueDate: '2026-08-01',
+    }) as { ok: boolean; task?: { id: string; title: string; source?: string; assigneeType: string } }
+    expect(created).toMatchObject({
+      ok: true, task: { title: '사용자 작업', source: 'manual', assigneeType: 'human' },
+    })
+    expect(await h[CH.taskUpdate]({
+      projectId: 'p2', taskId: created.task!.id, title: '침범', status: 'done', priority: 'low',
+    })).toMatchObject({ ok: false, reason: 'project-mismatch' })
+
+    const added = await h[CH.nextNoteAdd]({ projectId: 'p1', text: 'Task로 바꿀 메모' }) as NextNoteAddRes
+    const noteId = added.note!.id
+    expect(await h[CH.nextNoteSetPinned]({ projectId: 'p1', noteId, pinned: true }))
+      .toMatchObject({ ok: true, note: { pinned: true } })
+    expect(await h[CH.nextNoteUpdate]({ projectId: 'p2', noteId, text: '침범' }))
+      .toMatchObject({ ok: false, reason: 'project-mismatch' })
+
+    const converted = await h[CH.nextNoteConvertToTask]({ projectId: 'p1', noteId }) as {
+      ok: boolean; note?: { convertedTaskId?: string; archivedAt?: string }; task?: { source?: string; sourceRef?: string }
+    }
+    expect(converted).toMatchObject({
+      ok: true,
+      note: { convertedTaskId: expect.any(String), archivedAt: expect.any(String) },
+      task: { source: 'note', sourceRef: noteId },
+    })
+    expect(await h[CH.nextNoteConvertToTask]({ projectId: 'p1', noteId }))
+      .toMatchObject({ ok: true, task: { sourceRef: noteId } })
+  })
+
+  test('local file preview resolves and revalidates project-scoped md while preserving failures', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'apc-preview-ipc-'))
+    const outside = join(repo, '..', `outside-${Date.now()}.md`)
+    try {
+      mkdirSync(join(repo, 'docs'), { recursive: true })
+      writeFileSync(join(repo, 'docs', 'readme.md'), '# 안전한 미리보기\n')
+      writeFileSync(outside, '# outside\n')
+      container.registry.update({ ...container.registry.get('p1')!, repoPaths: [repo] })
+      container.registry.register({
+        id: 'p2', name: 'Other', status: 'active', projectType: 'git', domain: 'project-docs',
+        repoPaths: [repo], vaultPaths: [], sourcePaths: [],
+      })
+      const candidate = {
+        raw: 'docs/readme.md:1', path: 'docs/readme.md', line: 1,
+        form: 'bare' as const, start: 0, end: 16,
+      }
+      const h = handlers(container)
+      const resolved = await h[CH.fileRefsResolve]({ projectId: 'p1', candidates: [candidate] }) as {
+        resolved: Array<{ token: string; canonicalPath: string }>; unresolved: unknown[]
+      }
+      expect(resolved.resolved).toHaveLength(1)
+      expect(resolved.unresolved).toEqual([])
+      const read = await h[CH.filePreviewRead]({
+        projectId: 'p1', token: resolved.resolved[0]!.token,
+      }) as { ok: boolean; content?: string }
+      expect(read).toMatchObject({ ok: true, content: '# 안전한 미리보기\n' })
+      expect(await h[CH.filePreviewRead]({
+        projectId: 'p2', token: resolved.resolved[0]!.token,
+      })).toMatchObject({ ok: false })
+
+      const escaped = { ...candidate, raw: '../outside.md', path: '../outside.md', line: undefined, end: 13 }
+      expect(await h[CH.fileRefsResolve]({ projectId: 'p1', candidates: [escaped] }))
+        .toMatchObject({ resolved: [], unresolved: [{ reason: expect.any(String) }] })
+      await expect(h[CH.fileRefsResolve]({ projectId: 'p1', candidates: [candidate], extra: true }))
+        .rejects.toThrow()
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+      rmSync(outside, { force: true })
+    }
+  })
+
+  test('clipboard and terminal handlers expose only bounded results and generic failures', async () => {
+    const sshExecutor = vi.fn(async () => ({ ok: true, stdout: 'UTF-8\n', stderr: '', exitCode: 0 }))
+    const c2 = buildContainer({
+      dbFile: ':memory:', vaultRoot: vaultDir,
+      readClipboardText: () => '한글 붙여넣기',
+      sshExecutor,
+    })
+    const h = handlers(c2)
+    expect(await h[CH.clipboardReadText](undefined)).toEqual({ ok: true, text: '한글 붙여넣기' })
+    await expect(h[CH.clipboardReadText]({ raw: true })).rejects.toThrow()
+    expect(await handlers(container)[CH.clipboardReadText](undefined))
+      .toEqual({ ok: false, reason: '클립보드를 읽을 수 없습니다.' })
+
+    expect(await h[CH.terminalSetPreferences]({ fontFamily: 'D2Coding', fontSize: 15 }))
+      .toMatchObject({ ok: true, preferences: { fontFamily: 'D2Coding', fontSize: 15 } })
+    await expect(h[CH.terminalSetPreferences]({ fontSize: 100 })).rejects.toThrow()
+    const diagnostic = await h[CH.terminalDiagnostics]({
+      cwd: 'ssh://me@example.test:22/home/me/work',
+    }) as { ok: boolean; environment?: { kind: string; utf8: boolean } }
+    expect(diagnostic).toMatchObject({ ok: true, environment: { kind: 'ssh', utf8: true } })
+    expect(sshExecutor).toHaveBeenCalledWith(
+      expect.objectContaining({ host: 'example.test', path: '/home/me/work' }),
+      'locale charmap',
+      { timeoutMs: 8_000 },
+    )
+  })
+
+  test('file DB restart restores context/task/note/question history but never live PTY state', async () => {
+    const dbFile = join(vaultDir, 'restart.db')
+    const persistentVault = join(vaultDir, 'restart-vault')
+    const c1 = buildContainer({ dbFile, vaultRoot: persistentVault, ingestAdapters: [] })
+    c1.registry.register({
+      id: 'persist', name: 'Persist', status: 'active', projectType: 'git', domain: 'project-docs',
+      goal: '재시작 복구', currentFocus: 'I1 검증', repoPaths: ['/work/persist'], vaultPaths: [], sourcePaths: [],
+    })
+    const first = handlers(c1)
+    const task = await first[CH.taskCreate]({ projectId: 'persist', title: '남아야 하는 작업' }) as {
+      ok: boolean; task?: { id: string }
+    }
+    const note = await first[CH.nextNoteAdd]({ projectId: 'persist', text: '남아야 하는 메모' }) as NextNoteAddRes
+    await first[CH.nextNoteSetPinned]({ projectId: 'persist', noteId: note.note!.id, pinned: true })
+    await first[CH.nextNoteSetLifecycle]({ projectId: 'persist', noteId: note.note!.id, lifecycle: 'completed' })
+
+    const pane = {
+      paneId: 'pane-persist', projectId: 'persist', worktreePath: '/work/persist',
+      slotId: 'codex-1', agent: 'codex' as const,
+    }
+    c1.activityCoordinator.handle({ type: 'start', pane, launchId: 'launch-persist' })
+    c1.activityCoordinator.handle({ type: 'spawn', paneId: pane.paneId, launchId: 'launch-persist' })
+    const question = c1.liveQuestions.submit({
+      paneId: pane.paneId,
+      launchId: 'launch-persist',
+      text: 'password=hunter2를 어디에 넣어?',
+    })
+    expect(question).toMatchObject({ ok: true, question: { displayText: '[민감한 질문]', privacy: 'masked' } })
+    await first[CH.terminalSetPreferences]({ fontFamily: 'D2Coding', fontSize: 16 })
+    c1.db.close()
+
+    const c2 = buildContainer({ dbFile, vaultRoot: persistentVault, ingestAdapters: [] })
+    const second = handlers(c2)
+    expect(c2.registry.get('persist')).toMatchObject({ goal: '재시작 복구', currentFocus: 'I1 검증' })
+    expect(c2.tasks.get(task.task!.id)).toMatchObject({ title: '남아야 하는 작업', source: 'manual' })
+    expect(await second[CH.nextNotesList]({
+      projectId: 'persist', includeCompleted: true, includeArchived: true,
+    })).toMatchObject({ ok: true, notes: [{ text: '남아야 하는 메모', pinned: true, done: true }] })
+    const snapshot = await second[CH.agentActivitySnapshot]({ projectId: 'persist' }) as {
+      activities: Array<{ connection: string; processAlive: boolean; reason?: string; lastQuestion?: { displayText: string } }>
+    }
+    expect(snapshot.activities).toEqual([expect.objectContaining({
+      connection: 'disconnected', processAlive: false, reason: 'app-restart',
+      lastQuestion: expect.objectContaining({ displayText: '[민감한 질문]' }),
+    })])
+    expect(JSON.stringify(snapshot)).not.toContain('hunter2')
+    expect(await second[CH.terminalGetPreferences](undefined))
+      .toMatchObject({ ok: true, preferences: { fontFamily: 'D2Coding', fontSize: 16 } })
+    c2.db.close()
   })
 })

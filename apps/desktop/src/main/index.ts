@@ -1,13 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { exec, execFile } from 'node:child_process'
+import { z } from 'zod'
 import { buildContainer } from './container.js'
-import { registerIpc } from './ipc.js'
+import { registerIpc, resolveGitRepoPath } from './ipc.js'
 import { PtyManager } from './pty-manager.js'
 import { SessionStore } from './session-store.js'
 import { adapterFor, findLatestSession } from '@apc/agents'
-import { CH, type StartPtyReq, type PtyInputReq, type PtyKillReq, type PtyResizeReq, type TestSshReq, type PaneRef, type WorkspaceRestore } from '../shared/ipc-contract.js'
+import { AgentKind } from '@apc/shared'
+import { CH, type TestSshReq, type PaneRef, type WorkspaceRestore } from '../shared/ipc-contract.js'
 import { configureE2EUserDataPath } from './e2e-user-data.js'
+import { authorizePtyStart, parsePtyInput, parsePtyKill, parsePtyResize, parsePtyStart } from './pty-ipc.js'
+import { installNavigationGuard } from './navigation-guard.js'
 
 // electron-vite injects import.meta.dirname-equivalent paths; on Node 24 ESM import.meta.dirname exists.
 const here = import.meta.dirname
@@ -33,6 +37,7 @@ function createWindow(): void {
       sandbox: false,
     },
   })
+  installNavigationGuard(win.webContents)
 
   const userData = app.getPath('userData')
   const container = buildContainer({
@@ -41,39 +46,71 @@ function createWindow(): void {
     emitHarnessProgress: (e) => win.webContents.send(CH.harnessProgress, e),
     emitHarnessEngineLog: (e) => win.webContents.send(CH.harnessEngineLog, e),
     emitHarnessNodes: (e) => win.webContents.send(CH.harnessNodes, e),
+    emitHarnessActivity: (e) => win.webContents.send(CH.harnessActivity, e),
+    emitAgentActivity: (e) => win.webContents.send(CH.agentActivity, e),
     emitDevHarnessLog: (e) => win.webContents.send(CH.devHarnessLog, e),
     emitDevHarnessStarted: (e) => win.webContents.send(CH.devHarnessStarted, e),
+    readClipboardText: () => clipboard.readText(),
   })
 
-  const sessions = new SessionStore(container.db)
+  const sessions = new SessionStore(container.db, {
+    primaryWorktreeForProject: (projectId) => container.registry.get(projectId)?.repoPaths[0],
+  })
   sessions.ensureSchema()
 
+  const scopedPaneReport = z.object({
+    projectId: z.string().min(1).max(2_048),
+    agent: AgentKind,
+    paneId: z.string().min(1).max(2_048),
+    worktreePath: z.string().min(1).max(8_192),
+    slotId: z.string().min(1).max(2_048),
+  }).strict()
+  const legacyPaneReport = z.object({
+    projectId: z.string().min(1).max(2_048),
+    agent: AgentKind,
+  }).strict()
+  const paneReport = z.union([scopedPaneReport, legacyPaneReport])
+
   // Renderer reports pane open/close and selected project
-  ipcMain.on(CH.paneOpened, (_e, p: PaneRef) =>
-    sessions.upsertPane({ projectId: p.projectId, agent: p.agent, wasOpen: true }))
-  ipcMain.on(CH.paneClosed, (_e, p: PaneRef) =>
-    sessions.upsertPane({ projectId: p.projectId, agent: p.agent, wasOpen: false }))
-  ipcMain.on(CH.selectProject, (_e, id: string) => sessions.setState('selected_project_id', id))
+  ipcMain.on(CH.paneOpened, (_e, payload: unknown) => {
+    const parsed = paneReport.safeParse(payload)
+    if (parsed.success) sessions.upsertPane({ ...parsed.data, wasOpen: true })
+  })
+  ipcMain.on(CH.paneClosed, (_e, payload: unknown) => {
+    const parsed = paneReport.safeParse(payload)
+    if (parsed.success) sessions.upsertPane({ ...parsed.data, wasOpen: false })
+  })
+  ipcMain.on(CH.selectProject, (_e, payload: unknown) => {
+    const parsed = z.string().min(1).max(2_048).safeParse(payload)
+    if (parsed.success) sessions.setState('selected_project_id', parsed.data)
+  })
 
   // Snapshot latest session ids for open panes before the app quits — registered exactly once.
   if (!quitHandlerRegistered) {
     quitHandlerRegistered = true
     app.on('before-quit', () => {
-      const open = sessions.listOpenPanes()
+      const open = sessions.listOpenPaneRecords()
       void Promise.all(open.map(async (pane) => {
-        const repoPath = container.registry.get(pane.projectId)?.repoPaths?.[0]
+        const repoPath = pane.worktreePath || container.registry.get(pane.projectId)?.repoPaths?.[0]
         if (!repoPath) return
         const found = await findLatestSession(adapterFor(pane.agent as 'claude' | 'codex' | 'opencode'), repoPath).catch(() => null)
-        if (found) sessions.upsertPane({ projectId: pane.projectId, agent: pane.agent, lastSessionId: found.sessionId, wasOpen: true })
+        if (found) sessions.upsertPane({ ...pane, lastSessionId: found.sessionId, wasOpen: true })
       }))
     })
   }
 
   // Send restore payload once renderer is ready
   win.webContents.on('did-finish-load', () => {
-    const open = sessions.listOpenPanes()
+    const open = sessions.listOpenPaneRecords()
     const payload: WorkspaceRestore = {
-      panes: open.map((p) => ({ projectId: p.projectId, agent: p.agent as PaneRef['agent'], lastSessionId: p.lastSessionId })),
+      panes: open.map((p) => ({
+        projectId: p.projectId,
+        agent: p.agent as PaneRef['agent'],
+        paneId: p.paneId,
+        worktreePath: p.worktreePath,
+        slotId: p.slotId,
+        lastSessionId: p.lastSessionId,
+      })),
       selectedProjectId: sessions.getState('selected_project_id'),
     }
     win.webContents.send(CH.workspaceRestore, payload)
@@ -123,13 +160,71 @@ function createWindow(): void {
   // Relaunch the app to load the pulled code.
   ipcMain.handle(CH.appRestart, async () => { app.relaunch(); app.quit() })
 
-  const pty = new PtyManager((channel, ...args) => win.webContents.send(channel, ...args))
-  ipcMain.on(CH.ptyStart, (_e, req: StartPtyReq) => {
-    void pty.start(req.id, req.command, req.args, req.cwd, { resume: req.resume, agent: req.agent, sessionId: req.sessionId })
+  const pty = new PtyManager(
+    (channel, ...args) => win.webContents.send(channel, ...args),
+    { onLifecycle: (event) => { container.activityCoordinator.handle(event) } },
+  )
+  const pendingStarts = new Map<string, symbol>()
+  const rejectPtyStart = (id: string, launchId: string, reason: string) => {
+    win.webContents.send(CH.ptyExitV2, { id, launchId, code: 1, reason })
+  }
+  ipcMain.on(CH.ptyStart, (_e, payload: unknown) => {
+    const parsed = parsePtyStart(payload)
+    if (!parsed.ok) return
+    const req = parsed.value
+    const requestToken = Symbol(req.launchId ?? 'legacy-start')
+    pendingStarts.set(req.id, requestToken)
+    void authorizePtyStart(req, (projectId, worktreePath) => (
+      resolveGitRepoPath(container, projectId, worktreePath)
+    )).then((authorized) => {
+      if (pendingStarts.get(req.id) !== requestToken) return
+      if (!authorized.ok) {
+        if (req.launchId) rejectPtyStart(req.id, req.launchId, authorized.reason)
+        return
+      }
+      void pty.start(req.id, req.command, req.args, req.cwd, {
+        resume: req.resume,
+        agent: req.agent,
+        sessionId: req.sessionId,
+        pane: req.pane,
+        launchId: req.launchId,
+      })
+    }).catch(() => {
+      if (pendingStarts.get(req.id) !== requestToken) return
+      if (req.launchId) rejectPtyStart(req.id, req.launchId, 'start-authorization-failed')
+    })
   })
-  ipcMain.on(CH.ptyInput, (_e, req: PtyInputReq) => pty.write(req.id, req.data))
-  ipcMain.on(CH.ptyKill, (_e, req: PtyKillReq) => pty.kill(req.id))
-  ipcMain.on(CH.ptyResize, (_e, req: PtyResizeReq) => pty.resize(req.id, req.cols, req.rows))
+  ipcMain.on(CH.ptyInput, (_e, payload: unknown) => {
+    const parsed = parsePtyInput(payload)
+    if (!parsed.ok) return
+    const req = parsed.value
+    if (!pty.write(req.id, req.data, req.launchId)) return
+    if (!req.launchId) return
+    for (const text of req.questionCandidates ?? []) {
+      container.liveQuestions.submit({ paneId: req.id, launchId: req.launchId, text })
+    }
+  })
+  ipcMain.on(CH.ptyKill, (_e, payload: unknown) => {
+    const parsed = parsePtyKill(payload)
+    if (!parsed.ok) return
+    const req = parsed.value
+    pty.kill(req.id, req.launchId, req.reason)
+  })
+  ipcMain.on(CH.ptyResize, (_e, payload: unknown) => {
+    const parsed = parsePtyResize(payload)
+    if (!parsed.ok) return
+    const req = parsed.value
+    pty.resize(req.id, req.cols, req.rows, req.launchId)
+  })
+
+  const silenceTimer = setInterval(() => {
+    for (const activity of container.activityStore.list()) {
+      if (activity.processAlive) container.activityCoordinator.handle({
+        type: 'silence', paneId: activity.pane.paneId, launchId: activity.launchId,
+      })
+    }
+  }, 5_000)
+  win.once('closed', () => clearInterval(silenceTimer))
 
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(here, '../renderer/index.html'))

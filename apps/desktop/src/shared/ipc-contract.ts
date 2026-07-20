@@ -440,7 +440,13 @@ type ScopedPtyStart = { pane: AgentPaneIdentity; launchId: string }
 type LegacyPtyStart = { pane?: undefined; launchId?: undefined }
 /** Legacy starts remain accepted for one compatibility release; all new panes use the scoped form. */
 export type StartPtyReq = StartPtyBase & (ScopedPtyStart | LegacyPtyStart)
-export type PtyInputReq = { id: string; data: string; launchId?: string }
+export type PtyInputReq = {
+  id: string
+  data: string
+  launchId?: string
+  /** Submitted plain-input lines. Main sanitizes these before anything is persisted or emitted. */
+  questionCandidates?: string[]
+}
 export type PtyKillReq = { id: string; launchId?: string; reason?: 'user' | 'restart' | 'unmount' | 'quit' }
 export type PtyResizeReq = { id: string; cols: number; rows: number; launchId?: string }
 export type PtyDataEvent = { id: string; launchId: string; data: string }

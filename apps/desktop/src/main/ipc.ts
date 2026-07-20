@@ -3,17 +3,30 @@ import { join } from 'node:path'
 import { CH, WIKI_GENERATION_ENGINE } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq, TasksListReq,
+  ProjectContextConfirmReq,
+  TaskCreateReq, TaskUpdateReq, TaskDeleteReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
   ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
+  NextNotesListReq, NextNoteUpdateReq, NextNoteSetPinnedReq, NextNoteSetLifecycleReq, NextNoteConvertToTaskReq,
+  AgentActivitySnapshotReq, AgentQuestionReconcileReq,
+  HarnessListRunsReq, HarnessGetProgressReq, HarnessReadLogReq,
+  FileRefsResolveReq, FilePreviewReadReq, TerminalSetPreferencesReq, TerminalDiagnosticsReq,
   GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitReq, GitPushReq,
   RetroPrepareReq, RetroAnswerReq, RetroTargetNotesReq, RetroCompleteReq, ReceiptIssueReq,
   GateQueryReq, GateInstallReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
-import { AgentKind } from '@apc/shared'
+import {
+  AgentKind,
+  FilePreviewReadReqSchema,
+  FileRefsResolveReqSchema,
+  ProjectDomain,
+  ProjectType,
+  TaskStatus,
+} from '@apc/shared'
 import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
 import { diffProjectFile, listProjectChanges } from './project-changes.js'
@@ -22,6 +35,12 @@ import { listGitWorktrees } from './git-worktrees.js'
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
 }
+
+const ProjectContextFields = {
+  goal: z.string().max(20_000).optional(),
+  currentFocus: z.string().max(4_000).optional(),
+}
+const TaskPriority = z.enum(['low', 'medium', 'high'])
 
 function blockLegacyWikiContinuation(container: Container, runId: string) {
   const shown = container.harnessGetRun({ runId })
@@ -59,7 +78,13 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.registerProject]: async (payload: unknown) => {
-      const req = payload as RegisterProjectReq
+      const req = z.object({
+        name: z.string().trim().min(1).max(500),
+        projectType: ProjectType,
+        repoPath: z.string().max(8_192),
+        domain: ProjectDomain.optional(),
+        ...ProjectContextFields,
+      }).strict().parse(payload) as RegisterProjectReq
       const id = `proj-${Date.now()}`
       container.registry.register({
         id,
@@ -70,12 +95,22 @@ export function handlers(container: Container): Record<string, (payload: unknown
         vaultPaths: [],
         sourcePaths: [],
         domain: (req.domain ?? 'project-docs') as 'project-docs' | 'paper',
+        goal: req.goal?.trim() || undefined,
+        currentFocus: req.currentFocus?.trim() || undefined,
       })
+      container.invalidateResumeCards()
       return container.registry.get(id)
     },
 
     [CH.updateProject]: async (payload: unknown) => {
-      const req = payload as UpdateProjectReq
+      const req = z.object({
+        id: z.string().min(1),
+        name: z.string().trim().min(1).max(500),
+        projectType: ProjectType,
+        repoPath: z.string().max(8_192),
+        domain: ProjectDomain.optional(),
+        ...ProjectContextFields,
+      }).strict().parse(payload) as UpdateProjectReq
       const existing = container.registry.get(req.id)
       if (!existing) throw new Error(`Project not found: ${req.id}`)
       container.registry.update({
@@ -85,12 +120,28 @@ export function handlers(container: Container): Record<string, (payload: unknown
         repoPaths: req.repoPath ? [req.repoPath] : [],
         domain: (req.domain ?? existing.domain) as 'project-docs' | 'paper',
       })
+      const patch: { goal?: string | null; currentFocus?: string | null } = {}
+      if (Object.prototype.hasOwnProperty.call(req, 'goal')) patch.goal = req.goal ?? null
+      if (Object.prototype.hasOwnProperty.call(req, 'currentFocus')) patch.currentFocus = req.currentFocus ?? null
+      if (Object.keys(patch).length > 0) container.registry.updateUserContext(req.id, patch)
+      container.invalidateResumeCards()
       return container.registry.get(req.id)
     },
 
+    [CH.projectContextConfirm]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        field: z.enum(['goal', 'currentFocus']),
+      }).strict().parse(payload) as ProjectContextConfirmReq
+      const result = container.registry.confirmContext(req.projectId, req.field)
+      if (result.ok) container.invalidateResumeCards()
+      return result
+    },
+
     [CH.deleteProject]: async (payload: unknown) => {
-      const req = payload as DeleteProjectReq
+      const req = z.object({ id: z.string().min(1) }).strict().parse(payload) as DeleteProjectReq
       container.registry.remove(req.id)
+      container.invalidateResumeCards()
       return { ok: true }
     },
 
@@ -300,6 +351,33 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.taskSetBlockedBy(req)
     },
 
+    [CH.taskCreate]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        title: z.string().max(20_000),
+        status: TaskStatus.optional(),
+        priority: TaskPriority.optional(),
+        dueDate: z.string().max(32).optional(),
+      }).strict().parse(payload) as TaskCreateReq
+      return container.taskCreate(req)
+    },
+    [CH.taskUpdate]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        taskId: z.string().min(1),
+        title: z.string().max(20_000),
+        status: TaskStatus,
+        priority: TaskPriority,
+        dueDate: z.string().max(32).optional(),
+      }).strict().parse(payload) as TaskUpdateReq
+      return container.taskUpdate(req)
+    },
+    [CH.taskDelete]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), taskId: z.string().min(1) })
+        .strict().parse(payload) as TaskDeleteReq
+      return container.taskDelete(req)
+    },
+
     [CH.resumeCard]: async (payload: unknown) => {
       return container.resumeCard(payload as ResumeCardReq)
     },
@@ -316,13 +394,119 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.conversationHistory(req)
     },
     [CH.nextNoteAdd]: async (payload: unknown) => {
-      return container.nextNoteAdd(payload as NextNoteAddReq)
+      const req = z.object({ projectId: z.string().min(1), text: z.string().max(20_000) })
+        .strict().parse(payload) as NextNoteAddReq
+      return container.nextNoteAdd(req)
     },
     [CH.nextNoteToggle]: async (payload: unknown) => {
-      return container.nextNoteToggle(payload as NextNoteToggleReq)
+      const req = z.object({ projectId: z.string().min(1), id: z.string().min(1), done: z.boolean() })
+        .strict().parse(payload) as NextNoteToggleReq
+      return container.nextNoteToggle(req)
     },
     [CH.nextNoteDelete]: async (payload: unknown) => {
-      return container.nextNoteDelete(payload as NextNoteDeleteReq)
+      const req = z.object({ projectId: z.string().min(1), id: z.string().min(1) })
+        .strict().parse(payload) as NextNoteDeleteReq
+      return container.nextNoteDelete(req)
+    },
+    [CH.nextNotesList]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        includeCompleted: z.boolean().optional(),
+        includeArchived: z.boolean().optional(),
+      }).strict().parse(payload) as NextNotesListReq
+      return container.nextNotesList(req)
+    },
+    [CH.nextNoteUpdate]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), noteId: z.string().min(1), text: z.string().max(20_000) })
+        .strict().parse(payload) as NextNoteUpdateReq
+      return container.nextNoteUpdate(req)
+    },
+    [CH.nextNoteSetPinned]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), noteId: z.string().min(1), pinned: z.boolean() })
+        .strict().parse(payload) as NextNoteSetPinnedReq
+      return container.nextNoteSetPinned(req)
+    },
+    [CH.nextNoteSetLifecycle]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        noteId: z.string().min(1),
+        lifecycle: z.enum(['active', 'completed', 'archived']),
+      }).strict().parse(payload) as NextNoteSetLifecycleReq
+      return container.nextNoteSetLifecycle(req)
+    },
+    [CH.nextNoteConvertToTask]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        noteId: z.string().min(1),
+        title: z.string().max(20_000).optional(),
+        priority: TaskPriority.optional(),
+        dueDate: z.string().max(32).optional(),
+      }).strict().parse(payload) as NextNoteConvertToTaskReq
+      return container.nextNoteConvertToTask(req)
+    },
+
+    [CH.agentActivitySnapshot]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1).optional() })
+        .strict().parse(payload ?? {}) as AgentActivitySnapshotReq
+      return container.agentActivitySnapshot(req)
+    },
+    [CH.agentQuestionReconcile]: async (payload: unknown) => {
+      const req = z.object({
+        paneId: z.string().min(1).max(2_048),
+        launchId: z.string().min(1).max(2_048),
+        sessionId: z.string().min(1).max(8_192).optional(),
+      }).strict().parse(payload) as AgentQuestionReconcileReq
+      return container.agentQuestionReconcile(req)
+    },
+
+    [CH.harnessListRuns]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1).max(2_048),
+        limit: z.number().int().min(1).max(200).optional(),
+      }).strict().parse(payload) as HarnessListRunsReq
+      return container.harnessListRuns(req)
+    },
+    [CH.harnessGetProgress]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string().min(1).max(512) })
+        .strict().parse(payload) as HarnessGetProgressReq
+      return container.harnessGetProgress(req)
+    },
+    [CH.harnessReadLog]: async (payload: unknown) => {
+      const req = z.object({
+        runId: z.string().min(1).max(512),
+        offset: z.number().int().nonnegative().optional(),
+        limit: z.number().int().min(1).max(256 * 1024).optional(),
+      }).strict().parse(payload) as HarnessReadLogReq
+      return container.harnessReadLog(req)
+    },
+
+    [CH.fileRefsResolve]: async (payload: unknown) => {
+      const req = FileRefsResolveReqSchema.parse(payload) as FileRefsResolveReq
+      return container.fileRefsResolve(req)
+    },
+    [CH.filePreviewRead]: async (payload: unknown) => {
+      const req = FilePreviewReadReqSchema.parse(payload) as FilePreviewReadReq
+      return container.filePreviewRead(req)
+    },
+    [CH.clipboardReadText]: async (payload: unknown) => {
+      z.undefined().parse(payload)
+      return container.clipboardReadText()
+    },
+    [CH.terminalGetPreferences]: async (payload: unknown) => {
+      z.undefined().parse(payload)
+      return container.terminalGetPreferences()
+    },
+    [CH.terminalSetPreferences]: async (payload: unknown) => {
+      const req = z.object({
+        fontFamily: z.string().trim().min(1).max(1_024).optional(),
+        fontSize: z.number().finite().min(8).max(32).optional(),
+      }).strict().parse(payload) as TerminalSetPreferencesReq
+      return container.terminalSetPreferences(req)
+    },
+    [CH.terminalDiagnostics]: async (payload: unknown) => {
+      const req = z.object({ cwd: z.string().min(1).max(8_192) })
+        .strict().parse(payload) as TerminalDiagnosticsReq
+      return container.terminalDiagnostics(req)
     },
 
     [CH.fsReadDoc]: async (payload: unknown) => {
