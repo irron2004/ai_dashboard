@@ -35,4 +35,26 @@ export class QuestionLogStore {
       agent: r.agent as QuestionLogEntry['agent'], text: r.text,
     })).filter((r) => isHumanQuestionText(r.text)).slice(0, limit)
   }
+
+  latestForSession(sessionId: string): QuestionLogEntry | undefined {
+    return this.latestWhere('session_id = ?', sessionId)
+  }
+
+  latestByProject(projectId: string): QuestionLogEntry | undefined {
+    return this.latestWhere('project_id = ?', projectId)
+  }
+
+  private latestWhere(clause: string, value: string): QuestionLogEntry | undefined {
+    const rows = this.db.prepare(
+      `SELECT * FROM question_log WHERE ${clause} ORDER BY ts DESC, rowid DESC LIMIT 64`,
+    ).all(value) as Row[]
+    const row = rows.find((candidate) => isHumanQuestionText(candidate.text))
+    return row ? {
+      projectId: row.project_id,
+      sessionId: row.session_id,
+      ts: row.ts,
+      agent: row.agent as QuestionLogEntry['agent'],
+      text: row.text,
+    } : undefined
+  }
 }
