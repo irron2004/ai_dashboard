@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { WIKI_GENERATION_ENGINE } from '../../shared/ipc-contract.js'
+import { WIKI_GENERATION_ENGINE, type HarnessRunProgressDto } from '../../shared/ipc-contract.js'
 import {
   HARNESS_STATE_ORDER, formatTimestamp, isRunResumable, runModeLabel, runStartedAt, runUpdatedAt,
   stateProgress, stateTone, type HarnessRunBundle,
@@ -15,10 +15,25 @@ type Props = {
   onRefresh: () => void
   onStartRun: (materialize: boolean, fullRegen?: boolean) => void
   onResumeRun: (runId: string) => void
+  progressRuns?: HarnessRunProgressDto[]
 }
 
 function toneClass(tone: string): string {
   return `harness-run-list__state--${tone}`
+}
+
+function progressStatus(progress: HarnessRunProgressDto | undefined, fallback: string): string {
+  if (!progress) return fallback.replace(/_/g, ' ')
+  return ({
+    generating: '생성 중', waiting: '응답 대기', reconnecting: '재연결 중', completed: '완료', failed: '실패',
+  } as const)[progress.summary.status]
+}
+
+function progressTone(progress: HarnessRunProgressDto | undefined, fallback: string): string {
+  if (!progress) return stateTone(fallback as Parameters<typeof stateTone>[0])
+  if (progress.summary.status === 'failed' || progress.summary.health === 'interrupted') return 'danger'
+  if (progress.summary.status === 'completed') return 'success'
+  return 'info'
 }
 
 function StartRunDropdown({ loading, onStartRun }: { loading: boolean; onStartRun: (materialize: boolean, fullRegen?: boolean) => void }) {
@@ -59,7 +74,8 @@ function StartRunDropdown({ loading, onStartRun }: { loading: boolean; onStartRu
   )
 }
 
-export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onToggleCollapse, onSelectRun, onRefresh, onStartRun, onResumeRun }: Props) {
+export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onToggleCollapse, onSelectRun, onRefresh, onStartRun, onResumeRun, progressRuns = [] }: Props) {
+  const progressByRun = new Map(progressRuns.map((progress) => [progress.runId, progress]))
   if (collapsed) {
     return (
       <aside className="harness-run-list panel harness-run-list--rail">
@@ -76,7 +92,9 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
           {runs.map((bundle) => {
             const { runState } = bundle
             const selected = runState.runId === selectedRunId
-            const tone = stateTone(runState.state)
+            const progress = progressByRun.get(runState.runId)
+            const tone = progressTone(progress, runState.state)
+            const status = progressStatus(progress, runState.state)
             return (
               <button
                 key={runState.runId}
@@ -84,8 +102,8 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
                 className={`harness-run-list__rail-dot harness-run-list__rail-dot--${tone}${selected ? ' harness-run-list__rail-dot--selected' : ''}`}
                 onClick={() => onSelectRun(runState.runId)}
                 disabled={loading}
-                title={`${runState.runId} · ${runState.state.replace(/_/g, ' ')}`}
-                aria-label={`${runState.runId} (${runState.state})`}
+                title={`${runState.runId} · ${status}`}
+                aria-label={`${runState.runId} (${status})`}
               />
             )
           })}
@@ -128,7 +146,9 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
           {runs.map((bundle) => {
             const { runState } = bundle
             const selected = runState.runId === selectedRunId
-            const tone = stateTone(runState.state)
+            const serverProgress = progressByRun.get(runState.runId)
+            const tone = progressTone(serverProgress, runState.state)
+            const status = progressStatus(serverProgress, runState.state)
             const startedAt = formatTimestamp(runStartedAt(runState))
             const updatedAt = formatTimestamp(runUpdatedAt(runState))
             const progress = stateProgress(runState.state)
@@ -153,7 +173,7 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
                       <div className="harness-run-list__run-id">{runState.runId}</div>
                       <div className="harness-run-list__meta">{runModeLabel(bundle.mode) || runState.engine} · {startedAt}</div>
                     </div>
-                    <span className={`harness-run-list__badge ${toneClass(tone)}`}>{runState.state.replace(/_/g, ' ')}</span>
+                    <span className={`harness-run-list__badge ${toneClass(tone)}`}>{status}</span>
                   </div>
 
                   <div className="harness-run-list__progress" aria-hidden="true">
@@ -168,8 +188,12 @@ export function HarnessRunList({ runs, selectedRunId, loading, collapsed, onTogg
                   </div>
 
                   <div className="harness-run-list__footer">
-                    <span>{updatedAt} · {bundle.artifacts.length} artifacts</span>
-                    {runState.engine === WIKI_GENERATION_ENGINE && isRunResumable(runState.state) && (
+                    <span>
+                      {updatedAt} · {bundle.artifacts.length} artifacts
+                      {serverProgress ? ` · 작업 ${serverProgress.summary.work.completed}/${serverProgress.summary.work.total}` : ''}
+                      {serverProgress?.summary.health === 'interrupted' ? ' · 중단 가능성' : ''}
+                    </span>
+                    {runState.engine === WIKI_GENERATION_ENGINE && (isRunResumable(runState.state) || serverProgress?.summary.health === 'interrupted') && (
                       <button
                         type="button"
                         className="harness-run-list__resume"

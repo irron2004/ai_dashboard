@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
+import type { HarnessRunProgressDto } from '../../shared/ipc-contract.js'
 import { useStore } from '../store.js'
 import { api } from '../api.js'
 import { createDefaultHarnessConfig, runModeLabel, readFanoutSummary, type HarnessRunBundle } from '../harness-utils.js'
+import {
+  appendWikiProgressEvent,
+  createWikiProgressState,
+  mergeWikiProgressReplay,
+  wikiProgressSummary,
+  type WikiProgressState,
+} from '../wiki-progress-state.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 import { WikiProgress } from './WikiProgress.js'
@@ -39,6 +47,10 @@ export function WikiGenDashboard() {
   const [interactiveMode, setInteractiveMode] = useState(false)
   const [pendingRun, setPendingRun] = useState<{ materialize: boolean; fullRegen?: boolean } | null>(null)
   const [projectFolders, setProjectFolders] = useState<string[]>([])
+  const [wikiProgress, setWikiProgress] = useState<WikiProgressState | null>(null)
+  const [wikiProgressRuns, setWikiProgressRuns] = useState<HarnessRunProgressDto[]>([])
+  const listRequest = useRef(0)
+  const replayRequest = useRef(0)
   const [runsCollapsed, setRunsCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:runsCollapsed') === '1' } catch { return false }
   })
@@ -57,6 +69,59 @@ export function WikiGenDashboard() {
   }, [loadWikiPolicy, selectedProjectId])
 
   useEffect(() => {
+    const request = ++listRequest.current
+    if (!selectedProjectId) {
+      setWikiProgressRuns([])
+      setWikiProgress(null)
+      return
+    }
+    void api.harnessListRuns({ projectId: selectedProjectId, limit: 100 }).then((result) => {
+      if (request !== listRequest.current) return
+      const next = result.ok ? result.runs ?? [] : []
+      setWikiProgressRuns((current) => current.length === next.length
+        && current.every((run, index) => run.runId === next[index]?.runId
+          && run.summary.lastActivityAt === next[index]?.summary.lastActivityAt
+          && run.active === next[index]?.active)
+        ? current
+        : next)
+    }).catch(() => {
+      if (request === listRequest.current) setWikiProgressRuns([])
+    })
+  }, [selectedProjectId])
+
+  useEffect(() => {
+    const targetRunId = selectedHarnessRunId
+    const targetProjectId = selectedProjectId
+    const request = ++replayRequest.current
+    if (!targetRunId || !targetProjectId) {
+      setWikiProgress(null)
+      return
+    }
+    setWikiProgress((current) => current?.runId === targetRunId ? current : null)
+    void api.harnessGetProgress({ runId: targetRunId }).then((result) => {
+      if (request !== replayRequest.current || !result.ok || !result.summary) return
+      setWikiProgress((current) => mergeWikiProgressReplay(current, {
+        snapshot: result.summary!,
+        events: result.events ?? [],
+        active: result.active ?? false,
+      }))
+    }).catch(() => { /* legacy builds may not expose the replay query yet */ })
+  }, [selectedHarnessRunId, selectedProjectId])
+
+  useEffect(() => {
+    const off = api.onHarnessActivity((event) => {
+      if (event.projectId !== selectedProjectId) return
+      setWikiProgress((current) => {
+        const selected = event.runId === selectedHarnessRunId
+        const continuing = current?.runId === event.runId
+        const newlyStarted = harnessLoading && event.kind === 'run_started'
+        return selected || continuing || newlyStarted ? appendWikiProgressEvent(current, event) : current
+      })
+    })
+    return typeof off === 'function' ? off : undefined
+  }, [harnessLoading, selectedHarnessRunId, selectedProjectId])
+
+  useEffect(() => {
     if (!selectedProjectId) { setProjectFolders([]); return }
     let stale = false
     void api.fsListDocs({ projectId: selectedProjectId }).then((result) => {
@@ -67,7 +132,9 @@ export function WikiGenDashboard() {
         const slash = normalized.indexOf('/')
         folders.add(slash < 0 ? '(root)' : normalized.slice(0, slash))
       }
-      setProjectFolders([...folders].sort().slice(0, 40))
+      const next = [...folders].sort().slice(0, 40)
+      setProjectFolders((current) => current.length === next.length
+        && current.every((folder, index) => folder === next[index]) ? current : next)
     }).catch(() => { if (!stale) setProjectFolders([]) })
     return () => { stale = true }
   }, [selectedProjectId])
@@ -95,6 +162,13 @@ export function WikiGenDashboard() {
       source_proposal_id: p.proposal_id,
     }))
   }, [awaiting, proposalsData])
+  const replaySummary = wikiProgressSummary(wikiProgress)
+  const replayIsNonterminal = replaySummary != null
+    && replaySummary.status !== 'completed'
+    && replaySummary.status !== 'failed'
+  const progressForCurrentRun = wikiProgress?.runId === currentRun?.runState.runId
+  const progressRunId = harnessLoading && wikiProgress?.runId ? wikiProgress.runId : currentRun?.runState.runId
+  const readProgressLog = (runId: string) => api.harnessReadLog({ runId, offset: 0, limit: 256 * 1024 })
 
   return (
     <section className="wikigen">
@@ -109,12 +183,13 @@ export function WikiGenDashboard() {
           onRefresh={() => void refreshHarnessRun()}
           onStartRun={(materialize, fullRegen) => setPendingRun({ materialize, fullRegen })}
           onResumeRun={(runId) => void resumeHarnessRun(runId)}
+          progressRuns={wikiProgressRuns}
         />
 
         <main className="wikigen__main panel">
           <header className="panel__header wikigen__header">
             <div>
-              <h2>{currentRun ? currentRun.runState.runId : 'Wiki Gen'}</h2>
+              <h2>{progressRunId ?? 'Wiki Gen'}</h2>
               <p>
                 {currentRun ? `${runModeLabel(currentRun.mode) || currentRun.runState.engine} · ${currentRun.runState.state.replace(/_/g, ' ')}` : 'run을 시작하세요'}
                 {harnessMessage ? ` — ${harnessMessage}` : ''}
@@ -135,11 +210,27 @@ export function WikiGenDashboard() {
           </header>
 
           {harnessLoading ? (
-            <WikiProgress state={harnessProgress} liveLabel={harnessLiveLabel} liveTail={harnessLiveTail} />
+            <WikiProgress
+              progress={wikiProgress}
+              legacyState={harnessProgress}
+              liveLabel={harnessLiveLabel}
+              liveTail={harnessLiveTail}
+              onReadLog={readProgressLog}
+              onResume={(runId) => void resumeHarnessRun(runId)}
+            />
           ) : nodeConfirmProposed && currentRun ? (
             <NodeConfirmPanel
               proposed={nodeConfirmProposed}
               onConfirm={(approvedNodes) => void confirmNodes(currentRun.runState.runId, approvedNodes)}
+            />
+          ) : replayIsNonterminal ? (
+            <WikiProgress
+              progress={wikiProgress}
+              legacyState={harnessProgress}
+              liveLabel={harnessLiveLabel}
+              liveTail={harnessLiveTail}
+              onReadLog={readProgressLog}
+              onResume={(runId) => void resumeHarnessRun(runId)}
             />
           ) : !currentRun ? (
             <div className="wikigen__placeholder">아직 run이 없습니다 — ▶ 위키 생성으로 시작하세요.</div>
@@ -162,6 +253,14 @@ export function WikiGenDashboard() {
               <div className="wikigen__content">
                 {reviewTab === 'summary' && (
                   <div className="wikigen__summary">
+                    {progressForCurrentRun && wikiProgress && (
+                      <WikiProgress
+                        progress={wikiProgress}
+                        liveLabel={harnessLiveLabel}
+                        liveTail={harnessLiveTail}
+                        onReadLog={readProgressLog}
+                      />
+                    )}
                     {currentRun.runState.state === 'FAILED' && (
                       <p className="wikigen__error">❌ 실패: {currentRun.runState.error ?? '원인 미상'} — 실행 이력에서 ↻ 이어하기</p>
                     )}

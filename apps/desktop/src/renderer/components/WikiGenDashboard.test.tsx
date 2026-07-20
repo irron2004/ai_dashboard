@@ -1,10 +1,19 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { WikiProgressSummarySchema } from '@apc/shared'
 import { useStore } from '../store.js'
 import type { HarnessRunBundle } from '../harness-utils.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
 
-vi.mock('../api.js', () => ({ api: new Proxy({}, { get: () => vi.fn(async () => ({ ok: true })) }) }))
+const apiMock = vi.hoisted(() => ({
+  fsListDocs: vi.fn(async () => ({ docs: [] })),
+  harnessListRuns: vi.fn(async () => ({ ok: true, runs: [] })),
+  harnessGetProgress: vi.fn(async (_request: { runId: string }): Promise<ReturnType<typeof progressResponse> | { ok: false }> => ({ ok: false })),
+  harnessReadLog: vi.fn(async () => ({ ok: true, content: '', nextOffset: 0, truncated: false })),
+  onHarnessActivity: vi.fn(() => () => {}),
+}))
+
+vi.mock('../api.js', () => ({ api: apiMock }))
 
 
 function reviewRun(): HarnessRunBundle {
@@ -20,8 +29,34 @@ function reviewRun(): HarnessRunBundle {
   }
 }
 
+function progressResponse(runId: string, nodeTitle: string) {
+  return {
+    ok: true,
+    active: false,
+    events: [],
+    summary: WikiProgressSummarySchema.parse({
+      runId,
+      projectId: 'p1',
+      status: 'completed',
+      health: 'active',
+      phase: 'HUMAN_REVIEW_REQUIRED',
+      startedAt: '2026-06-12T01:00:00Z',
+      lastActivityAt: '2026-06-12T01:01:00Z',
+      endedAt: '2026-06-12T01:01:00Z',
+      work: { total: 1, completed: 1, inProgress: 0, failed: 0, retries: 0 },
+      workers: [{ workerId: 'worker-1', folder: 'docs', attempt: 1, status: 'completed', lastActivityAt: '2026-06-12T01:01:00Z' }],
+      nodes: [{ workerId: 'worker-1', proposalId: `${runId}-node`, title: nodeTitle, nodeType: 'ConceptNode', sourceFolder: 'docs', status: 'accepted', discoveredAt: '2026-06-12T01:00:30Z', updatedAt: '2026-06-12T01:01:00Z' }],
+    }),
+  }
+}
+
 describe('WikiGenDashboard', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
+    apiMock.fsListDocs.mockResolvedValue({ docs: [] })
+    apiMock.harnessListRuns.mockResolvedValue({ ok: true, runs: [] })
+    apiMock.harnessGetProgress.mockResolvedValue({ ok: false })
+    apiMock.onHarnessActivity.mockImplementation(() => () => {})
     useStore.setState({
       selectedProjectId: 'p1', harnessRuns: [reviewRun()], selectedHarnessRunId: 'RUN-r',
       harnessLoading: false, harnessProgress: null, harnessCanonicalProposals: [],
@@ -98,5 +133,35 @@ describe('WikiGenDashboard', () => {
     expect(screen.getByText('제품 개발 프로젝트')).toBeDefined()
     expect(screen.getByText('docs')).toBeDefined()
     expect(screen.getByText('문서')).toBeDefined()
+  })
+
+  test('replays persisted worker and node progress after the dashboard remounts', async () => {
+    apiMock.harnessGetProgress.mockResolvedValue(progressResponse('RUN-r', '재시작 후 복원된 노드'))
+    render(<WikiGenDashboard />)
+    expect(await screen.findByText('재시작 후 복원된 노드')).toBeDefined()
+    expect(apiMock.harnessGetProgress).toHaveBeenCalledWith({ runId: 'RUN-r' })
+  })
+
+  test('ignores a late replay response after selecting another run', async () => {
+    let resolveA!: (value: ReturnType<typeof progressResponse>) => void
+    let resolveB!: (value: ReturnType<typeof progressResponse>) => void
+    apiMock.harnessGetProgress.mockImplementation(({ runId }: { runId: string }) => new Promise((resolve) => {
+      if (runId === 'RUN-a') resolveA = resolve
+      else resolveB = resolve
+    }))
+    const a = reviewRun(); a.runState.runId = 'RUN-a'
+    const b = reviewRun(); b.runState.runId = 'RUN-b'
+    useStore.setState({ harnessRuns: [a, b], selectedHarnessRunId: 'RUN-a' })
+    render(<WikiGenDashboard />)
+    await waitFor(() => expect(apiMock.harnessGetProgress).toHaveBeenCalledWith({ runId: 'RUN-a' }))
+
+    act(() => useStore.getState().selectHarnessRun('RUN-b'))
+    await waitFor(() => expect(apiMock.harnessGetProgress).toHaveBeenCalledWith({ runId: 'RUN-b' }))
+    await act(async () => { resolveB(progressResponse('RUN-b', 'B 최신 노드')); await Promise.resolve() })
+    expect(await screen.findByText('B 최신 노드')).toBeDefined()
+
+    await act(async () => { resolveA(progressResponse('RUN-a', 'A 늦은 노드')); await Promise.resolve() })
+    expect(screen.queryByText('A 늦은 노드')).toBeNull()
+    expect(screen.getByText('B 최신 노드')).toBeDefined()
   })
 })

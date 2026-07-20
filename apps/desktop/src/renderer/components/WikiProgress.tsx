@@ -1,131 +1,219 @@
-import { useState } from 'react'
-import type { KhState } from '@apc/shared'
-import { HARNESS_STATE_ORDER } from '../harness-utils.js'
+import { useEffect, useRef, useState } from 'react'
+import type { WikiNodeProgress, WikiWorkerSummary } from '@apc/shared'
+import {
+  deriveWikiProgressView,
+  formatWikiDuration,
+  type WikiProgressState,
+} from '../wiki-progress-state.js'
+import './wiki-progress.css'
+
+type LogResult = {
+  ok: boolean
+  content?: string
+  reason?: string
+}
 
 type Props = {
-  /** Current pipeline state (harnessProgress) — a KhState name, or null before the first event. */
-  state: string | null
-  /** Label of the engine emitting the live log (e.g. the CLI step name). */
-  liveLabel: string | null
-  /** Last few raw engine log lines. */
-  liveTail: string[]
+  progress: WikiProgressState | null
+  /** One-release compatibility fallback until every producer emits the durable activity stream. */
+  legacyState?: string | null
+  liveLabel?: string | null
+  liveTail?: string[]
+  onReadLog?: (runId: string) => Promise<LogResult>
+  onResume?: (runId: string) => void
+  now?: () => number
 }
 
-type StepStatus = 'done' | 'current' | 'upcoming'
+const systemNow = () => Date.now()
 
-// User-facing pipeline phases. Each maps to the KhState that marks the phase *reached*;
-// the phase whose state has not yet been reached is the one currently in progress.
-const STEPS: { state: KhState; label: string; hint: string }[] = [
-  { state: 'PROJECT_SCANNED',       label: '프로젝트 스캔',        hint: '저장소 파일과 문서를 훑는 중' },
-  { state: 'SOURCES_EXTRACTED',     label: '소스 추출',           hint: '대화·코드에서 근거 소스를 모으는 중' },
-  { state: 'DOCUMENTS_CLASSIFIED',  label: '문서 분류',           hint: '수집한 문서를 유형별로 분류' },
-  { state: 'NODE_PROPOSALS_CREATED', label: '노드 제안 생성',      hint: '위키 노드 후보를 제안' },
-  { state: 'LEAD_MERGED',           label: '리드 병합',           hint: '중복 노드를 정리해 대표를 선정' },
-  { state: 'WRITE_PLAN_CREATED',    label: '작성 계획',           hint: '어떤 문서를 쓸지 계획 수립' },
-  { state: 'STAGING_WRITTEN',       label: '위키 작성·스테이징',    hint: '초안을 스테이징 영역에 작성' },
-  { state: 'VALIDATED',             label: '검증',                hint: '링크·커버리지·품질 검사' },
-  { state: 'HUMAN_REVIEW_REQUIRED', label: '리뷰 대기',           hint: '사람 검토를 기다리는 중' },
-]
-
-/** Last non-empty line of the tail — the one-line summary shown under the active step. */
-function lastMeaningfulLine(tail: string[]): string | null {
-  for (let i = tail.length - 1; i >= 0; i--) {
-    const trimmed = tail[i]?.trim()
-    if (trimmed) return trimmed
-  }
-  return null
+const WORKER_STATUS: Record<WikiWorkerSummary['status'], string> = {
+  queued: '대기',
+  running: '진행 중',
+  completed: '완료',
+  failed: '실패',
+  retrying: '재시도',
 }
 
-const MARKER = { done: '✓', current: '●', upcoming: '' } as const
+const NODE_STATUS: Record<WikiNodeProgress['status'], string> = {
+  discovered: '발견',
+  accepted: '완료',
+  dropped: '제외',
+}
 
-export function WikiProgress({ state, liveLabel, liveTail }: Props) {
+function legacyStatus(state: string | null | undefined): string {
+  if (state === 'FAILED') return '실패'
+  if (state === 'HUMAN_REVIEW_REQUIRED' || state === 'MERGED') return '완료'
+  return '생성 중'
+}
+
+export function WikiProgress({
+  progress,
+  legacyState = null,
+  liveLabel = null,
+  liveTail = [],
+  onReadLog,
+  onResume,
+  now = systemNow,
+}: Props) {
+  const [clock, setClock] = useState(() => now())
   const [showLog, setShowLog] = useState(false)
+  const [logContent, setLogContent] = useState<string | null>(null)
+  const [logError, setLogError] = useState<string | null>(null)
+  const [logLoading, setLogLoading] = useState(false)
+  const logRequest = useRef(0)
+  const view = deriveWikiProgressView(progress, clock)
+  const runId = progress?.runId ?? null
 
-  const failed = state === 'FAILED'
-  // Index of the milestone reached so far (-1 = nothing reached yet → first step is in progress).
-  const reachedIdx = state ? HARNESS_STATE_ORDER.indexOf(state as KhState) : -1
-  // The active step is the first phase whose state hasn't been reached yet.
-  const currentStepIdx = STEPS.findIndex((step) => HARNESS_STATE_ORDER.indexOf(step.state) > reachedIdx)
-  const allDone = currentStepIdx === -1 && !failed
+  useEffect(() => {
+    setClock(now())
+    const timer = window.setInterval(() => setClock(now()), 1_000)
+    return () => window.clearInterval(timer)
+  }, [now])
 
-  const statusFor = (i: number): StepStatus => {
-    if (allDone) return 'done'
-    if (currentStepIdx === -1) return 'done'
-    if (i < currentStepIdx) return 'done'
-    if (i === currentStepIdx) return 'current'
-    return 'upcoming'
+  useEffect(() => {
+    logRequest.current += 1
+    setShowLog(false)
+    setLogContent(null)
+    setLogError(null)
+    setLogLoading(false)
+  }, [runId])
+
+  useEffect(() => () => { logRequest.current += 1 }, [])
+
+  const toggleLog = () => {
+    const next = !showLog
+    setShowLog(next)
+    if (!next || logContent !== null || logLoading || !runId || !onReadLog) return
+    const request = ++logRequest.current
+    setLogLoading(true)
+    setLogError(null)
+    void onReadLog(runId).then((result) => {
+      if (request !== logRequest.current) return
+      if (result.ok) setLogContent(result.content ?? '')
+      else setLogError(result.reason ?? '상세 로그를 불러오지 못했습니다.')
+    }).catch((error) => {
+      if (request === logRequest.current) setLogError(String(error))
+    }).finally(() => {
+      if (request === logRequest.current) setLogLoading(false)
+    })
   }
 
-  const doneCount = allDone ? STEPS.length : Math.max(currentStepIdx, 0)
-  const stepNo = allDone ? STEPS.length : Math.min(doneCount + 1, STEPS.length)
-  const pct = Math.round(((allDone ? STEPS.length : doneCount + 0.5) / STEPS.length) * 100)
-  const summary = lastMeaningfulLine(liveTail)
-
-  if (failed) {
+  if (!view) {
+    const status = legacyStatus(legacyState)
+    const failed = status === '실패'
     return (
-      <div className="wiki-progress wiki-progress--failed">
-        <div className="wiki-progress__head">
+      <section className={`wiki-progress${failed ? ' wiki-progress--failed' : ''}`} aria-label="위키 생성 진행">
+        <header className="wiki-progress__head">
           <div className="wiki-progress__title">
-            <span className="wiki-progress__fail-mark" aria-hidden>✕</span>
-            위키 생성 실패
+            {!failed && <span className="wiki-progress__spinner" aria-hidden />}
+            <span>{status}</span>
           </div>
-        </div>
-        <p className="wiki-progress__fail-msg">{summary ?? '엔진이 오류로 중단되었습니다. 아래 로그를 확인하세요.'}</p>
-        {liveTail.length > 0 && (
+          <span className="wiki-progress__badge">진행 기록 연결 중</span>
+        </header>
+        <p className="wiki-progress__empty">저장된 진행 기록을 불러오는 중입니다.</p>
+        <button type="button" className="wiki-progress__toggle" onClick={toggleLog} aria-expanded={showLog}>
+          상세 로그 {showLog ? '접기 ▴' : '보기 ▾'}
+        </button>
+        {showLog && (
           <pre className="wiki-progress__log">
-            {(liveLabel ? `[${liveLabel}]\n` : '') + liveTail.join('\n')}
+            {liveTail.length ? `${liveLabel ? `[${liveLabel}]\n` : ''}${liveTail.join('\n')}` : '(아직 엔진 로그가 없습니다)'}
           </pre>
         )}
-      </div>
+      </section>
     )
   }
 
+  const { summary } = view
+  const terminal = summary.status === 'completed' || summary.status === 'failed'
+  const statusClass = `wiki-progress--${summary.status}`
+  const logText = logContent ?? (liveTail.length
+    ? `${liveLabel ? `[${liveLabel}]\n` : ''}${liveTail.join('\n')}`
+    : '')
+
   return (
-    <div className="wiki-progress">
-      <div className="wiki-progress__head">
+    <section className={`wiki-progress ${statusClass}`} aria-label="위키 생성 진행">
+      <header className="wiki-progress__head">
         <div className="wiki-progress__title">
-          <span className="wiki-progress__spinner" aria-hidden />
-          위키 생성 중…
+          {!terminal && <span className="wiki-progress__spinner" aria-hidden />}
+          <span>{view.statusLabel}</span>
+          {summary.phase && <span className="wiki-progress__phase">{summary.phase.replace(/_/g, ' ')}</span>}
         </div>
-        <span className="wiki-progress__count">{stepNo} / {STEPS.length}</span>
+        <span className={`wiki-progress__badge wiki-progress__badge--${view.health}`}>{view.statusLabel}</span>
+      </header>
+
+      <div className="wiki-progress__timing">
+        <span>경과 {formatWikiDuration(view.elapsedMs)}</span>
+        <span>마지막 활동 {formatWikiDuration(view.lastActivityAgoMs)} 전</span>
       </div>
 
-      <div className="wiki-progress__bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-        <span style={{ width: `${pct}%` }} />
-      </div>
+      {view.warning && (
+        <div className={`wiki-progress__warning wiki-progress__warning--${view.health}`} role="status">
+          <strong>{view.warning}</strong>
+          <span>{view.health === 'interrupted' ? '활성 작업이 없어 이어하기가 필요합니다.' : '작업은 자동 실패 처리되지 않습니다.'}</span>
+          {view.health === 'interrupted' && onResume && (
+            <button type="button" onClick={() => onResume(summary.runId)}>↻ 이어하기</button>
+          )}
+        </div>
+      )}
 
-      <ol className="wiki-progress__steps">
-        {STEPS.map((step, i) => {
-          const status = statusFor(i)
-          return (
-            <li key={step.state} className={`wiki-progress__step wiki-progress__step--${status}`}>
-              <span className="wiki-progress__marker" aria-hidden>{MARKER[status]}</span>
-              <div className="wiki-progress__step-body">
-                <span className="wiki-progress__step-label">
-                  {step.label}{status === 'current' ? ' 중…' : ''}
-                </span>
-                {status === 'current' && (
-                  <span className="wiki-progress__step-sub">{summary ?? step.hint}</span>
-                )}
-              </div>
-            </li>
-          )
-        })}
-      </ol>
+      <dl className="wiki-progress__counts" aria-label="작업 집계">
+        <div><dt>전체 작업</dt><dd>{summary.work.total}</dd></div>
+        <div><dt>완료</dt><dd>{summary.work.completed}</dd></div>
+        <div><dt>진행 중</dt><dd>{summary.work.inProgress}</dd></div>
+        <div><dt>실패</dt><dd>{summary.work.failed}</dd></div>
+        <div><dt>재시도</dt><dd>{summary.work.retries}</dd></div>
+      </dl>
 
-      <button
-        type="button"
-        className="wiki-progress__toggle"
-        onClick={() => setShowLog((v) => !v)}
-        aria-expanded={showLog}
-      >
-        {showLog ? '간단히 ▴' : '자세히 ▾'}
+      <section className="wiki-progress__group" aria-label="워커 진행">
+        <div className="wiki-progress__group-head">
+          <h3>폴더·워커</h3>
+          <span>{summary.work.completed + summary.work.failed} / {summary.work.total}</span>
+        </div>
+        {summary.workers.length ? (
+          <ul className="wiki-progress__workers">
+            {summary.workers.map((worker) => (
+              <li key={worker.workerId}>
+                <span className={`wiki-progress__state-dot wiki-progress__state-dot--${worker.status}`} aria-hidden />
+                <strong>{worker.folder ?? worker.workerId}</strong>
+                <span>{WORKER_STATUS[worker.status]} · 시도 {worker.attempt}</span>
+                {worker.message && <small>{worker.message}</small>}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="wiki-progress__empty">아직 시작된 워커가 없습니다.</p>}
+      </section>
+
+      <section className="wiki-progress__group" aria-label="노드 생성 진행">
+        <div className="wiki-progress__group-head">
+          <h3>생성 노드</h3>
+          <span>{summary.nodes.length}</span>
+        </div>
+        {summary.nodes.length ? (
+          <ul className="wiki-progress__nodes">
+            {summary.nodes.map((node) => (
+              <li key={`${node.workerId}:${node.proposalId}`} className={`wiki-progress__node wiki-progress__node--${node.status}`}>
+                <div>
+                  <strong>{node.title}</strong>
+                  <span>{node.nodeType}</span>
+                </div>
+                <small>{node.sourceFolder ?? node.workerId}</small>
+                <span>{NODE_STATUS[node.status]}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="wiki-progress__empty">발견된 노드가 아직 없습니다.</p>}
+      </section>
+
+      <button type="button" className="wiki-progress__toggle" onClick={toggleLog} aria-expanded={showLog}>
+        상세 로그 {showLog ? '접기 ▴' : '보기 ▾'}
       </button>
       {showLog && (
-        <pre className="wiki-progress__log">
-          {liveTail.length ? (liveLabel ? `[${liveLabel}]\n` : '') + liveTail.join('\n') : '(아직 엔진 로그가 없습니다)'}
-        </pre>
+        <div className="wiki-progress__log-wrap">
+          {logLoading ? <p>로그 불러오는 중…</p> : logError ? <p role="alert">{logError}</p> : (
+            <pre className="wiki-progress__log">{logText || '(아직 엔진 로그가 없습니다)'}</pre>
+          )}
+        </div>
       )}
-    </div>
+    </section>
   )
 }

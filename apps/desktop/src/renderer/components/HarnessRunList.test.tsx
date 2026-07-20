@@ -1,5 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
+import { WikiProgressSummarySchema } from '@apc/shared'
+import type { HarnessRunProgressDto } from '../../shared/ipc-contract.js'
 import type { HarnessRunBundle } from '../harness-utils.js'
 import { HarnessRunList } from './HarnessRunList.js'
 
@@ -17,6 +19,25 @@ function bundle(runId: string, state: string, mode?: 'full-docs' | 'recent-sessi
 const baseProps = {
   selectedRunId: null, loading: false, collapsed: false,
   onToggleCollapse: vi.fn(), onSelectRun: vi.fn(), onRefresh: vi.fn(),
+}
+
+function runProgress(runId: string, interrupted = false): HarnessRunProgressDto {
+  return {
+    runId,
+    projectId: 'p1',
+    active: !interrupted,
+    summary: WikiProgressSummarySchema.parse({
+      runId,
+      projectId: 'p1',
+      status: interrupted ? 'waiting' : 'generating',
+      health: interrupted ? 'interrupted' : 'active',
+      startedAt: '2026-06-12T01:00:00Z',
+      lastActivityAt: '2026-06-12T01:01:00Z',
+      work: { total: 4, completed: 2, inProgress: interrupted ? 0 : 1, failed: 0, retries: 1 },
+      workers: [],
+      nodes: [],
+    }),
+  }
 }
 
 describe('HarnessRunList (실행 이력)', () => {
@@ -79,5 +100,20 @@ describe('HarnessRunList (실행 이력)', () => {
     expect(screen.getByText('전체 문서')).toBeDefined()
     fireEvent.mouseDown(document.body)
     expect(screen.queryByText('전체 문서')).toBeNull()
+  })
+
+  test('decorates persisted interrupted progress and exposes resume after restart', () => {
+    const onResumeRun = vi.fn()
+    render(<HarnessRunList
+      {...baseProps}
+      runs={[bundle('RUN-waiting', 'LEAD_MERGED')]}
+      progressRuns={[runProgress('RUN-waiting', true)]}
+      onStartRun={vi.fn()}
+      onResumeRun={onResumeRun}
+    />)
+    expect(screen.getByText('응답 대기')).toBeDefined()
+    expect(screen.getByText(/작업 2\/4 · 중단 가능성/)).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: /이어하기/ }))
+    expect(onResumeRun).toHaveBeenCalledWith('RUN-waiting')
   })
 })
