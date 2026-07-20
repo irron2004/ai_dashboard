@@ -1,5 +1,10 @@
 # TODO
 
+## 관련 개발 문서
+
+- [프로젝트 컨텍스트·실시간 작업 UX 통합 설계](docs/superpowers/specs/2026-07-20-project-context-and-live-ux-design.md)
+- [병렬 구현 계획](docs/superpowers/plans/2026-07-20-project-context-and-live-ux.md)
+
 ## 프로젝트 컨텍스트와 전체 현황 UX
 
 - [ ] 프로젝트 목표 입력·수정
@@ -58,6 +63,13 @@
   - 여러 줄 입력은 bracketed paste를 지원해 각 줄이 의도치 않게 즉시 실행되지 않도록 한다.
   - 클립보드 권한 또는 읽기 실패를 조용히 무시하지 않고 사용자에게 원인을 안내한다.
   - Windows 패키징 앱의 실제 에이전트 터미널에서 복사·붙여넣기 동작을 검증한다.
+
+- [ ] `tmux`에서 터미널 글자 깨짐 방지
+  - `tmux` 실행 전후에 한글, 박스 드로잉 문자, 이모지와 Powerline 문자가 셀 너비와 줄 맞춤을 유지하게 한다.
+  - PTY의 `TERM`, true color 및 UTF-8 locale 설정을 로컬·WSL·SSH 환경별로 올바르게 전달한다.
+  - xterm의 Unicode 폭 계산과 실제 사용 글꼴을 맞추고, 필요한 글리프가 없으면 진단 가능한 안내를 표시한다.
+  - 창과 터미널 pane의 크기를 바꾸거나 `tmux` pane을 분할·재접속해도 문자가 겹치거나 잘리지 않게 다시 맞춘다.
+  - Windows 패키징 앱에서 일반 shell과 `tmux`를 나란히 비교하는 회귀 테스트를 추가한다.
 
 - [ ] 대화 속 파일 경로를 `Ctrl+클릭`으로 열기
   - 사용자 질문과 에이전트 답변에 포함된 절대 경로, 프로젝트 상대 경로와 Markdown 링크를 파일 링크로 인식한다.
