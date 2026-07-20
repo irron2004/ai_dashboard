@@ -9,6 +9,8 @@ export const WIKI_PROGRESS_STALLED_MS = 120_000
 export type WikiProgressState = {
   runId: string
   snapshot: WikiProgressSummary | null
+  /** Highest journal sequence included in the last authoritative replay response. */
+  snapshotSeq: number
   events: WikiRunEvent[]
   active: boolean
 }
@@ -28,7 +30,9 @@ function orderedUnique(events: readonly WikiRunEvent[]): WikiRunEvent[] {
     const previous = byId.get(event.eventId)
     if (!previous || event.seq > previous.seq) byId.set(event.eventId, event)
   }
-  return [...byId.values()].sort((left, right) => left.seq - right.seq)
+  const bySequence = new Map<number, WikiRunEvent>()
+  for (const event of byId.values()) bySequence.set(event.seq, event)
+  return [...bySequence.values()].sort((left, right) => left.seq - right.seq)
 }
 
 /** Snapshot is a fallback; journal and live events always flow through the shared harness reducer. */
@@ -44,6 +48,7 @@ export function createWikiProgressState(input: {
   return {
     runId,
     snapshot: input.snapshot ?? null,
+    snapshotSeq: events.reduce((maximum, event) => Math.max(maximum, event.seq), 0),
     events: events.filter((event) => event.runId === runId),
     active: input.active ?? false,
   }
@@ -58,6 +63,10 @@ export function mergeWikiProgressReplay(
   return {
     runId: input.snapshot.runId,
     snapshot: input.snapshot,
+    snapshotSeq: input.events.reduce(
+      (maximum, event) => Math.max(maximum, event.seq),
+      current?.runId === input.snapshot.runId ? current.snapshotSeq : 0,
+    ),
     events: orderedUnique([...input.events, ...sameRunLive])
       .filter((event) => event.runId === input.snapshot.runId),
     active: input.active || (current?.runId === input.snapshot.runId && current.active),
@@ -69,8 +78,9 @@ export function appendWikiProgressEvent(
   event: WikiRunEvent,
 ): WikiProgressState {
   if (!current || current.runId !== event.runId) {
-    return { runId: event.runId, snapshot: null, events: [event], active: true }
+    return { runId: event.runId, snapshot: null, snapshotSeq: 0, events: [event], active: true }
   }
+  if (event.seq <= current.snapshotSeq) return current
   return {
     ...current,
     active: true,

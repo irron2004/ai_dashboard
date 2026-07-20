@@ -722,6 +722,28 @@ describe('IPC handlers (no Electron)', () => {
     expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(callsAfterFirstRead + 1)
   })
 
+  test('c:taskUpdate invalidates only the affected project resumeCard cache', async () => {
+    container.registry.register({
+      id: 'p2', name: 'Other', status: 'active', projectType: 'git', domain: 'project-docs',
+      repoPaths: ['/work/other'], vaultPaths: [], sourcePaths: [],
+    })
+    const h = handlers(container)
+    await h[CH.resumeCard]({ projectId: 'p1' })
+    await h[CH.resumeCard]({ projectId: 'p2' })
+    const callsAfterBothReads = vi.mocked(latestSessionDetail).mock.calls.length
+
+    expect(await h[CH.taskUpdate]({
+      projectId: 'p1', taskId: 'T1', title: 'updated task', status: 'in_progress', priority: 'high',
+    })).toMatchObject({ ok: true, task: { title: 'updated task' } })
+    await h[CH.resumeCard]({ projectId: 'p2' })
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(callsAfterBothReads)
+
+    const rebuilt = await h[CH.resumeCard]({ projectId: 'p1' }) as ResumeCard | null
+
+    expect(rebuilt?.project.id).toBe('p1')
+    expect(vi.mocked(latestSessionDetail).mock.calls.length).toBe(callsAfterBothReads + 1)
+  })
+
   test('c:ingestAll invalidates the resumeCard cache for all projects', async () => {
     // Use a fresh container with NO ingest adapters so ingestAll is a fast no-op — the default
     // ClaudeAdapter/CodexAdapter/OpenCodeAdapter would otherwise scan this machine's real ~/.claude etc.

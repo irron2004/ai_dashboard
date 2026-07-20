@@ -65,6 +65,7 @@ vi.mock('./components/ProjectSidebar.js', () => ({
 vi.mock('./components/MainPanel.js', () => ({
   MainPanel: ({
     tab, projectLoadState, onOpenProject, historyFocus, onOpenFileReference, onOpenActivityQuestion,
+    onProjectChanged,
   }: {
     tab: string
     projectLoadState: string
@@ -72,6 +73,7 @@ vi.mock('./components/MainPanel.js', () => ({
     historyFocus?: { agent: string; sessionId?: string } | null
     onOpenFileReference?: (reference: ResolvedFileReference) => void
     onOpenActivityQuestion?: (activity: AgentActivity) => void
+    onProjectChanged?: () => void
   }) => (
     <div>
       <span data-testid="active-main-tab">{tab}</span>
@@ -79,6 +81,7 @@ vi.mock('./components/MainPanel.js', () => ({
       <span data-testid="history-focus-agent">{historyFocus?.agent ?? ''}</span>
       <span data-testid="history-focus-session">{historyFocus?.sessionId ?? ''}</span>
       <button type="button" onClick={() => onOpenProject('p1')}>workspace project</button>
+      <button type="button" onClick={() => onProjectChanged?.()}>refresh project surfaces</button>
       <button
         type="button"
         onClick={() => onOpenFileReference?.({
@@ -137,6 +140,7 @@ beforeEach(() => {
     activities: [],
     activitySnapshotAsOf: null,
     activityLoadGeneration: 0,
+    projectSurfaceRevision: 0,
     activeWorktrees: {},
     paneTarget: null,
     openPanes: {},
@@ -272,5 +276,21 @@ describe('App project navigation', () => {
     expect(screen.getByTestId('active-main-tab').textContent).toBe('history')
     expect(screen.getByTestId('history-focus-agent').textContent).toBe('claude')
     expect(screen.getByTestId('history-focus-session').textContent).toBe('session-question')
+  })
+
+  it('refreshes dashboard, resume card, and workspace together after a project mutation', async () => {
+    useStore.setState({ selectedProjectId: 'p1', dashboard })
+    render(<App />)
+    await waitFor(() => expect(appMocks.workspaceOverview).toHaveBeenCalled())
+    await waitFor(() => expect(appMocks.resumeCard).toHaveBeenCalledWith('p1'))
+    appMocks.workspaceOverview.mockClear()
+    appMocks.projectDashboard.mockClear()
+    appMocks.resumeCard.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'refresh project surfaces' }))
+
+    await waitFor(() => expect(appMocks.workspaceOverview).toHaveBeenCalledTimes(1))
+    expect(appMocks.projectDashboard).toHaveBeenCalledWith({ projectId: 'p1' })
+    expect(appMocks.resumeCard).toHaveBeenCalledWith('p1')
   })
 })

@@ -58,6 +58,8 @@ export function PmHome({ dashboard, onChanged }: Props) {
       if (!res.ok) {
         console.warn('taskSetBlockedBy rejected:', res.reason)
         revert()
+      } else {
+        onChanged?.()
       }
     } catch (err) {
       console.warn('taskSetBlockedBy failed:', err)

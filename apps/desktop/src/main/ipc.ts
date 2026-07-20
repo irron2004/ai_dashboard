@@ -98,7 +98,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
         goal: req.goal?.trim() || undefined,
         currentFocus: req.currentFocus?.trim() || undefined,
       })
-      container.invalidateResumeCards()
+      container.invalidateResumeCards(id)
       return container.registry.get(id)
     },
 
@@ -124,7 +124,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
       if (Object.prototype.hasOwnProperty.call(req, 'goal')) patch.goal = req.goal ?? null
       if (Object.prototype.hasOwnProperty.call(req, 'currentFocus')) patch.currentFocus = req.currentFocus ?? null
       if (Object.keys(patch).length > 0) container.registry.updateUserContext(req.id, patch)
-      container.invalidateResumeCards()
+      container.invalidateResumeCards(req.id)
       return container.registry.get(req.id)
     },
 
@@ -134,14 +134,14 @@ export function handlers(container: Container): Record<string, (payload: unknown
         field: z.enum(['goal', 'currentFocus']),
       }).strict().parse(payload) as ProjectContextConfirmReq
       const result = container.registry.confirmContext(req.projectId, req.field)
-      if (result.ok) container.invalidateResumeCards()
+      if (result.ok) container.invalidateResumeCards(req.projectId)
       return result
     },
 
     [CH.deleteProject]: async (payload: unknown) => {
       const req = z.object({ id: z.string().min(1) }).strict().parse(payload) as DeleteProjectReq
       container.registry.remove(req.id)
-      container.invalidateResumeCards()
+      container.invalidateResumeCards(req.id)
       return { ok: true }
     },
 

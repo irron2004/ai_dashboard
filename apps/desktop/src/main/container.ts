@@ -166,8 +166,8 @@ export type Container = {
   workspaceOverview: () => WorkspaceOverview
   resumeCard: (req: ResumeCardReq) => Promise<ResumeCard | null>
   /** Clears the per-project resumeCard cache (see `resumeCard`). Call after anything that changes what
-   *  the card would show: ingest (new sessions/questions/req: tasks) or a nextNote mutation. */
-  invalidateResumeCards: () => void
+   *  the card would show: project/task/note mutations or ingest (new sessions/questions/req: tasks). */
+  invalidateResumeCards: (projectId?: string) => void
   questionLog: (req: QuestionLogReq) => QuestionLogEntry[]
   conversationHistory: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
   taskCreate: (req: TaskCreateReq) => TaskMutRes
@@ -283,8 +283,12 @@ export function buildContainer(opts: {
   const questionLog = new QuestionLogStore(db)
   const runs = new AgentRunStore(db)
   // resumeCard is expensive: latestSessionDetail re-discovers + parses ALL sessions for 3 engines on
-  // every call (no incremental cursor). Cache per project; invalidated on ingest + note mutations below.
+  // every call (no incremental cursor). Cache per project; invalidated on project/task/note mutations and ingest.
   const resumeCardCache = new Map<string, ResumeCard | null>()
+  const invalidateResumeCards = (projectId?: string): void => {
+    if (projectId) resumeCardCache.delete(projectId)
+    else resumeCardCache.clear()
+  }
   const projectExists = (projectId: string) => Boolean(registry.get(projectId))
   const taskCommands = new TaskCommandService(tasks, projectExists, undefined, nowIso)
   const noteTasks = new NoteTaskService(
@@ -450,10 +454,16 @@ export function buildContainer(opts: {
   const harnessResume = (req: HarnessResumeReq): Promise<HarnessRunRes> => harness.resume(
     req,
     (e) => opts.emitHarnessActivity?.(e),
+    (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
+    batchEngineLog(opts.emitHarnessEngineLog),
+    (e) => opts.emitHarnessNodes?.(e),
   )
   const harnessConfirmNodes = (req: HarnessConfirmNodesReq): Promise<HarnessRunRes> => harness.confirmNodes(
     req,
     (e) => opts.emitHarnessActivity?.(e),
+    (rs) => opts.emitHarnessProgress?.({ runId: rs.runId, state: rs.state }),
+    batchEngineLog(opts.emitHarnessEngineLog),
+    (e) => opts.emitHarnessNodes?.(e),
   )
   const harnessGetRun = (req: HarnessGetRunReq): HarnessGetRunRes => harness.show(req)
   const harnessListRuns = (req: HarnessListRunsReq): HarnessListRunsRes => harness.listRuns(req)
@@ -555,6 +565,8 @@ export function buildContainer(opts: {
     const check = validateBlockedBy((id) => tasks.get(id), req.taskId, req.blockedBy)
     if (!check.ok) return { ok: false, reason: check.reason }
     tasks.setBlockedBy(req.taskId, req.blockedBy)
+    const projectId = tasks.get(req.taskId)?.projectId
+    invalidateResumeCards(projectId)
     return { ok: true }
   }
 
@@ -611,45 +623,45 @@ export function buildContainer(opts: {
     })
   }
 
-  const invalidateResumeOnSuccess = <T extends { ok: boolean }>(result: T): T => {
-    if (result.ok) resumeCardCache.clear()
+  const invalidateResumeOnSuccess = <T extends { ok: boolean }>(projectId: string, result: T): T => {
+    if (result.ok) invalidateResumeCards(projectId)
     return result
   }
-  const taskCreate = (req: TaskCreateReq): TaskMutRes => invalidateResumeOnSuccess(taskCommands.create(req))
-  const taskUpdate = (req: TaskUpdateReq): TaskMutRes => invalidateResumeOnSuccess(taskCommands.update(req))
-  const taskDelete = (req: TaskDeleteReq): TaskMutRes => invalidateResumeOnSuccess(taskCommands.delete(req))
+  const taskCreate = (req: TaskCreateReq): TaskMutRes => invalidateResumeOnSuccess(req.projectId, taskCommands.create(req))
+  const taskUpdate = (req: TaskUpdateReq): TaskMutRes => invalidateResumeOnSuccess(req.projectId, taskCommands.update(req))
+  const taskDelete = (req: TaskDeleteReq): TaskMutRes => invalidateResumeOnSuccess(req.projectId, taskCommands.delete(req))
   const nextNoteAdd = (req: NextNoteAddReq): NextNoteAddRes => {
     if (!projectExists(req.projectId)) return { ok: false, reason: 'project-not-found' }
     const text = req.text.trim()
     if (!text) return { ok: false, reason: 'empty-text' }
     const note = nextNotes.add(req.projectId, text)
-    resumeCardCache.clear()
+    invalidateResumeCards(req.projectId)
     return { ok: true, note }
   }
   const nextNoteToggle = (req: NextNoteToggleReq): NextNoteMutRes => {
     const result = nextNotes.setLifecycle(req.projectId, req.id, req.done ? 'completed' : 'active')
-    if (result.ok) resumeCardCache.clear()
+    if (result.ok) invalidateResumeCards(req.projectId)
     return result.ok ? { ok: true } : result
   }
   const nextNoteDelete = (req: NextNoteDeleteReq): NextNoteMutRes => {
     const result = nextNotes.deleteForProject(req.projectId, req.id)
-    if (result.ok) resumeCardCache.clear()
+    if (result.ok) invalidateResumeCards(req.projectId)
     return result.ok ? { ok: true } : result
   }
   const nextNotesList = (req: NextNotesListReq): NextNotesListRes => projectExists(req.projectId)
     ? { ok: true, notes: nextNotes.listByProject(req.projectId, req) }
     : { ok: false, reason: 'project-not-found' }
   const nextNoteUpdate = (req: NextNoteUpdateReq): NextNoteMutationRes => (
-    invalidateResumeOnSuccess(nextNotes.updateText(req.projectId, req.noteId, req.text))
+    invalidateResumeOnSuccess(req.projectId, nextNotes.updateText(req.projectId, req.noteId, req.text))
   )
   const nextNoteSetPinned = (req: NextNoteSetPinnedReq): NextNoteMutationRes => (
-    invalidateResumeOnSuccess(nextNotes.setPinned(req.projectId, req.noteId, req.pinned))
+    invalidateResumeOnSuccess(req.projectId, nextNotes.setPinned(req.projectId, req.noteId, req.pinned))
   )
   const nextNoteSetLifecycle = (req: NextNoteSetLifecycleReq): NextNoteMutationRes => (
-    invalidateResumeOnSuccess(nextNotes.setLifecycle(req.projectId, req.noteId, req.lifecycle))
+    invalidateResumeOnSuccess(req.projectId, nextNotes.setLifecycle(req.projectId, req.noteId, req.lifecycle))
   )
   const nextNoteConvertToTask = (req: NextNoteConvertToTaskReq): NextNoteConvertToTaskRes => {
-    const result = invalidateResumeOnSuccess(noteTasks.convert(req))
+    const result = invalidateResumeOnSuccess(req.projectId, noteTasks.convert(req))
     return result.ok
       ? { ok: true, note: result.note, task: result.task }
       : result
@@ -820,7 +832,7 @@ export function buildContainer(opts: {
       resumeCardCache.set(req.projectId, card)
       return card
     },
-    invalidateResumeCards: () => resumeCardCache.clear(),
+    invalidateResumeCards,
     questionLog: (req) => questionLog.listRecent(req),
     conversationHistory,
     taskCreate, taskUpdate, taskDelete,

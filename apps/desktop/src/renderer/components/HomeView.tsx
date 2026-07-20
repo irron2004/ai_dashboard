@@ -24,10 +24,10 @@ function relTime(ms: number): string {
   return `${Math.floor(d / 86_400_000)}일 전`
 }
 
-export function HomeView({ dashboard }: { dashboard: ProjectDashboardRes }) {
+export function HomeView({ dashboard, onChanged }: { dashboard: ProjectDashboardRes; onChanged?: () => void }) {
   return (
     <div className="home home--pm" role="region" aria-label="프로젝트 작업 대시보드">
-      <PmHome dashboard={dashboard} />
+      <PmHome dashboard={dashboard} onChanged={onChanged} />
     </div>
   )
 }

@@ -178,17 +178,19 @@ describe('PmHome', () => {
     }
   })
 
-  test('editing a dependency persists via the bridge and marks the task blocked', () => {
+  test('editing a dependency persists via the bridge, marks the task blocked, and refreshes surfaces', async () => {
     const invoke = vi.fn(() => Promise.resolve({ ok: true }))
+    const onChanged = vi.fn()
     ;(window as unknown as { apc: unknown }).apc = { invoke, onDevHarnessLog: () => () => {} }
     try {
-      render(<PmHome dashboard={dashboard} />)
+      render(<PmHome dashboard={dashboard} onChanged={onChanged} />)
       fireEvent.click(screen.getByLabelText('의존성 편집 do work'))
       const select = screen.getByLabelText('차단 작업 선택 do work') as HTMLSelectElement
       ;(within(select).getByText('needs review') as HTMLOptionElement).selected = true
       fireEvent.change(select)
       expect(invoke).toHaveBeenCalledWith(CH.taskSetBlockedBy, { taskId: 'T1', blockedBy: ['T2'] })
       expect(screen.getByText('🚫 차단')).toBeDefined() // optimistic overlay reflects blockage
+      await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
     } finally {
       delete (window as unknown as { apc?: unknown }).apc
     }

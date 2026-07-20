@@ -33,6 +33,7 @@ export function App() {
     harnessLoading, workspaceOverview,
     resumeCard, resumeBannerOpen, loadResumeCard, dismissResumeBanner, addNextNote,
     activities, activeWorktrees, loadAgentActivities, mergeAgentActivity, focusAgentPane,
+    refreshProjectSurfaces: refreshProjectCaches,
     loadProjects, addProject, updateProject, confirmProjectContext, deleteProject, selectProject, clearError, loadWorkspaceOverview,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
@@ -300,11 +301,8 @@ export function App() {
   }, [activeWorktrees, previewReference?.workspaceRoot, selectedProjectId])
 
   const refreshProjectSurfaces = useCallback(() => {
-    if (!selectedProjectId) return
-    void loadResumeCard(selectedProjectId)
-    void selectProject(selectedProjectId)
-    void loadWorkspaceOverview()
-  }, [loadResumeCard, loadWorkspaceOverview, selectProject, selectedProjectId])
+    void refreshProjectCaches()
+  }, [refreshProjectCaches])
 
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
@@ -392,6 +390,7 @@ export function App() {
             activities={activities}
             onOpenActivityPane={focusPane}
             onOpenActivityQuestion={openActivityQuestion}
+            onProjectChanged={refreshProjectSurfaces}
             historyFocus={historyFocus}
             onHistoryFocusConsumed={() => setHistoryFocus(null)}
             fetchConversationHistory={fetchConversationHistory}

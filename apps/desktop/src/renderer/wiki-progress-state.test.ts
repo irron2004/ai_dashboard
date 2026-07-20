@@ -84,6 +84,20 @@ describe('wiki progress replay state', () => {
     expect(wikiProgressSummary(merged)?.status).toBe('generating')
   })
 
+  test('ignores a differently identified event below the authoritative replay sequence', () => {
+    const replayed = createWikiProgressState({
+      snapshot: snapshot(),
+      events: [event(1, 'run_started'), event(2, 'engine_request_started'), event(3, 'engine_activity')],
+      active: true,
+    })
+    const late = { ...event(2, 'engine_request_started'), eventId: 'late-event-2' }
+
+    const merged = appendWikiProgressEvent(replayed, late)
+
+    expect(merged).toBe(replayed)
+    expect(merged.events.map((item) => item.seq)).toEqual([1, 2, 3])
+  })
+
   test('derives quiet at 30s and stalled at 120s without changing generating to reconnecting', () => {
     const state = createWikiProgressState({ snapshot: snapshot(), active: true })
     const base = Date.parse(BASE_AT)

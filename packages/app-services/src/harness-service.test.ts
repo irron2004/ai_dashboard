@@ -179,7 +179,7 @@ describe('HarnessService', () => {
       '  auto_create_write_plan: true',
       '  auto_write_to_staging: true',
     ].join('\n'))
-    const mk = (runner: FakeAgentRunner) => new HarnessService({
+    const mk = (runner: AgentRunner) => new HarnessService({
       runner, vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
       gatesPath: gatesFile, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
     })
@@ -196,11 +196,31 @@ describe('HarnessService', () => {
     // operator reopens the gate, then resumes — a FRESH runner seeded only with the states that re-run
     writeGates(true)
     const lead = { graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' }, write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# T\n' }] } }
-    const resumed = await mk(new FakeAgentRunner([
+    const fake = new FakeAgentRunner([
       JSON.stringify({ proposals: [{ proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z', node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }], claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }] }] }),
       JSON.stringify(lead),
-    ])).resume({ runId: first.runId })
+    ])
+    const streamingRunner: AgentRunner = {
+      async run(input) {
+        const result = await fake.run(input)
+        input.onChunk?.('stdout', result.output)
+        return result
+      },
+    }
+    const legacyProgress: string[] = []
+    const legacyLogs: string[] = []
+    const legacyNodes: string[] = []
+    const resumed = await mk(streamingRunner).resume(
+      { runId: first.runId },
+      undefined,
+      (state) => legacyProgress.push(state.state),
+      (event) => legacyLogs.push(event.chunk),
+      (event) => legacyNodes.push(...event.nodes.map((node) => node.title)),
+    )
     expect(resumed.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(legacyProgress).toContain('NODE_PROPOSALS_CREATED')
+    expect(legacyLogs.join('')).toContain('NP-1')
+    expect(legacyNodes).toContain('T')
   })
 
   test('resume reports an unknown run', async () => {

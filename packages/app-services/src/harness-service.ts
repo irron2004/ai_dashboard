@@ -536,7 +536,13 @@ export class HarnessService {
 
   /** Resume an existing run from its persisted state — e.g. after a paused gate is reopened. Re-reads
    * the gates file, so a previously-closed gate that is now open lets the walk continue. (Acceptance #6.) */
-  async resume(input: { runId: string }, onActivity?: HarnessActivitySink): Promise<HarnessRunResult> {
+  async resume(
+    input: { runId: string },
+    onActivity?: HarnessActivitySink,
+    onProgress?: (rs: RunState) => void,
+    onEngineLog?: (event: EngineLogEvent) => void,
+    onNodes?: (event: HarnessNodesEvent) => void,
+  ): Promise<HarnessRunResult> {
     let store: RunArtifactStore
     try { store = this.storeFor(input.runId) }
     catch (error) { return this.runError(input.runId, error) }
@@ -561,9 +567,11 @@ export class HarnessService {
         runId: input.runId,
         projectId: prev.projectId,
         vaultRoot: wv.localRoot,
+        onEngineLog,
+        onNodes,
         onActivity,
       })
-      result = await this.advanceSafely(input.runId, runner, store, undefined, onActivity)
+      result = await this.advanceSafely(input.runId, runner, store, onProgress, onActivity, onEngineLog)
       this.persistTranscript(input.runId, prev.projectId, result.finalState, wv)
       try {
         if (result.finalState !== 'FAILED') { await wv.pushInternal() }
@@ -575,6 +583,7 @@ export class HarnessService {
         input.runId,
         error instanceof Error ? error.message : String(error),
         onActivity,
+        onEngineLog,
       )
     } finally {
       this.activeRuns.delete(input.runId)
@@ -584,7 +593,13 @@ export class HarnessService {
 
   /** 사용자가 확정한 노드 목록을 LEAD_MERGED 키 아티팩트로 저장하고(artifactByName이 찾도록 인덱스에도 추가),
    *  run을 재개한다. LEAD_MERGED는 재개 시 재실행되지 않아 인덱스가 안정적이다. */
-  async confirmNodes(input: { runId: string; approvedNodes: KhApprovedNodes }, onActivity?: HarnessActivitySink): Promise<HarnessRunResult> {
+  async confirmNodes(
+    input: { runId: string; approvedNodes: KhApprovedNodes },
+    onActivity?: HarnessActivitySink,
+    onProgress?: (rs: RunState) => void,
+    onEngineLog?: (event: EngineLogEvent) => void,
+    onNodes?: (event: HarnessNodesEvent) => void,
+  ): Promise<HarnessRunResult> {
     let store: RunArtifactStore
     try { store = this.storeFor(input.runId) }
     catch (error) { return this.runError(input.runId, error) }
@@ -600,7 +615,7 @@ export class HarnessService {
       artifacts: { ...rs.artifacts, ['LEAD_MERGED']: lead.includes(rel) ? lead : [...lead, rel] },
     })
     await this.recordNodeConfirmation(store, input.runId, approved, onActivity)
-    return this.resume({ runId: input.runId }, onActivity)
+    return this.resume({ runId: input.runId }, onActivity, onProgress, onEngineLog, onNodes)
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {

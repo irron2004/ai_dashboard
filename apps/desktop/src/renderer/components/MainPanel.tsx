@@ -31,6 +31,7 @@ type Props = {
   activities?: readonly AgentActivity[]
   onOpenActivityPane?: (pane: AgentPaneIdentity) => void
   onOpenActivityQuestion?: (activity: AgentActivity) => void
+  onProjectChanged?: () => void
   historyFocus?: HistoryFocus | null
   onHistoryFocusConsumed?: () => void
   fetchConversationHistory?: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
@@ -61,6 +62,7 @@ export function MainPanel({
   activities,
   onOpenActivityPane,
   onOpenActivityQuestion,
+  onProjectChanged,
   historyFocus,
   onHistoryFocusConsumed,
   fetchConversationHistory,
@@ -133,7 +135,7 @@ export function MainPanel({
               : '프로젝트를 선택하거나 새 프로젝트를 추가하세요'}
           </div>
         )}
-        {tab === 'home' && dashboard && <HomeView dashboard={dashboard} />}
+        {tab === 'home' && dashboard && <HomeView dashboard={dashboard} onChanged={onProjectChanged} />}
         {tab === 'documents' && dashboard && <ProjectDocumentsView dashboard={dashboard} />}
         {tab === 'knowledge' && dashboard && <KnowledgeView />}
         {tab === 'wikigen' && dashboard && <WikiGenDashboard />}

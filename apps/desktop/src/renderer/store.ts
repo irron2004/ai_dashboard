@@ -45,6 +45,11 @@ type ApcStore = {
   dashboard: ProjectDashboardRes | null
   workspaceOverview: WorkspaceOverview | null
   resumeCard: ResumeCard | null
+  /** Incremented by coordinated mutation refreshes so earlier independent reads cannot win a race. */
+  projectSurfaceRevision: number
+  refreshProjectSurfaces(
+    options?: { includeProjects?: boolean },
+  ): Promise<void>
   resumeBannerOpen: boolean
   loadResumeCard: (projectId: string) => Promise<void>
   openResumeBanner: () => void
@@ -111,8 +116,8 @@ type ApcStore = {
   clearGeneratePreflight(): void
   clearGeneration(): void
   loadProjects(): Promise<void>
-  addProject(name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<void>
-  updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<void>
+  addProject(name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<ProjectContextMutRes>
+  updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<ProjectContextMutRes>
   confirmProjectContext(req: ProjectContextConfirmReq): Promise<ProjectContextMutRes>
   deleteProject(id: string): Promise<void>
   selectProject(projectId: string): Promise<void>
@@ -224,6 +229,33 @@ export const useStore = create<ApcStore>((set, get) => ({
   dashboard: null,
   workspaceOverview: null,
   resumeCard: null,
+  projectSurfaceRevision: 0,
+  refreshProjectSurfaces: async (options = {}) => {
+    const projectId = get().selectedProjectId
+    const revision = get().projectSurfaceRevision + 1
+    set({ projectSurfaceRevision: revision })
+    const includeSelectedProject = Boolean(projectId && get().selectedProjectId === projectId)
+    try {
+      const [projects, workspaceOverview, dashboard, resumeCard] = await Promise.all([
+        options.includeProjects ? api.listProjects() : Promise.resolve(undefined),
+        api.workspaceOverview(),
+        includeSelectedProject ? api.projectDashboard({ projectId: projectId! }) : Promise.resolve(undefined),
+        includeSelectedProject ? api.resumeCard(projectId!) : Promise.resolve(undefined),
+      ])
+      if (get().projectSurfaceRevision !== revision) return
+      const selectedProjectStillMatches = !includeSelectedProject || get().selectedProjectId === projectId
+      set({
+        ...(projects ? { projects } : {}),
+        workspaceOverview,
+        ...(selectedProjectStillMatches && dashboard ? { dashboard } : {}),
+        ...(selectedProjectStillMatches && resumeCard !== undefined ? { resumeCard } : {}),
+      })
+    } catch (error) {
+      if (get().projectSurfaceRevision === revision) {
+        set({ error: `Failed to refresh project surfaces: ${error}` })
+      }
+    }
+  },
   resumeBannerOpen: false,
   profiles: [],
   ingesting: false,
@@ -346,30 +378,36 @@ export const useStore = create<ApcStore>((set, get) => ({
   clearGeneration() { set({ generation: null }) },
 
   async loadProjects() {
+    const revision = get().projectSurfaceRevision
     try {
       const projects = await api.listProjects()
-      set({ projects })
+      if (get().projectSurfaceRevision === revision) set({ projects })
     } catch (e) {
-      set({ error: `Failed to load projects: ${e}` })
+      if (get().projectSurfaceRevision === revision) set({ error: `Failed to load projects: ${e}` })
     }
   },
 
   async addProject(name: string, projectType: string, repoPath: string, domain: string, context = {}) {
     try {
-      await api.registerProject({ name, projectType, repoPath, domain, ...context })
-      await get().loadProjects()
+      const project = await api.registerProject({ name, projectType, repoPath, domain, ...context })
+      await get().refreshProjectSurfaces({ includeProjects: true })
+      return { ok: true, project }
     } catch (e) {
-      set({ error: `Failed to add project: ${e}` })
+      const reason = `Failed to add project: ${e}`
+      set({ error: reason })
+      return { ok: false, reason }
     }
   },
 
   async updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context = {}) {
     try {
-      await api.updateProject({ id, name, projectType, repoPath, domain, ...context })
-      await get().loadProjects()
-      if (get().selectedProjectId === id) await get().selectProject(id)
+      const project = await api.updateProject({ id, name, projectType, repoPath, domain, ...context })
+      await get().refreshProjectSurfaces({ includeProjects: true })
+      return { ok: true, project }
     } catch (e) {
-      set({ error: `Failed to update project: ${e}` })
+      const reason = `Failed to update project: ${e}`
+      set({ error: reason })
+      return { ok: false, reason }
     }
   },
 
@@ -383,6 +421,7 @@ export const useStore = create<ApcStore>((set, get) => ({
           ? { ...state.dashboard, project: result.project! }
           : state.dashboard,
       }))
+      await get().refreshProjectSurfaces({ includeProjects: true })
       return result
     } catch (error) {
       const reason = `Failed to confirm project context: ${error}`
@@ -394,38 +433,47 @@ export const useStore = create<ApcStore>((set, get) => ({
   async deleteProject(id: string) {
     try {
       await api.deleteProject(id)
-      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null, harnessCanonicalProposals: [] })
-      await get().loadProjects()
+      if (get().selectedProjectId === id) {
+        set({
+          selectedProjectId: null, dashboard: null, resumeCard: null, resumeBannerOpen: false,
+          profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null,
+          harnessCanonicalProposals: [],
+        })
+      }
+      await get().refreshProjectSurfaces({ includeProjects: true })
     } catch (e) {
       set({ error: `Failed to delete project: ${e}` })
     }
   },
 
   async selectProject(projectId: string) {
+    const revision = get().projectSurfaceRevision
     try {
       set({ selectedProjectId: projectId, dashboard: null })
       const dashboard = await api.projectDashboard({ projectId })
-      if (get().selectedProjectId !== projectId) return // stale response guard
+      if (get().projectSurfaceRevision !== revision || get().selectedProjectId !== projectId) return
       set({ dashboard })
       get().hydrateHarnessProject(projectId)
     } catch (e) {
-      if (get().selectedProjectId !== projectId) return
+      if (get().projectSurfaceRevision !== revision || get().selectedProjectId !== projectId) return
       set({ error: `Failed to load dashboard: ${e}` })
     }
   },
 
   async loadWorkspaceOverview() {
+    const revision = get().projectSurfaceRevision
     try {
       const workspaceOverview = await api.workspaceOverview()
-      set({ workspaceOverview })
+      if (get().projectSurfaceRevision === revision) set({ workspaceOverview })
     } catch (e) {
-      set({ error: `Failed to load workspace overview: ${e}` })
+      if (get().projectSurfaceRevision === revision) set({ error: `Failed to load workspace overview: ${e}` })
     }
   },
 
   async loadResumeCard(projectId) {
+    const revision = get().projectSurfaceRevision
     const card = await api.resumeCard(projectId)
-    if (get().selectedProjectId !== projectId) return
+    if (get().projectSurfaceRevision !== revision || get().selectedProjectId !== projectId) return
     set({ resumeCard: card, resumeBannerOpen: Boolean(card?.hasHistory) })
   },
   openResumeBanner() { set({ resumeBannerOpen: true }) },
@@ -435,8 +483,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     if (!pid) return
     const res = await api.nextNoteAdd({ projectId: pid, text })
     if (res.ok && res.note) {
-      const card = get().resumeCard
-      if (card && card.project.id === pid) set({ resumeCard: { ...card, nextNotes: [res.note, ...card.nextNotes], hasHistory: true } })
+      await get().refreshProjectSurfaces()
     }
   },
 

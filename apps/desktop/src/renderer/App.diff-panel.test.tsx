@@ -54,6 +54,7 @@ beforeEach(() => {
     activities: [],
     activitySnapshotAsOf: null,
     activityLoadGeneration: 0,
+    projectSurfaceRevision: 0,
     paneTarget: null,
     openPanes: {},
     error: null,
