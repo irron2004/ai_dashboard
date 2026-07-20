@@ -1,7 +1,7 @@
 # Learning Gate (Daily Review Gate) 설계
 
 - 날짜: 2026-07-20
-- 상태: M0~M1 구현 진행 (2026-07-20 무결성 리뷰 반영)
+- 상태: **M0~M1 구현 완료** (2026-07-20, M2 이후는 미구현)
 - 관련: `2026-06-02-pm-workbench-prd-v0.2.md`(daily/decision 문서 유형 기계획), `2026-07-02-product-diagnosis-and-roadmap.md`
 
 ## 0. 배경과 목표
@@ -208,6 +208,18 @@ IPC(4파일 규약: ipc-contract → preload → api → ipc.ts): `decisionsList
 - **후속** — PR 생성 + branch protection 연동, status-web(모바일)에 회고·게이트 노출
 
 각 단계는 독립 배포 가능. M1까지가 MVP.
+
+### 10.1 M0~M1 구현 결과 (2026-07-20)
+
+- 활성 worktree를 Zustand의 단일 상태로 승격하고, Git IPC가 등록된 실제 worktree인지 재검증한다.
+- Commit과 Push를 분리했다. 로컬 Commit은 자유로우며, 강제선은 의도대로 Push에만 둔다.
+- 전역 `회고` 탭에서 프로젝트별 커밋·diff 통계, target 전용 critical 5문, 검증 근거, 위험·미확인 메모, 마감 2문을 저장한다.
+- Receipt 발급은 렌더러가 보낸 SHA를 신뢰하지 않고, 메인 프로세스가 준비한 target·현재 HEAD·branch·답변·근거를 재검증한다. 발급 후 해당 답변과 메모는 불변 기록으로 고정된다.
+- 앱 Push는 `fetch → rebase → 최종 HEAD 재검증 → push`를 따르며, rebase로 SHA가 변경되면 기존 Receipt를 재사용하지 못한다.
+- pre-push hook은 `core.hooksPath`와 linked worktree의 common dir를 존중하고 기존 hook을 체인한다. 긴급 우회는 사유를 기록해 다음 회고의 부채로 노출한다.
+- 검증: TypeScript typecheck, 전체 Vitest 1,155개, 브라우저 fixture QA 11개, Electron production build 통과. Windows 전용 Electron smoke는 WSL에서 플랫폼 조건으로 skip되었다.
+
+M1은 LLM 요약·동적 질문·결정 인박스·vault 내보내기를 포함하지 않는다. 이 항목들과 commit/PR 원격 강제는 기존 로드맵대로 M2 이후 범위다.
 
 ## 11. 범위 밖 / 리스크
 

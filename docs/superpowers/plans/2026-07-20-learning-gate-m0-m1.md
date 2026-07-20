@@ -8,6 +8,8 @@
 
 **Tech Stack:** TypeScript 5.5, Electron 31, React 18.3, Zustand 4.5, node:sqlite(Zod 스키마), vitest 2. 테스트는 실제 git 임시 repo 사용.
 
+**Implementation status (2026-07-20): M0~M1 complete.** 구현 커밋은 `7e7dead`~`e65947f`이며, 최종 무결성 계약은 아래 Corrections와 스펙 §10.1을 따른다. 이하의 미체크 박스와 코드 블록은 실행 레시피를 보존한 것이며 현재 구현 상태를 나타내지 않는다.
+
 ## 2026-07-20 Implementation Corrections (이하 기존 코드 블록보다 우선)
 
 구현 전 무결성 리뷰에서 발견된 아래 교정을 M0~M1의 최종 계약으로 삼는다.
