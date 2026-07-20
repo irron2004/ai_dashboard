@@ -9,7 +9,7 @@ async function openFixture(page: Page, scenario: string): Promise<void> {
   await expect(page.getByRole('tab', { name: '전체', exact: true })).toBeVisible()
 }
 
-async function openTab(page: Page, name: '전체' | '홈' | '문서' | '지식' | '위키 생성'): Promise<void> {
+async function openTab(page: Page, name: '전체' | '홈' | '문서' | '지식' | '위키 생성' | '회고'): Promise<void> {
   await page.getByRole('tab', { name, exact: name !== '위키 생성' }).click()
   await expect(page.getByRole('tab', { name, exact: name !== '위키 생성' })).toHaveAttribute('aria-selected', 'true')
 }
@@ -69,6 +69,29 @@ test('many-changes: 변경 파일 20개 이상을 dialog와 내부 스크롤로 
   await expect(dialog.locator('.diff-panel__totals')).toContainText('파일 24')
   await expect(dialog.locator('.diff-panel__item')).toHaveCount(24)
   await expectElementContained(dialog)
+  await expectViewportContained(page)
+})
+
+test('daily-retro: 변경 증거와 Teach-back을 채워야 Receipt를 발급한다', async ({ page }) => {
+  await openFixture(page, 'many-changes')
+  await openTab(page, '회고')
+
+  await expect(page.getByText(/Push 전에 내가 변경을 이해했는지/)).toBeVisible()
+  const project = page.locator('.retro-project').first()
+  await expect(project).toBeVisible()
+  await expect(project.getByText('feat: Learning Gate fixture flow')).toBeVisible()
+
+  const receipt = project.getByRole('button', { name: 'Receipt 발급', exact: true })
+  await expect(receipt).toBeDisabled()
+  const answers = project.locator('.retro-project__questions textarea')
+  await expect(answers).toHaveCount(5)
+  for (let index = 0; index < 5; index += 1) await answers.nth(index).fill(`내가 설명한 답변 ${index + 1}`)
+  await project.getByLabel('직접 확인한 검증 근거').fill('pnpm test 전체 통과')
+  await project.getByLabel('위험·아직 확인하지 못한 것').fill('없음')
+
+  await expect(receipt).toBeEnabled()
+  await receipt.click()
+  await expect(project.getByText(/Receipt 발급 완료/)).toBeVisible()
   await expectViewportContained(page)
 })
 

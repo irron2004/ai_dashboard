@@ -772,7 +772,9 @@ describe('IPC handlers (no Electron)', () => {
     c2.registry.register({ id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs', repoPaths: ['/work/apc'], vaultPaths: [], sourcePaths: [] })
     const h = handlers(c2)
 
-    const result = await h[CH.conversationHistory]({ projectId: 'p1', agent: 'codex' }) as ConversationHistoryRes
+    // This fixture is intentionally historical; opt out of the production 72-hour initial window so
+    // the test remains about live-source parsing instead of depending on the wall-clock date.
+    const result = await h[CH.conversationHistory]({ projectId: 'p1', agent: 'codex', includeOlder: true }) as ConversationHistoryRes
 
     expect(result.sessions).toHaveLength(1)
     expect(result.sessions[0].exchanges[0]).toMatchObject({

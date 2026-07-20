@@ -110,6 +110,11 @@ describe('RetroService', () => {
       answeredQuestionIds: expect.arrayContaining(refreshed.questions.filter((item) => item.targetId === target.id).map((item) => item.id)),
     })
     expect((await gate.status(repo)).headCovered).toBe(true)
+
+    const sealedQuestion = refreshed.questions.find((item) => item.targetId === target.id)!
+    expect(retros.answer(sealedQuestion.id, '발급 후 조작', false)).toBe(false)
+    expect(service.updateTargetNotes(target.id, '발급 후 조작', '없음')).toMatchObject({ ok: false })
+    expect(retros.listQuestions(refreshed.retro.id).find((item) => item.id === sealedQuestion.id)?.answer).toBe('새 변경을 다시 확인함')
   })
 
   test('daily completion requires closing answers and a current receipt for every target', async () => {
