@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { AgentIngestAdapter } from '@apc/agents'
 import type { AgentSource, NormalizedSession } from '@apc/shared'
-import { loadConversationHistory, toConversationSession } from './conversation-history.js'
+import { latestConversationQuestion, loadConversationHistory, toConversationSession } from './conversation-history.js'
 
 function session(id: string, repoPath: string, endedAt: string, question = `질문 ${id}`): NormalizedSession {
   return {
@@ -72,6 +72,20 @@ describe('conversation history', () => {
 
     expect(view.preview).toBe('사용자 질문 없음')
     expect(view.exchanges).toEqual([])
+  })
+
+  test('selects the newest transcript question globally or for an exact resume session', () => {
+    const history = {
+      sessions: [
+        { id: 'new', agent: 'codex' as const, preview: 'newest', exchanges: [{ id: 'q-new', question: 'newest', answer: null }] },
+        { id: 'target', agent: 'codex' as const, preview: 'target', exchanges: [{ id: 'q-target', askedAt: '2026-07-15T10:00:00Z', question: 'target question', answer: null }] },
+      ],
+    }
+    expect(latestConversationQuestion(history)).toEqual({ sessionId: 'new', exchangeId: 'q-new', text: 'newest', askedAt: undefined })
+    expect(latestConversationQuestion(history, 'target')).toEqual({
+      sessionId: 'target', exchangeId: 'q-target', text: 'target question', askedAt: '2026-07-15T10:00:00Z',
+    })
+    expect(latestConversationQuestion(history, 'missing')).toBeUndefined()
   })
 
   test('reads the selected agent live sources, filters the project, and sorts sessions newest-first', async () => {

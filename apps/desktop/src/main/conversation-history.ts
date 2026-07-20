@@ -7,6 +7,13 @@ import type {
   ConversationSession,
 } from '../shared/ipc-contract.js'
 
+export type ConfirmedConversationQuestion = {
+  sessionId: string
+  exchangeId: string
+  text: string
+  askedAt?: string
+}
+
 export const CONVERSATION_HISTORY_MAX_LIMIT = 100
 export const CONVERSATION_HISTORY_RECENT_WINDOW_MS = 3 * 24 * 60 * 60 * 1000
 
@@ -66,6 +73,26 @@ export function toConversationSession(session: NormalizedSession): ConversationS
     preview: newestFirst[0]?.question ?? '사용자 질문 없음',
     exchanges: newestFirst,
   }
+}
+
+/** Selects transcript-confirmed history for resume/reconciliation; sessions/exchanges are newest-first. */
+export function latestConversationQuestion(
+  history: Pick<ConversationHistoryRes, 'sessions'>,
+  sessionId?: string,
+): ConfirmedConversationQuestion | undefined {
+  const sessions = sessionId
+    ? history.sessions.filter((session) => session.id === sessionId)
+    : history.sessions
+  for (const session of sessions) {
+    const exchange = session.exchanges[0]
+    if (exchange) return {
+      sessionId: session.id,
+      exchangeId: exchange.id,
+      text: exchange.question,
+      askedAt: exchange.askedAt,
+    }
+  }
+  return undefined
 }
 
 type LoadConversationHistoryOpts = {
