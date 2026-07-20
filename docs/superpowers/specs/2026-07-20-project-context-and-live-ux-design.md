@@ -1,9 +1,10 @@
 # 프로젝트 컨텍스트·실시간 작업 UX 통합 설계
 
 - 날짜: 2026-07-20
-- 상태: 구현 준비 완료 초안
+- 상태: 구현·자동 검증 완료, Windows packaged tmux/SSH 수동 acceptance 남음
 - 범위: `TODO.md`의 프로젝트 컨텍스트, 수동 Task, 메모, 에이전트 활동·최근 질문, 위키 생성 진행, 터미널 붙여넣기·`tmux` 렌더링, 대화 파일 미리보기
 - 구현 계획: `docs/superpowers/plans/2026-07-20-project-context-and-live-ux.md`
+- Windows QA: `docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md`
 - 관련 설계: `2026-06-08-harness-live-progress-design.md`, `2026-06-30-session-task-capture-design.md`, `2026-07-07-resume-recall-surface-design.md`, `2026-07-15-conversation-history-tab-design.md`
 
 ## 0. 결정 요약
@@ -620,3 +621,42 @@ W0 공통 계약·migration 동결 (직렬)
 - **Windows/WSL 경로 혼동:** namespace별 parser와 mapping을 pure test로 고정하고 main realpath를 최종 권위로 둔다.
 - **CJK/Powerline font 차이:** CJK monospace preference와 glyph diagnostics를 제공하고 실제 packaged target에서 acceptance fixture를 기록한다.
 - **병렬 merge 충돌:** 계약과 중앙 hot file을 단일 소유하고 feature stream은 새 모듈·props 경계 안에서 구현한다.
+
+## 14. 구현 기록과 운영 보정
+
+### 14.1 실행 방식
+
+설계는 A~D stream을 병렬화할 수 있도록 계약·파일 소유권·합류 gate를 분리했다. 실제 구현은 사용자 요청에 따라 `feat/resume-recall-surface` 한 branch에서 task별 commit을 순차 적용했다. 따라서 병렬 worktree와 stream 간 handoff는 실행하지 않았고, 중앙 hot file도 같은 단일 구현자가 통합했다. 병렬 구조는 이후 분산 유지보수에 사용할 수 있는 계획으로 남긴다.
+
+### 14.2 동결된 실제 값
+
+| 항목 | 구현값 |
+|---|---|
+| 위키 event envelope | `WikiRunEvent.version = 1`, run별 단조 증가 `seq` |
+| 위키 health | 30초 quiet, 120초 stalled; 둘 다 terminal 실패로 바꾸지 않음 |
+| local/SSH preview | UTF-8 allowlist 파일 최대 1 MiB, opaque token TTL 60초, read 시 containment 재검증 |
+| terminal paste | 최대 1 MiB, user gesture에서만 clipboard read, 원문은 비영속 |
+| live question | 제어문자 제거·redaction 뒤 최대 180자만 activity에 저장 |
+| xterm 폭 계산 | Unicode 11 addon과 `allowProposedApi: true`를 함께 활성화 |
+| pane/PTY event | scoped `pane + launchId`, `pty:data:v2`/`pty:exit:v2`; 오래된 launch event 거부 |
+| journal log 조회 | 기본 UI는 요약만 사용하고 상세 log API는 1 MiB로 제한 |
+
+`allowProposedApi`는 xterm Unicode provider API를 쓰기 위한 필수 런타임 옵션이다. 이 옵션이 없으면 빌드는 성공해도 terminal mount 시 예외가 발생하므로 fixture와 Electron smoke에서 함께 고정한다.
+
+### 14.3 legacy compatibility 제거 기준
+
+- 기존 `harness:progress`, `harness:nodes`, `harness:engineLog`와 unscoped PTY start/data/exit 경로는 이번 배포의 compatibility adapter로 유지한다.
+- 신규 renderer와 fixture는 `harness:activity` 및 scoped PTY v2를 권위 경로로 사용한다.
+- 제거는 이 변경을 포함한 compatibility release가 배포된 뒤, 다음 release 준비 시 repository consumer 검색과 fixture/Electron smoke로 legacy consumer가 없음을 확인한 경우에만 한다.
+- 제거 commit은 channel 상수, preload listener, main fan-out, renderer fallback, compatibility test를 함께 삭제한다. 일부만 먼저 제거하지 않는다.
+
+### 14.4 migration backup과 rollback
+
+이번 migration은 기존 table에 column/table을 더하는 단방향 additive migration이며 down migration을 제공하지 않는다.
+
+1. upgrade 전에 앱을 완전히 종료한다.
+2. Electron `app.getPath('userData')` 아래 `apc.db`와 존재하는 `apc.db-wal`/`apc.db-shm`, 그리고 `apc-harness-runs` 디렉터리를 같은 시점의 backup으로 복사한다.
+3. rollback이 필요하면 새 binary에서 쓰기를 중단하고 앱을 종료한 뒤, DB와 run 디렉터리를 모두 같은 backup 세트로 복원한다.
+4. 이전 binary가 추가 column을 무시할 수 있더라도 이를 rollback으로 간주하지 않는다. 지원되는 rollback은 backup 복원뿐이다.
+
+fresh/legacy/idempotent migration과 file-DB container 재생성은 자동 test로 검증했다. 실제 사용자 DB에 대한 upgrade 전 backup은 운영 단계에서 수행해야 한다.
