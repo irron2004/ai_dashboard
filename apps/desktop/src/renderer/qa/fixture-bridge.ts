@@ -1,4 +1,18 @@
-import { CH, type HarnessNodesEvent, type WorkspaceRestore } from '../../shared/ipc-contract.js'
+import type {
+  AgentActivity,
+  FileRefsResolveReq,
+  NextNote,
+  ResolvedFileReference,
+  Task,
+  WikiRunEvent,
+} from '@apc/shared'
+import {
+  CH,
+  type HarnessNodesEvent,
+  type PtyDataEvent,
+  type PtyExitEvent,
+  type WorkspaceRestore,
+} from '../../shared/ipc-contract.js'
 import {
   buildFixtureModel,
   DEFAULT_FIXTURE_SCENARIO,
@@ -12,6 +26,10 @@ type HarnessLogCallback = (event: { label: string; stream: 'stdout' | 'stderr'; 
 type HarnessNodesCallback = (event: HarnessNodesEvent) => void
 type DevLogCallback = (event: { runId: string; label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void
 type DevStartedCallback = (event: { runId: string; taskId: string; projectId: string }) => void
+type PtyDataCallback = (event: PtyDataEvent) => void
+type PtyExitCallback = (event: PtyExitEvent) => void
+type AgentActivityCallback = (event: AgentActivity) => void
+type HarnessActivityCallback = (event: WikiRunEvent) => void
 
 declare global {
   interface Window {
@@ -34,9 +52,12 @@ function seedRunStorage(model: FixtureModel): void {
   const selectedKey = `harness-dashboard:selected:${projectId}`
   localStorage.removeItem(runsKey)
   localStorage.removeItem(selectedKey)
-  if (model.failedRun) {
-    localStorage.setItem(runsKey, JSON.stringify([model.failedRun]))
-    localStorage.setItem(selectedKey, JSON.stringify(model.failedRun.runState.runId))
+  const runs = model.harnessRuns.length > 0
+    ? model.harnessRuns
+    : model.failedRun ? [model.failedRun] : []
+  if (runs.length > 0) {
+    localStorage.setItem(runsKey, JSON.stringify(runs))
+    localStorage.setItem(selectedKey, JSON.stringify(runs[0]!.runState.runId))
   }
 }
 
@@ -54,26 +75,88 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
   const params = new URLSearchParams(search)
   const requested = params.get('fixture')
   const historyMode = params.get('history') === '1'
+  const clipboardFailureMode = params.get('clipboard') === 'failure'
   const scenario = isFixtureScenarioName(requested) ? requested : DEFAULT_FIXTURE_SCENARIO
   const model = buildFixtureModel(scenario)
   const calls: Array<{ channel: string; payload?: unknown }> = []
   const harnessProgress = new Set<HarnessProgressCallback>()
   const harnessLogs = new Set<HarnessLogCallback>()
   const harnessNodes = new Set<HarnessNodesCallback>()
+  const harnessActivity = new Set<HarnessActivityCallback>()
   const devLogs = new Set<DevLogCallback>()
   const devStarted = new Set<DevStartedCallback>()
+  const ptyDataV2 = new Set<PtyDataCallback>()
+  const ptyExitV2 = new Set<PtyExitCallback>()
+  const agentActivity = new Set<AgentActivityCallback>()
 
   document.documentElement.dataset.apcFixture = scenario
   window.__APC_QA_FIXTURE__ = { scenario, calls }
   seedRunStorage(model)
 
   const selectedProject = model.selectedProjectId ? model.dashboards[model.selectedProjectId]?.project : undefined
-  const selectedDashboard = model.selectedProjectId ? model.dashboards[model.selectedProjectId] : undefined
   const fixtureHead = 'f'.repeat(40)
   const retroAnswers = new Map<string, string>()
   const retroNotes = new Map<string, { verificationEvidence: string; riskNotes: string }>()
   const retroReceipts = new Set<string>()
+  const notes = new Map(Object.entries(model.notes).map(([projectId, items]) => [
+    projectId,
+    items.map((item) => ({ ...item })),
+  ]))
+  const previewTokens = new Map<string, { reference: ResolvedFileReference; content: string }>()
   let fixtureGateInstalled = false
+
+  const projectNotes = (projectId: string): NextNote[] => {
+    const existing = notes.get(projectId)
+    if (existing) return existing
+    const created: NextNote[] = []
+    notes.set(projectId, created)
+    return created
+  }
+  const replaceNote = (projectId: string, next: NextNote): NextNote => {
+    const items = projectNotes(projectId)
+    const index = items.findIndex((item) => item.id === next.id)
+    if (index >= 0) items[index] = next
+    else items.unshift(next)
+    return next
+  }
+  const resolvePreviewReferences = (request: Record<string, unknown>) => {
+    const projectId = String(request.projectId ?? '')
+    const project = model.projects.find((item) => item.id === projectId)
+    const candidates = Array.isArray(request.candidates)
+      ? request.candidates as FileRefsResolveReq['candidates']
+      : []
+    const files = new Map(model.previewFiles.map((file) => [file.path, file]))
+    const resolved: ResolvedFileReference[] = []
+    const unresolved: Array<{ candidate: FileRefsResolveReq['candidates'][number]; reason: string }> = []
+    for (const candidate of candidates) {
+      const normalizedPath = candidate.path.replace(/\\/g, '/')
+      const rejected = model.rejectedPreviewPaths[normalizedPath]
+      const file = files.get(normalizedPath)
+      if (!project || rejected || !file) {
+        unresolved.push({
+          candidate,
+          reason: rejected ?? (project ? 'fixture에 등록되지 않은 파일입니다.' : '프로젝트를 찾을 수 없습니다.'),
+        })
+        continue
+      }
+      const token = `fixture-preview:${projectId}:${normalizedPath}`
+      const workspaceRoot = project.repoPaths[0] ?? 'C:\\qa\\workspace'
+      const reference: ResolvedFileReference = {
+        ...candidate,
+        path: normalizedPath,
+        token,
+        projectId,
+        canonicalPath: `${workspaceRoot}\\${normalizedPath.replace(/\//g, '\\')}`,
+        displayPath: normalizedPath,
+        workspaceRoot,
+        kind: file.kind,
+        size: file.content.length,
+      }
+      previewTokens.set(token, { reference, content: file.content })
+      resolved.push(reference)
+    }
+    return { resolved, unresolved }
+  }
 
   const invoke = (channel: string, payload?: unknown): Promise<unknown> => {
     calls.push(payload === undefined ? { channel } : { channel, payload })
@@ -103,6 +186,10 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
       case CH.registerProject:
       case CH.updateProject:
         return selectedProject ? Promise.resolve(selectedProject) : Promise.reject(new Error('Fixture has no project'))
+      case CH.projectContextConfirm:
+        return selectedProject
+          ? Promise.resolve({ ok: true, project: selectedProject })
+          : Promise.resolve({ ok: false, reason: 'project-not-found' })
       case CH.deleteProject:
         return Promise.resolve({ ok: true })
       case CH.search: {
@@ -118,8 +205,49 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         return Promise.resolve([])
       case CH.tasksList:
         return Promise.resolve(model.dashboards[String(request.projectId ?? '')]?.allTasks ?? [])
-      case CH.taskSetBlockedBy:
+      case CH.taskSetBlockedBy: {
+        const taskId = String(request.taskId ?? '')
+        const task = Object.values(model.dashboards).flatMap((dashboard) => dashboard.allTasks)
+          .find((item) => item.id === taskId)
+        if (task && Array.isArray(request.blockedBy)) task.blockedBy = request.blockedBy.map(String)
         return Promise.resolve({ ok: true })
+      }
+      case CH.taskCreate: {
+        const projectId = String(request.projectId ?? '')
+        const dashboard = model.dashboards[projectId]
+        if (!dashboard) return Promise.resolve({ ok: false, reason: 'project-not-found' })
+        const task: Task = {
+          id: `fixture-manual-${dashboard.allTasks.length + 1}`, projectId,
+          title: String(request.title ?? 'Fixture Task'), status: 'todo', assigneeType: 'human',
+          priority: request.priority === 'high' || request.priority === 'low' ? request.priority : 'medium',
+          acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none',
+          source: 'manual', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        }
+        dashboard.allTasks.unshift(task)
+        dashboard.activeTasks.unshift(task)
+        return Promise.resolve({ ok: true, task })
+      }
+      case CH.taskUpdate: {
+        const dashboard = model.dashboards[String(request.projectId ?? '')]
+        const task = dashboard?.allTasks.find((item) => item.id === String(request.taskId ?? ''))
+        if (!task) return Promise.resolve({ ok: false, reason: 'task-not-found' })
+        task.title = String(request.title ?? task.title)
+        if (request.status === 'todo' || request.status === 'in_progress' || request.status === 'review' || request.status === 'done' || request.status === 'rejected') task.status = request.status
+        if (request.priority === 'low' || request.priority === 'medium' || request.priority === 'high') task.priority = request.priority
+        task.userEditedAt = new Date().toISOString()
+        task.updatedAt = task.userEditedAt
+        return Promise.resolve({ ok: true, task })
+      }
+      case CH.taskDelete: {
+        const dashboard = model.dashboards[String(request.projectId ?? '')]
+        const task = dashboard?.allTasks.find((item) => item.id === String(request.taskId ?? ''))
+        if (!task) return Promise.resolve({ ok: false, reason: 'task-not-found' })
+        task.deletedAt = new Date().toISOString()
+        dashboard!.allTasks = dashboard!.allTasks.filter((item) => item.id !== task.id)
+        dashboard!.activeTasks = dashboard!.activeTasks.filter((item) => item.id !== task.id)
+        dashboard!.reviewQueue = dashboard!.reviewQueue.filter((item) => item.id !== task.id)
+        return Promise.resolve({ ok: true, task })
+      }
       case CH.resumeCard:
         return Promise.resolve(historyMode && selectedProject ? {
           project: selectedProject,
@@ -131,14 +259,37 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         } : null)
       case CH.conversationHistory: {
         const historyAgent = request.agent === 'claude' || request.agent === 'opencode' ? request.agent : 'codex'
+        const liveFileReferences = model.name === 'live-ux-contracts'
         const recentSession = {
           id: `fixture-${historyAgent}-session`,
           agent: historyAgent,
           startedAt: '2026-07-14T12:00:00.000Z',
           endedAt: '2026-07-14T13:00:00.000Z',
           branch: 'feat/fixture-history',
+          workspacePath: selectedProject?.repoPaths[0],
           preview: `${historyAgent} 대화 히스토리 화면을 검증해 줘`,
-          exchanges: [
+          exchanges: liveFileReferences ? [
+            {
+              id: 'fixture-file-md', askedAt: '2026-07-14T12:59:00.000Z',
+              question: 'docs/fixture-guide.md 파일을 오른쪽에서 열어 줘',
+              answer: 'Markdown 미리보기 경로를 확인했습니다.',
+            },
+            {
+              id: 'fixture-file-html', askedAt: '2026-07-14T12:58:00.000Z',
+              question: 'reports/fixture-preview.html 파일을 안전하게 확인해 줘',
+              answer: 'HTML은 sandbox iframe으로만 표시합니다.',
+            },
+            {
+              id: 'fixture-file-py', askedAt: '2026-07-14T12:57:00.000Z',
+              question: 'scripts/fixture_check.py:2 위치를 확인해 줘',
+              answer: 'Python line 2로 이동합니다.',
+            },
+            {
+              id: 'fixture-file-rejected', askedAt: '2026-07-14T12:56:00.000Z',
+              question: '../outside/secrets.py 경로도 열어 줘',
+              answer: '프로젝트 밖 경로는 거부해야 합니다.',
+            },
+          ] : [
             {
               id: 'fixture-q1',
               askedAt: '2026-07-14T12:05:00.000Z',
@@ -180,11 +331,87 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
       }
       case CH.questionLog:
         return Promise.resolve([])
-      case CH.nextNoteAdd:
-        return Promise.resolve({ ok: true, note: { id: 'fixture-note', projectId: model.selectedProjectId, text: String(request.text ?? ''), createdAt: '2026-07-14T13:00:00.000Z', done: false } })
-      case CH.nextNoteToggle:
-      case CH.nextNoteDelete:
+      case CH.agentActivitySnapshot: {
+        const projectId = typeof request.projectId === 'string' ? request.projectId : undefined
+        return Promise.resolve({
+          activities: projectId
+            ? model.activities.filter((activity) => activity.pane.projectId === projectId)
+            : model.activities,
+          asOf: new Date().toISOString(),
+        })
+      }
+      case CH.agentQuestionReconcile: {
+        const activity = model.activities.find((item) => (
+          item.pane.paneId === request.paneId && item.launchId === request.launchId
+        ))
+        return Promise.resolve(activity ? { ok: true, activity } : { ok: false, reason: 'pane-not-found' })
+      }
+      case CH.nextNotesList: {
+        const includeCompleted = request.includeCompleted === true
+        const includeArchived = request.includeArchived === true
+        const listed = projectNotes(String(request.projectId ?? '')).filter((note) => (
+          (includeArchived || !note.archivedAt) && (includeCompleted || !note.done)
+        ))
+        return Promise.resolve({ ok: true, notes: listed })
+      }
+      case CH.nextNoteAdd: {
+        const projectId = String(request.projectId ?? '')
+        const now = new Date().toISOString()
+        const note: NextNote = {
+          id: `fixture-note-${projectNotes(projectId).length + 1}`, projectId,
+          text: String(request.text ?? ''), createdAt: now, updatedAt: now, done: false,
+        }
+        replaceNote(projectId, note)
+        return Promise.resolve({ ok: true, note })
+      }
+      case CH.nextNoteToggle: {
+        const projectId = String(request.projectId ?? '')
+        const note = projectNotes(projectId).find((item) => item.id === request.id)
+        if (!note) return Promise.resolve({ ok: false, reason: 'note-not-found' })
+        note.done = request.done === true
+        note.updatedAt = new Date().toISOString()
         return Promise.resolve({ ok: true })
+      }
+      case CH.nextNoteDelete: {
+        const projectId = String(request.projectId ?? '')
+        const items = projectNotes(projectId)
+        const index = items.findIndex((item) => item.id === request.id)
+        if (index < 0) return Promise.resolve({ ok: false, reason: 'note-not-found' })
+        items.splice(index, 1)
+        return Promise.resolve({ ok: true })
+      }
+      case CH.nextNoteUpdate:
+      case CH.nextNoteSetPinned:
+      case CH.nextNoteSetLifecycle: {
+        const projectId = String(request.projectId ?? '')
+        const note = projectNotes(projectId).find((item) => item.id === request.noteId)
+        if (!note) return Promise.resolve({ ok: false, reason: 'note-not-found' })
+        if (channel === CH.nextNoteUpdate) note.text = String(request.text ?? note.text)
+        if (channel === CH.nextNoteSetPinned) note.pinned = request.pinned === true
+        if (channel === CH.nextNoteSetLifecycle) {
+          const lifecycle = request.lifecycle
+          note.done = lifecycle === 'completed'
+          note.archivedAt = lifecycle === 'archived' ? new Date().toISOString() : undefined
+        }
+        note.updatedAt = new Date().toISOString()
+        return Promise.resolve({ ok: true, note })
+      }
+      case CH.nextNoteConvertToTask: {
+        const projectId = String(request.projectId ?? '')
+        const note = projectNotes(projectId).find((item) => item.id === request.noteId)
+        if (!note) return Promise.resolve({ ok: false, reason: 'note-not-found' })
+        const task: Task = {
+          id: note.convertedTaskId ?? `task:${projectId}:note:${note.id}`, projectId,
+          title: String(request.title ?? note.text), status: 'todo', assigneeType: 'human',
+          priority: request.priority === 'high' || request.priority === 'low' ? request.priority : 'medium',
+          acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [], reviewStatus: 'none',
+          source: 'note', sourceRef: note.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        }
+        note.convertedTaskId = task.id
+        note.archivedAt = new Date().toISOString()
+        note.updatedAt = note.archivedAt
+        return Promise.resolve({ ok: true, note, task })
+      }
       case CH.retroPrepare: {
         const date = String(request.date ?? '2026-07-20')
         const targets = Array.isArray(request.targets) ? request.targets as Array<{ projectId?: unknown; worktreePath?: unknown }> : []
@@ -297,6 +524,13 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         }
         window.setTimeout(() => {
           const runId = 'fixture-run-generating'
+          if (model.selectedProjectId) {
+            const event: WikiRunEvent = {
+              version: 1, seq: 1, eventId: `${runId}:1`, runId,
+              projectId: model.selectedProjectId, at: new Date().toISOString(), kind: 'run_started',
+            }
+            for (const listener of harnessActivity) listener(event)
+          }
           for (const listener of harnessProgress) listener({ runId, state: 'SOURCES_EXTRACTED' })
           for (const listener of harnessLogs) listener({
             label: 'codex · project-discovery',
@@ -307,10 +541,32 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         }, 25)
         return new Promise<never>(() => { /* deliberately in-flight for the generating fixture */ })
       }
-      case CH.harnessGetRun:
-        return model.failedRun
-          ? Promise.resolve({ ok: true, runState: model.failedRun.runState, artifacts: model.failedRun.artifacts })
+      case CH.harnessGetRun: {
+        const bundle = model.harnessRuns.find((item) => item.runState.runId === request.runId) ?? model.failedRun
+        return bundle
+          ? Promise.resolve({ ok: true, runState: bundle.runState, artifacts: bundle.artifacts })
           : Promise.resolve({ ok: false, reason: 'Fixture run not materialized' })
+      }
+      case CH.harnessListRuns: {
+        const projectId = String(request.projectId ?? '')
+        return Promise.resolve({
+          ok: true,
+          runs: model.wikiProgressRuns.filter((run) => run.projectId === projectId),
+        })
+      }
+      case CH.harnessGetProgress: {
+        const run = model.wikiProgressRuns.find((item) => item.runId === request.runId)
+        return Promise.resolve(run
+          ? { ok: true, summary: run.summary, events: [], active: run.active }
+          : { ok: false, reason: 'Fixture progress not found' })
+      }
+      case CH.harnessReadLog:
+        return Promise.resolve({
+          ok: true,
+          content: `fixture durable log for ${String(request.runId ?? '')}\n문서와 세션을 분석 중입니다.\n${model.longLogPath}`,
+          nextOffset: 0,
+          truncated: false,
+        })
       case CH.harnessResume:
         return Promise.resolve({ ok: false, runId: String(request.runId ?? ''), reason: 'Fixture resume is read-only' })
       case CH.harnessConfirmNodes:
@@ -334,6 +590,29 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         return Promise.resolve({ ok: true, target: 'C:\\qa\\workspace\\wiki', files: model.documents.length })
       case CH.readProjectWiki:
         return Promise.resolve(model.wiki)
+      case CH.fileRefsResolve:
+        return Promise.resolve(resolvePreviewReferences(request))
+      case CH.filePreviewRead: {
+        const stored = previewTokens.get(String(request.token ?? ''))
+        if (!stored || stored.reference.projectId !== request.projectId) {
+          return Promise.resolve({ ok: false, reason: '만료되었거나 잘못된 fixture preview token입니다.' })
+        }
+        return Promise.resolve({ ok: true, ...stored, encoding: 'utf8' })
+      }
+      case CH.clipboardReadText:
+        return Promise.resolve(clipboardFailureMode
+          ? { ok: false, reason: 'fixture clipboard permission denied' }
+          : { ok: true, text: 'fixture clipboard 한글 붙여넣기' })
+      case CH.terminalGetPreferences:
+        return Promise.resolve({ ok: true, preferences: { fontFamily: 'D2Coding, Cascadia Mono, monospace', fontSize: 13 } })
+      case CH.terminalSetPreferences:
+        return Promise.resolve({ ok: true, preferences: { fontFamily: String(request.fontFamily ?? 'D2Coding'), fontSize: Number(request.fontSize ?? 13) } })
+      case CH.terminalDiagnostics:
+        return Promise.resolve({
+          ok: true,
+          environment: { kind: 'local', term: 'xterm-256color', colorTerm: 'truecolor', locale: 'ko_KR.UTF-8', utf8: true },
+          warnings: [],
+        })
       case CH.devHarnessRun:
         return Promise.resolve({ ok: true, runId: 'fixture-dev-run', exitCode: 0 })
       case CH.devHarnessCancel:
@@ -403,24 +682,58 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
 
   window.apc = {
     invoke,
-    startPty: () => {},
-    writePty: () => {},
-    killPty: () => {},
-    resizePty: () => {},
+    startPty: (request) => {
+      calls.push({ channel: CH.ptyStart, payload: request })
+      if (!request.pane || !request.launchId) return
+      const activity: AgentActivity = {
+        pane: request.pane,
+        launchId: request.launchId,
+        connection: 'connected',
+        phase: 'working',
+        processAlive: true,
+        lastActivityAt: new Date().toISOString(),
+        currentLabel: 'fixture PTY 연결됨',
+        revision: 1,
+      }
+      window.setTimeout(() => {
+        for (const listener of ptyDataV2) listener({
+          id: request.id,
+          launchId: request.launchId!,
+          data: `fixture PTY ready · ${request.pane!.paneId}\r\n`,
+        })
+        for (const listener of agentActivity) listener(activity)
+      }, 0)
+    },
+    writePty: (request) => {
+      calls.push({
+        channel: CH.ptyInput,
+        payload: { id: request.id, launchId: request.launchId, bytes: request.data.length },
+      })
+    },
+    killPty: (request) => {
+      calls.push({ channel: CH.ptyKill, payload: request })
+      if (!request.launchId) return
+      for (const listener of ptyExitV2) listener({
+        id: request.id, launchId: request.launchId, code: 0, reason: request.reason ?? 'user',
+      })
+    },
+    resizePty: (request) => {
+      calls.push({ channel: CH.ptyResize, payload: request })
+    },
     onPtyData: () => () => {},
     onPtyExit: () => () => {},
-    onPtyDataV2: () => () => {},
-    onPtyExitV2: () => () => {},
-    onAgentActivity: () => () => {},
+    onPtyDataV2: (listener) => subscribe(ptyDataV2, listener),
+    onPtyExitV2: (listener) => subscribe(ptyExitV2, listener),
+    onAgentActivity: (listener) => subscribe(agentActivity, listener),
     onHarnessProgress: (listener) => subscribe(harnessProgress, listener),
     onHarnessEngineLog: (listener) => subscribe(harnessLogs, listener),
     onHarnessNodes: (listener) => subscribe(harnessNodes, listener),
-    onHarnessActivity: () => () => {},
+    onHarnessActivity: (listener) => subscribe(harnessActivity, listener),
     onDevHarnessLog: (listener) => subscribe(devLogs, listener),
     onDevHarnessStarted: (listener) => subscribe(devStarted, listener),
-    paneOpened: () => {},
-    paneClosed: () => {},
-    selectProject: () => {},
+    paneOpened: (payload) => { calls.push({ channel: CH.paneOpened, payload }) },
+    paneClosed: (payload) => { calls.push({ channel: CH.paneClosed, payload }) },
+    selectProject: (payload) => { calls.push({ channel: CH.selectProject, payload }) },
     onWorkspaceRestore: (listener) => {
       const payload: WorkspaceRestore = { panes: [], selectedProjectId: model.selectedProjectId }
       const timer = window.setTimeout(() => listener(payload), 0)

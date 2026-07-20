@@ -10,8 +10,9 @@ const mainEntry = join(desktopDir, 'out/main/index.js')
 const BRIDGE_METHODS = [
   'invoke',
   'startPty', 'writePty', 'killPty', 'resizePty',
-  'onPtyData', 'onPtyExit',
-  'onHarnessProgress', 'onHarnessEngineLog', 'onHarnessNodes',
+  'onPtyData', 'onPtyExit', 'onPtyDataV2', 'onPtyExitV2',
+  'onAgentActivity',
+  'onHarnessProgress', 'onHarnessEngineLog', 'onHarnessNodes', 'onHarnessActivity',
   'onDevHarnessLog', 'onDevHarnessStarted',
   'paneOpened', 'paneClosed', 'selectProject', 'onWorkspaceRestore',
 ] as const
@@ -29,6 +30,7 @@ test('Windows Electron: isolated boot, preload, IPC, tabs, shortcut', async ({},
 
   const userDataDir = await mkdtemp(join(tmpdir(), 'apc-electron-e2e-'))
   let application: ElectronApplication | null = null
+  let originalClipboard: string | null = null
   try {
     application = await electron.launch({
       args: [mainEntry],
@@ -55,6 +57,12 @@ test('Windows Electron: isolated boot, preload, IPC, tabs, shortcut', async ({},
     expect(projects).toEqual([])
     expect(existsSync(join(userDataDir, 'apc.db'))).toBe(true)
 
+    originalClipboard = await application.evaluate(({ clipboard }) => clipboard.readText())
+    const clipboardFixture = 'APC Electron 실제 클립보드 한글 붙여넣기'
+    await application.evaluate(({ clipboard }, text) => clipboard.writeText(text), clipboardFixture)
+    const clipboardRead = await page.evaluate(() => window.apc.invoke('q:clipboardReadText'))
+    expect(clipboardRead).toEqual({ ok: true, text: clipboardFixture })
+
     const tabs = ['전체', '홈', '문서', '지식', '위키 생성', '히스토리', '회고']
     await expect(page.getByRole('tab')).toHaveCount(tabs.length)
     for (const name of tabs) {
@@ -66,10 +74,84 @@ test('Windows Electron: isolated boot, preload, IPC, tabs, shortcut', async ({},
     await page.keyboard.press('Control+Shift+D')
     await expect(page.getByRole('dialog', { name: '변경사항' })).toBeVisible()
     await expect(page.getByText('프로젝트를 선택하세요', { exact: true })).toBeVisible()
+
+    const project = await page.evaluate((repoPath) => window.apc.invoke('c:registerProject', {
+      name: 'Electron PTY smoke', projectType: 'git', repoPath, domain: 'project-docs',
+    }), desktopDir) as { id: string }
+    const scopedPty = await page.evaluate(async ({ projectId, cwd }) => {
+      const pane = {
+        paneId: `${projectId}:main:codex-smoke`, projectId, worktreePath: cwd,
+        slotId: 'codex-smoke', agent: 'codex' as const,
+      }
+      const launchId = 'electron-pty-launch-smoke'
+      const dataEvents: Array<{ id: string; launchId: string; data: string }> = []
+      const activities: Array<{ pane: typeof pane; launchId: string; connection: string }> = []
+      let exitEvent: { id: string; launchId: string; code: number; reason?: string } | undefined
+      let wrote = false
+
+      return new Promise<{ dataEvents: typeof dataEvents; activities: typeof activities; exitEvent: typeof exitEvent }>((resolveResult, reject) => {
+        const cleanup = () => {
+          offData()
+          offExit()
+          offActivity()
+          window.clearTimeout(timeout)
+        }
+        const complete = () => {
+          if (!exitEvent || !dataEvents.some((event) => event.data.includes('APC_PTY_SMOKE'))) return
+          cleanup()
+          resolveResult({ dataEvents, activities, exitEvent })
+        }
+        const offData = window.apc.onPtyDataV2((event) => {
+          if (event.id !== pane.paneId) return
+          dataEvents.push(event)
+          complete()
+        })
+        const offExit = window.apc.onPtyExitV2((event) => {
+          if (event.id !== pane.paneId) return
+          exitEvent = event
+          complete()
+        })
+        const offActivity = window.apc.onAgentActivity((event) => {
+          if (event.pane.paneId !== pane.paneId) return
+          activities.push(event as typeof activities[number])
+          if (event.connection === 'connected' && !wrote) {
+            wrote = true
+            window.apc.writePty({
+              id: pane.paneId, launchId, data: 'echo APC_PTY_SMOKE & exit\r',
+            })
+          }
+        })
+        const timeout = window.setTimeout(() => {
+          cleanup()
+          reject(new Error(`scoped PTY smoke timed out: ${JSON.stringify({ dataEvents, activities, exitEvent })}`))
+        }, 10_000)
+        window.apc.startPty({
+          id: pane.paneId, command: 'codex', args: [], cwd,
+          agent: 'codex', pane, launchId,
+        })
+      })
+    }, { projectId: project.id, cwd: desktopDir })
+    expect(scopedPty.dataEvents.length).toBeGreaterThan(0)
+    expect(scopedPty.dataEvents.every((event) => (
+      event.id === `${project.id}:main:codex-smoke` && event.launchId === 'electron-pty-launch-smoke'
+    ))).toBe(true)
+    expect(scopedPty.exitEvent).toMatchObject({
+      id: `${project.id}:main:codex-smoke`, launchId: 'electron-pty-launch-smoke', code: 0,
+    })
+    expect(scopedPty.activities.some((activity) => (
+      activity.launchId === 'electron-pty-launch-smoke'
+      && activity.pane.paneId === `${project.id}:main:codex-smoke`
+      && activity.pane.projectId === project.id
+      && activity.pane.worktreePath === desktopDir
+      && activity.pane.slotId === 'codex-smoke'
+    ))).toBe(true)
   } catch (error) {
     await testInfo.attach('electron-smoke-error', { body: String(error), contentType: 'text/plain' })
     throw error
   } finally {
+    if (application && originalClipboard !== null) {
+      await application.evaluate(({ clipboard }, text) => clipboard.writeText(text), originalClipboard).catch(() => {})
+    }
     await application?.close().catch(() => {})
     await rm(userDataDir, { recursive: true, force: true })
   }

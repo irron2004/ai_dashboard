@@ -75,5 +75,16 @@
     "generating": false,
     "seedFailedRun": false,
     "longLabels": true
+  },
+  "live-ux-contracts": {
+    "projectCount": 1,
+    "documentCount": 32,
+    "taskCount": 10,
+    "changeCount": 6,
+    "graphNodeCount": 20,
+    "graphEdgeCount": 32,
+    "generating": false,
+    "seedFailedRun": false,
+    "longLabels": false
   }
 }

@@ -1,7 +1,16 @@
-import type { AgentRun, Project, Task } from '@apc/shared'
+import type {
+  AgentActivity,
+  AgentRun,
+  FilePreviewKind,
+  NextNote,
+  Project,
+  Task,
+  WikiProgressSummary,
+} from '@apc/shared'
 import type { WorkspaceOverview } from '@apc/dashboard-api'
 import type {
   ChangesListRes,
+  HarnessRunProgressDto,
   ProjectDashboardRes,
   ReadProjectWikiRes,
 } from '../../shared/ipc-contract.js'
@@ -21,6 +30,12 @@ export type FixtureModel = {
   selectedProjectId: string | null
   dashboards: Record<string, ProjectDashboardRes>
   overview: WorkspaceOverview
+  notes: Record<string, NextNote[]>
+  activities: AgentActivity[]
+  harnessRuns: HarnessRunBundle[]
+  wikiProgressRuns: HarnessRunProgressDto[]
+  previewFiles: FixturePreviewFile[]
+  rejectedPreviewPaths: Record<string, string>
   documents: { relPath: string; mtimeMs: number }[]
   changes: NonNullable<ChangesListRes['files']>
   wiki: ReadProjectWikiRes
@@ -28,11 +43,18 @@ export type FixtureModel = {
   longLogPath: string
 }
 
+export type FixturePreviewFile = {
+  path: string
+  kind: FilePreviewKind
+  content: string
+}
+
 const FIXED_NOW = Date.parse('2026-07-14T13:00:00.000Z')
 const PROJECT_ID_PREFIX = 'qa-project-'
 
 const statuses: Project['status'][] = ['active', 'maintenance', 'paused', 'archived']
 const taskStatuses: Task['status'][] = ['todo', 'in_progress', 'review', 'done']
+const taskSources: NonNullable<Task['source']>[] = ['manual', 'conversation', 'note', 'review', 'system']
 
 function projectAt(index: number, config: ScenarioConfig): Project {
   const n = String(index + 1).padStart(2, '0')
@@ -50,6 +72,10 @@ function projectAt(index: number, config: ScenarioConfig): Project {
       ? '긴 한글 레이블과 좁은 viewport에서도 모든 상호작용 요소가 한 줄 계약과 읽기 쉬운 간격을 유지한다.'
       : `프로젝트 ${n}의 결정적인 QA 상태를 검증한다.`,
     currentFocus: index === 0 ? 'fixture 기반 브라우저 회귀 테스트' : '문서와 실행 상태 정리',
+    goalSource: index === 0 ? 'user' : 'agent',
+    goalConfirmedAt: index === 0 ? '2026-07-14T11:00:00.000Z' : undefined,
+    currentFocusSource: 'agent',
+    currentFocusConfirmedAt: index === 0 ? '2026-07-14T11:05:00.000Z' : undefined,
     startDate: '2026-07-01',
     targetDate: '2026-08-15',
     projectType: 'git',
@@ -63,6 +89,7 @@ function projectAt(index: number, config: ScenarioConfig): Project {
 function tasksFor(project: Project, count: number, longLabels: boolean): Task[] {
   return Array.from({ length: count }, (_, index) => {
     const status = taskStatuses[index % taskStatuses.length]
+    const source = taskSources[index % taskSources.length]
     const suffix = String(index + 1).padStart(2, '0')
     return {
       id: `task:${project.id}:${suffix}`,
@@ -79,6 +106,11 @@ function tasksFor(project: Project, count: number, longLabels: boolean): Task[] 
       linkedWikiPages: [],
       blockedBy: [],
       reviewStatus: status === 'review' ? 'pending' : 'none',
+      source,
+      sourceRef: source === 'manual' ? undefined : `fixture:${source}:${suffix}`,
+      createdAt: new Date(FIXED_NOW - (index + 1) * 60_000).toISOString(),
+      updatedAt: new Date(FIXED_NOW - index * 30_000).toISOString(),
+      userEditedAt: index === 1 ? '2026-07-14T12:45:00.000Z' : undefined,
     }
   })
 }
@@ -107,6 +139,199 @@ function dashboardFor(project: Project, config: ScenarioConfig): ProjectDashboar
     recentRuns,
     allTasks: tasks,
   }
+}
+
+function notesFor(project: Project): NextNote[] {
+  return [
+    {
+      id: `note:${project.id}:pinned`, projectId: project.id,
+      text: '고정된 진행 메모', createdAt: '2026-07-14T09:00:00.000Z',
+      updatedAt: '2026-07-14T12:50:00.000Z', done: false, pinned: true,
+    },
+    {
+      id: `note:${project.id}:converted`, projectId: project.id,
+      text: 'Task로 전환된 진행 메모', createdAt: '2026-07-14T09:10:00.000Z',
+      updatedAt: '2026-07-14T12:40:00.000Z', done: false,
+      convertedTaskId: `task:${project.id}:03`,
+    },
+    {
+      id: `note:${project.id}:completed`, projectId: project.id,
+      text: '완료한 프로젝트 메모', createdAt: '2026-07-14T09:20:00.000Z',
+      updatedAt: '2026-07-14T12:30:00.000Z', done: true,
+    },
+    {
+      id: `note:${project.id}:archived`, projectId: project.id,
+      text: '보관된 프로젝트 메모', createdAt: '2026-07-14T09:30:00.000Z',
+      updatedAt: '2026-07-14T12:20:00.000Z', done: false,
+      archivedAt: '2026-07-14T12:20:00.000Z',
+    },
+  ]
+}
+
+function activitiesFor(project: Project): AgentActivity[] {
+  const now = Date.now()
+  const variants: Array<{
+    key: string
+    agent: AgentActivity['pane']['agent']
+    connection: AgentActivity['connection']
+    phase: AgentActivity['phase']
+    processAlive: boolean
+    label: string
+    reason?: string
+    stale?: boolean
+    question?: AgentActivity['lastQuestion']
+  }> = [
+    {
+      key: 'working', agent: 'codex', connection: 'connected', phase: 'working', processAlive: true,
+      label: 'renderer fixture 검증 중',
+    },
+    {
+      key: 'awaiting', agent: 'claude', connection: 'connected', phase: 'awaiting_user', processAlive: true,
+      label: '사용자 응답 대기',
+      question: {
+        displayText: 'docs/fixture-guide.md를 먼저 확인할까요?',
+        askedAt: new Date(now - 8_000).toISOString(), privacy: 'visible', source: 'pty',
+      },
+    },
+    {
+      key: 'idle', agent: 'opencode', connection: 'connected', phase: 'idle', processAlive: true,
+      label: '다음 작업 대기',
+    },
+    {
+      key: 'error', agent: 'codex', connection: 'error', phase: 'idle', processAlive: false,
+      label: '인증 오류', reason: 'fixture-auth-failure',
+      question: {
+        displayText: '[민감한 질문]', askedAt: new Date(now - 18_000).toISOString(),
+        privacy: 'masked', source: 'pty',
+      },
+    },
+    {
+      key: 'disconnected', agent: 'claude', connection: 'disconnected', phase: 'idle', processAlive: false,
+      label: '원격 연결 종료', reason: 'transport-closed', stale: true,
+    },
+  ]
+  return variants.map((variant, index) => {
+    const lastActivityAt = new Date(now - index * 12_000).toISOString()
+    return {
+      pane: {
+        paneId: `${project.id}:fixture:${variant.key}`,
+        projectId: project.id,
+        worktreePath: index < 3 ? project.repoPaths[0]! : `${project.repoPaths[0]}-fixture-${variant.key}`,
+        slotId: `${variant.agent}-${index + 1}`,
+        agent: variant.agent,
+      },
+      launchId: `fixture-launch-${variant.key}`,
+      connection: variant.connection,
+      phase: variant.phase,
+      processAlive: variant.processAlive,
+      lastActivityAt,
+      currentLabel: variant.label,
+      ...(variant.reason ? { reason: variant.reason } : {}),
+      ...(variant.stale ? { staleSince: lastActivityAt } : {}),
+      ...(variant.question ? { lastQuestion: variant.question } : {}),
+      revision: index + 1,
+    }
+  })
+}
+
+function liveWikiRuns(project: Project): {
+  bundles: HarnessRunBundle[]
+  progress: HarnessRunProgressDto[]
+} {
+  const now = Date.now()
+  const definitions: Array<{
+    key: 'active' | 'quiet' | 'stalled' | 'completed' | 'failed'
+    status: WikiProgressSummary['status']
+    health: WikiProgressSummary['health']
+    active: boolean
+    lastActivityAgoMs: number
+    state: HarnessRunBundle['runState']['state']
+  }> = [
+    { key: 'active', status: 'generating', health: 'active', active: true, lastActivityAgoMs: 2_000, state: 'DOCUMENTS_CLASSIFIED' },
+    { key: 'quiet', status: 'generating', health: 'quiet', active: true, lastActivityAgoMs: 45_000, state: 'DOCUMENTS_CLASSIFIED' },
+    { key: 'stalled', status: 'generating', health: 'stalled', active: true, lastActivityAgoMs: 180_000, state: 'DOCUMENTS_CLASSIFIED' },
+    { key: 'completed', status: 'completed', health: 'active', active: false, lastActivityAgoMs: 60_000, state: 'HUMAN_REVIEW_REQUIRED' },
+    { key: 'failed', status: 'failed', health: 'active', active: false, lastActivityAgoMs: 75_000, state: 'FAILED' },
+  ]
+  const bundles: HarnessRunBundle[] = []
+  const progress: HarnessRunProgressDto[] = []
+  for (const [index, definition] of definitions.entries()) {
+    const runId = `wiki-fixture-${definition.key}`
+    const startedAt = new Date(now - 600_000 - index * 60_000).toISOString()
+    const lastActivityAt = new Date(now - definition.lastActivityAgoMs).toISOString()
+    const terminal = definition.status === 'completed' || definition.status === 'failed'
+    const failed = definition.status === 'failed'
+    const summary: WikiProgressSummary = {
+      runId,
+      projectId: project.id,
+      status: definition.status,
+      health: definition.health,
+      phase: failed ? 'NODE_PROPOSALS_CREATED' : 'DOCUMENTS_CLASSIFIED',
+      startedAt,
+      lastActivityAt,
+      ...(terminal ? { endedAt: lastActivityAt } : {}),
+      work: {
+        total: 3,
+        completed: terminal && !failed ? 3 : 1,
+        inProgress: terminal ? 0 : 1,
+        failed: failed ? 1 : 0,
+        retries: definition.key === 'stalled' ? 1 : 0,
+      },
+      workers: [{
+        workerId: `worker-${definition.key}`,
+        folder: `docs/${definition.key}`,
+        attempt: definition.key === 'stalled' ? 2 : 1,
+        status: failed ? 'failed' : definition.status === 'completed' ? 'completed' : 'running',
+        lastActivityAt,
+        ...(failed ? { message: 'fixture worker failure' } : {}),
+      }],
+      nodes: [{
+        workerId: `worker-${definition.key}`,
+        proposalId: `proposal-${definition.key}`,
+        title: `Fixture ${definition.key} node`,
+        nodeType: 'ConceptNode',
+        sourceFolder: `docs/${definition.key}`,
+        status: terminal && !failed ? 'accepted' : 'discovered',
+        discoveredAt: startedAt,
+        updatedAt: lastActivityAt,
+      }],
+    }
+    bundles.push({
+      mode: 'full-docs',
+      runState: {
+        runId, projectId: project.id, engine: 'codex', state: definition.state,
+        history: [
+          { state: 'CREATED', at: startedAt },
+          { state: definition.state, at: lastActivityAt },
+        ],
+        artifacts: {},
+        ...(failed ? { error: 'fixture failed wiki run' } : {}),
+      },
+      artifacts: [],
+    })
+    progress.push({ runId, projectId: project.id, summary, active: definition.active })
+  }
+  return { bundles, progress }
+}
+
+function previewFiles(): FixturePreviewFile[] {
+  return [
+    {
+      path: 'docs/fixture-guide.md',
+      kind: 'markdown',
+      content: '# Fixture Markdown\n\n오른쪽 미리보기에서 안전하게 렌더링됩니다.\n\n[scripts/fixture_check.py](../scripts/fixture_check.py)',
+    },
+    {
+      path: 'reports/fixture-preview.html',
+      kind: 'html',
+      content: '<!doctype html><html><body><h1>Fixture HTML</h1><script>window.top.location="https://example.invalid"</script></body></html>',
+    },
+    {
+      path: 'scripts/fixture_check.py',
+      kind: 'python',
+      content: 'def verify_fixture():\n    message = "Fixture Python"\n    return message\n',
+    },
+  ]
 }
 
 function buildOverview(projects: Project[], dashboards: Record<string, ProjectDashboardRes>): WorkspaceOverview {
@@ -198,6 +423,8 @@ export function buildFixtureModel(name: FixtureScenarioName): FixtureModel {
   const config = rawScenarios[name]
   const projects = Array.from({ length: config.projectCount }, (_, index) => projectAt(index, config))
   const dashboards = Object.fromEntries(projects.map((project) => [project.id, dashboardFor(project, config)]))
+  const liveUxProject = name === 'live-ux-contracts' ? projects[0] : undefined
+  const liveRuns = liveUxProject ? liveWikiRuns(liveUxProject) : { bundles: [], progress: [] }
   const longLogPath = projects[0]
     ? `${projects[0].repoPaths[0]}\\.apc\\runs\\wiki-qa-auth-failure-2026-07-14\\engine\\codex\\stderr-with-a-very-long-filename.log`
     : ''
@@ -208,6 +435,17 @@ export function buildFixtureModel(name: FixtureScenarioName): FixtureModel {
     selectedProjectId: projects[0]?.id ?? null,
     dashboards,
     overview: buildOverview(projects, dashboards),
+    notes: Object.fromEntries(projects.map((project) => [
+      project.id,
+      name === 'live-ux-contracts' ? notesFor(project) : [],
+    ])),
+    activities: liveUxProject ? activitiesFor(liveUxProject) : [],
+    harnessRuns: liveRuns.bundles,
+    wikiProgressRuns: liveRuns.progress,
+    previewFiles: liveUxProject ? previewFiles() : [],
+    rejectedPreviewPaths: liveUxProject
+      ? { '../outside/secrets.py': '프로젝트 경계를 벗어난 경로입니다.' }
+      : {},
     documents: buildDocuments(config.documentCount),
     changes: buildChanges(config.changeCount),
     wiki: buildWiki(config.graphNodeCount, config.graphEdgeCount),
