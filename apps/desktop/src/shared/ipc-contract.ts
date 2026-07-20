@@ -2,6 +2,8 @@ import type {
   Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState,
   ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry, GitSyncStatus,
   GitSyncResult, Retro, RetroQuestion, RetroTarget, ReviewReceipt, GateEvent,
+  AgentActivity, AgentPaneIdentity, WikiProgressSummary, WikiRunEvent,
+  FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes,
 } from '@apc/shared'
 
 /** Wiki authoring is intentionally single-engine. Keep this runtime constant shared by renderer and
@@ -25,6 +27,7 @@ export const CH = {
   // commands
   registerProject: 'c:registerProject',
   updateProject: 'c:updateProject',
+  projectContextConfirm: 'c:projectContextConfirm',
   deleteProject: 'c:deleteProject',
   ingestAll: 'c:ingestAll',
   generatePreflight: 'c:generatePreflight',
@@ -56,12 +59,22 @@ export const CH = {
   promoteCurrent: 'c:promoteCurrent',
   selectProfile: 'c:selectProfile',
   taskSetBlockedBy: 'c:taskSetBlockedBy',
+  taskCreate: 'c:taskCreate',
+  taskUpdate: 'c:taskUpdate',
+  taskDelete: 'c:taskDelete',
   resumeCard: 'q:resumeCard',
   questionLog: 'q:questionLog',
   conversationHistory: 'q:conversationHistory',
   nextNoteAdd: 'c:nextNoteAdd',
   nextNoteToggle: 'c:nextNoteToggle',
   nextNoteDelete: 'c:nextNoteDelete',
+  nextNotesList: 'q:nextNotesList',
+  nextNoteUpdate: 'c:nextNoteUpdate',
+  nextNoteSetPinned: 'c:nextNoteSetPinned',
+  nextNoteSetLifecycle: 'c:nextNoteSetLifecycle',
+  nextNoteConvertToTask: 'c:nextNoteConvertToTask',
+  agentActivitySnapshot: 'q:agentActivitySnapshot',
+  agentQuestionReconcile: 'c:agentQuestionReconcile',
   // Learning Gate: server-owned daily review targets and push authorization.
   retroPrepare: 'c:retroPrepare',
   retroAnswer: 'c:retroAnswer',
@@ -77,9 +90,13 @@ export const CH = {
   ptyResize: 'pty:resize',
   ptyData: 'pty:data',
   ptyExit: 'pty:exit',
+  ptyDataV2: 'pty:data:v2',
+  ptyExitV2: 'pty:exit:v2',
+  agentActivity: 'agent:activity',
   harnessProgress: 'harness:progress',
   harnessEngineLog: 'harness:engineLog',
   harnessNodes: 'harness:nodes',
+  harnessActivity: 'harness:activity',
   devHarnessLog: 'devHarness:log',
   devHarnessStarted: 'devHarness:started',
   configPreview: 'c:configPreview',
@@ -88,6 +105,15 @@ export const CH = {
   // read-only project file access (Knowledge/Home tabs)
   fsReadDoc: 'q:fsReadDoc',
   fsListDocs: 'q:fsListDocs',
+  fileRefsResolve: 'q:fileRefsResolve',
+  filePreviewRead: 'q:filePreviewRead',
+  harnessListRuns: 'q:harnessListRuns',
+  harnessGetProgress: 'q:harnessGetProgress',
+  harnessReadLog: 'q:harnessReadLog',
+  clipboardReadText: 'q:clipboardReadText',
+  terminalGetPreferences: 'q:terminalGetPreferences',
+  terminalSetPreferences: 'c:terminalSetPreferences',
+  terminalDiagnostics: 'q:terminalDiagnostics',
   // project working-tree changes (Changes tab)
   changesList: 'q:changesList',
   changesDiff: 'q:changesDiff',
@@ -105,8 +131,11 @@ export const CH = {
 } as const
 
 export type TestSshReq = { host: string; port: number; username: string; remotePath: string }
-export type RegisterProjectReq = { name: string; projectType: string; repoPath: string; domain?: string }
-export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string; domain?: string }
+export type ProjectContextInput = { goal?: string; currentFocus?: string }
+export type RegisterProjectReq = { name: string; projectType: string; repoPath: string; domain?: string } & ProjectContextInput
+export type UpdateProjectReq = { id: string; name: string; projectType: string; repoPath: string; domain?: string } & ProjectContextInput
+export type ProjectContextConfirmReq = { projectId: string; field: 'goal' | 'currentFocus' }
+export type ProjectContextMutRes = { ok: boolean; project?: Project; reason?: string }
 export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }
@@ -116,8 +145,25 @@ export type TasksListReq = { projectId: string }
 export type SubmitReviewReq = { review: Review }
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
-export type TaskSetBlockedByReq = { taskId: string; blockedBy: string[] }
+export type TaskSetBlockedByReq = { taskId: string; blockedBy: string[]; projectId?: string }
 export type TaskSetBlockedByRes = { ok: boolean; reason?: string }
+export type TaskCreateReq = {
+  projectId: string
+  title: string
+  status?: Task['status']
+  priority?: Task['priority']
+  dueDate?: string
+}
+export type TaskUpdateReq = {
+  projectId: string
+  taskId: string
+  title: string
+  status: Task['status']
+  priority: Task['priority']
+  dueDate?: string
+}
+export type TaskDeleteReq = { projectId: string; taskId: string }
+export type TaskMutRes = { ok: boolean; task?: Task; reason?: string }
 
 // Resume card / conversation history / next-note surface (P3): the legacy QuestionLogEntry stays in
 // @apc/shared; the richer session + Q&A DTOs live here because they are desktop IPC view models.
@@ -154,10 +200,38 @@ export type ConversationHistoryRes = {
   truncated: boolean
 }
 export type NextNoteAddReq = { projectId: string; text: string }
-export type NextNoteAddRes = { ok: boolean; note?: NextNote }
-export type NextNoteToggleReq = { id: string; done: boolean }
-export type NextNoteDeleteReq = { id: string }
-export type NextNoteMutRes = { ok: boolean }
+export type NextNoteAddRes = { ok: boolean; note?: NextNote; reason?: string }
+export type NextNoteToggleReq = { projectId: string; id: string; done: boolean }
+export type NextNoteDeleteReq = { projectId: string; id: string }
+export type NextNoteMutRes = { ok: boolean; reason?: string }
+export type NextNotesListReq = {
+  projectId: string
+  includeCompleted?: boolean
+  includeArchived?: boolean
+}
+export type NextNotesListRes = { ok: boolean; notes?: NextNote[]; reason?: string }
+export type NextNoteUpdateReq = { projectId: string; noteId: string; text: string }
+export type NextNoteSetPinnedReq = { projectId: string; noteId: string; pinned: boolean }
+export type NextNoteSetLifecycleReq = {
+  projectId: string
+  noteId: string
+  lifecycle: 'active' | 'completed' | 'archived'
+}
+export type NextNoteConvertToTaskReq = {
+  projectId: string
+  noteId: string
+  title?: string
+  priority?: Task['priority']
+  dueDate?: string
+}
+export type NextNoteMutationRes = { ok: boolean; note?: NextNote; reason?: string }
+export type NextNoteConvertToTaskRes = { ok: boolean; note?: NextNote; task?: Task; reason?: string }
+
+export type AgentActivitySnapshotReq = { projectId?: string }
+export type AgentActivitySnapshotRes = { activities: AgentActivity[]; asOf: string }
+export type AgentQuestionReconcileReq = { paneId: string; launchId: string; sessionId?: string }
+export type AgentQuestionReconcileRes = { ok: boolean; activity?: AgentActivity; reason?: string }
+export type AgentActivityEvent = AgentActivity
 
 // Learning Gate (M1). A prepared target and its HEAD come from main; the renderer can only answer
 // that target and ask main to issue a receipt after main re-verifies the current Git snapshot.
@@ -318,6 +392,32 @@ export type ReadProjectWikiRes =
 export type HarnessExportWikiReq = { projectId: string }
 export type HarnessExportWikiRes = { ok: true; target: string; files: number } | { ok: false; reason: string }
 
+// Server-authoritative wiki run progress. Renderer localStorage is a cache, never the history source.
+export type HarnessListRunsReq = { projectId: string; limit?: number }
+export type HarnessRunProgressDto = {
+  runId: string
+  projectId: string
+  summary: WikiProgressSummary
+  active: boolean
+}
+export type HarnessListRunsRes = { ok: boolean; runs?: HarnessRunProgressDto[]; reason?: string }
+export type HarnessGetProgressReq = { runId: string }
+export type HarnessGetProgressRes = {
+  ok: boolean
+  summary?: WikiProgressSummary
+  events?: WikiRunEvent[]
+  active?: boolean
+  reason?: string
+}
+export type HarnessReadLogReq = { runId: string; offset?: number; limit?: number }
+export type HarnessReadLogRes = {
+  ok: boolean
+  content?: string
+  nextOffset?: number
+  truncated?: boolean
+  reason?: string
+}
+
 /** Generate a work summary + current proposal from a finished agent run's transcript. */
 export type GenerateRunReq = {
   runId: string
@@ -328,16 +428,40 @@ export type GenerateRunReq = {
   currentCanonical: string
 }
 
-export type StartPtyReq = {
+type StartPtyBase = {
   id: string; command: string; args: string[]; cwd: string
   resume?: boolean            // true면 main이 resume argv를 구성(아래 agent 필요)
   agent?: 'claude' | 'codex' | 'opencode'
   sessionId?: string          // 알려진 세션 id(없으면 main이 최신 발견)
 }
-export type PtyInputReq = { id: string; data: string }
-export type PtyKillReq = { id: string }
-export type PtyResizeReq = { id: string; cols: number; rows: number }
+type ScopedPtyStart = { pane: AgentPaneIdentity; launchId: string }
+type LegacyPtyStart = { pane?: undefined; launchId?: undefined }
+/** Legacy starts remain accepted for one compatibility release; all new panes use the scoped form. */
+export type StartPtyReq = StartPtyBase & (ScopedPtyStart | LegacyPtyStart)
+export type PtyInputReq = { id: string; data: string; launchId?: string }
+export type PtyKillReq = { id: string; launchId?: string; reason?: 'user' | 'restart' | 'unmount' | 'quit' }
+export type PtyResizeReq = { id: string; cols: number; rows: number; launchId?: string }
+export type PtyDataEvent = { id: string; launchId: string; data: string }
+export type PtyExitEvent = { id: string; launchId: string; code: number; reason?: string }
 export type ListProfilesResult = AgentProfile[]
+
+export type ClipboardReadTextRes = { ok: boolean; text?: string; reason?: string }
+export type TerminalPreferences = { fontFamily: string; fontSize: number }
+export type TerminalSetPreferencesReq = Partial<TerminalPreferences>
+export type TerminalPreferencesRes = { ok: boolean; preferences?: TerminalPreferences; reason?: string }
+export type TerminalDiagnosticsReq = { cwd: string }
+export type TerminalDiagnosticsRes = {
+  ok: boolean
+  environment?: {
+    kind: 'local' | 'wsl' | 'ssh'
+    term?: string
+    colorTerm?: string
+    locale?: string
+    utf8: boolean
+  }
+  warnings?: string[]
+  reason?: string
+}
 
 export type ConfigEditReq = { rawConfigPath: string; rawFormat: 'json' | 'markdown'; profileName: string; edits: ProfileEdits }
 export type ConfigPreviewRes = { ok: boolean; errors: string[]; diff: string }
@@ -349,6 +473,9 @@ export type FsReadDocReq = { projectId: string; relPath: string }
 export type FsReadDocRes = { ok: boolean; content?: string; reason?: string }
 export type FsListDocsReq = { projectId: string }
 export type FsListDocsRes = { docs: { relPath: string; mtimeMs: number }[] }
+
+// File preview request/response DTOs are defined and runtime-validated in @apc/shared.
+export type { FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes }
 
 export type ChangesListReq = { projectId: string }
 export type ChangesListRes = {
@@ -388,7 +515,13 @@ export type GitPushReq = { projectId: string; worktreePath?: string }
 export type GitSyncRes = GitSyncResult
 
 // Workspace session persistence
-export type PaneRef = { projectId: string; agent: 'claude' | 'codex' | 'opencode' }
+export type PaneRef = {
+  projectId: string
+  agent: 'claude' | 'codex' | 'opencode'
+  paneId?: string
+  worktreePath?: string
+  slotId?: string
+}
 export type WorkspaceRestore = {
   panes: Array<PaneRef & { lastSessionId: string | null }>
   selectedProjectId: string | null

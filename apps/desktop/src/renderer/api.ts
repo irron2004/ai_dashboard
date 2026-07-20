@@ -31,8 +31,21 @@ import type {
   RetroPrepareReq, RetroPrepareRes, RetroAnswerReq, RetroAnswerRes,
   RetroTargetNotesReq, RetroTargetNotesRes, RetroCompleteReq, RetroCompleteRes,
   ReceiptIssueReq, ReceiptIssueRes, GateQueryReq, GateStatusRes, GateInstallReq, GateInstallRes,
+  ProjectContextConfirmReq, ProjectContextMutRes,
+  TaskCreateReq, TaskUpdateReq, TaskDeleteReq, TaskMutRes,
+  NextNotesListReq, NextNotesListRes, NextNoteUpdateReq, NextNoteSetPinnedReq,
+  NextNoteSetLifecycleReq, NextNoteConvertToTaskReq, NextNoteMutationRes, NextNoteConvertToTaskRes,
+  AgentActivitySnapshotReq, AgentActivitySnapshotRes, AgentQuestionReconcileReq, AgentQuestionReconcileRes,
+  HarnessListRunsReq, HarnessListRunsRes, HarnessGetProgressReq, HarnessGetProgressRes,
+  HarnessReadLogReq, HarnessReadLogRes,
+  FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes,
+  PtyDataEvent, PtyExitEvent, ClipboardReadTextRes,
+  TerminalSetPreferencesReq, TerminalPreferencesRes, TerminalDiagnosticsReq, TerminalDiagnosticsRes,
 } from '../shared/ipc-contract.js'
-import type { Project, AgentProfile, UnifiedSearchResponse, Task, NextNote, QuestionLogEntry } from '@apc/shared'
+import type {
+  Project, AgentProfile, UnifiedSearchResponse, Task, NextNote, QuestionLogEntry,
+  AgentActivity, WikiRunEvent,
+} from '@apc/shared'
 import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 
 declare global {
@@ -45,9 +58,13 @@ declare global {
       resizePty(req: PtyResizeReq): void
       onPtyData(cb: (id: string, data: string) => void): () => void
       onPtyExit(cb: (id: string, code: number) => void): () => void
+      onPtyDataV2(cb: (event: PtyDataEvent) => void): () => void
+      onPtyExitV2(cb: (event: PtyExitEvent) => void): () => void
+      onAgentActivity(cb: (event: AgentActivity) => void): () => void
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
       onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void
+      onHarnessActivity(cb: (event: WikiRunEvent) => void): () => void
       onDevHarnessLog(cb: (e: DevHarnessLogEvent) => void): () => void
       onDevHarnessStarted(cb: (e: DevHarnessStartedEvent) => void): () => void
       // Workspace session persistence
@@ -81,6 +98,9 @@ export const api = {
   updateProject(req: UpdateProjectReq): Promise<Project> {
     return window.apc.invoke(CH.updateProject, req) as Promise<Project>
   },
+  projectContextConfirm(req: ProjectContextConfirmReq): Promise<ProjectContextMutRes> {
+    return window.apc.invoke(CH.projectContextConfirm, req) as Promise<ProjectContextMutRes>
+  },
   deleteProject(id: string): Promise<{ ok: boolean }> {
     return window.apc.invoke(CH.deleteProject, { id }) as Promise<{ ok: boolean }>
   },
@@ -102,6 +122,15 @@ export const api = {
   taskSetBlockedBy(req: TaskSetBlockedByReq): Promise<TaskSetBlockedByRes> {
     return window.apc.invoke(CH.taskSetBlockedBy, req) as Promise<TaskSetBlockedByRes>
   },
+  taskCreate(req: TaskCreateReq): Promise<TaskMutRes> {
+    return window.apc.invoke(CH.taskCreate, req) as Promise<TaskMutRes>
+  },
+  taskUpdate(req: TaskUpdateReq): Promise<TaskMutRes> {
+    return window.apc.invoke(CH.taskUpdate, req) as Promise<TaskMutRes>
+  },
+  taskDelete(req: TaskDeleteReq): Promise<TaskMutRes> {
+    return window.apc.invoke(CH.taskDelete, req) as Promise<TaskMutRes>
+  },
   resumeCard(projectId: string): Promise<ResumeCard | null> {
     return window.apc.invoke(CH.resumeCard, { projectId }) as Promise<ResumeCard | null>
   },
@@ -119,6 +148,27 @@ export const api = {
   },
   nextNoteDelete(req: NextNoteDeleteReq): Promise<NextNoteMutRes> {
     return window.apc.invoke(CH.nextNoteDelete, req) as Promise<NextNoteMutRes>
+  },
+  nextNotesList(req: NextNotesListReq): Promise<NextNotesListRes> {
+    return window.apc.invoke(CH.nextNotesList, req) as Promise<NextNotesListRes>
+  },
+  nextNoteUpdate(req: NextNoteUpdateReq): Promise<NextNoteMutationRes> {
+    return window.apc.invoke(CH.nextNoteUpdate, req) as Promise<NextNoteMutationRes>
+  },
+  nextNoteSetPinned(req: NextNoteSetPinnedReq): Promise<NextNoteMutationRes> {
+    return window.apc.invoke(CH.nextNoteSetPinned, req) as Promise<NextNoteMutationRes>
+  },
+  nextNoteSetLifecycle(req: NextNoteSetLifecycleReq): Promise<NextNoteMutationRes> {
+    return window.apc.invoke(CH.nextNoteSetLifecycle, req) as Promise<NextNoteMutationRes>
+  },
+  nextNoteConvertToTask(req: NextNoteConvertToTaskReq): Promise<NextNoteConvertToTaskRes> {
+    return window.apc.invoke(CH.nextNoteConvertToTask, req) as Promise<NextNoteConvertToTaskRes>
+  },
+  agentActivitySnapshot(req: AgentActivitySnapshotReq = {}): Promise<AgentActivitySnapshotRes> {
+    return window.apc.invoke(CH.agentActivitySnapshot, req) as Promise<AgentActivitySnapshotRes>
+  },
+  agentQuestionReconcile(req: AgentQuestionReconcileReq): Promise<AgentQuestionReconcileRes> {
+    return window.apc.invoke(CH.agentQuestionReconcile, req) as Promise<AgentQuestionReconcileRes>
   },
   retroPrepare(req: RetroPrepareReq): Promise<RetroPrepareRes> {
     return window.apc.invoke(CH.retroPrepare, req) as Promise<RetroPrepareRes>
@@ -164,6 +214,15 @@ export const api = {
   },
   harnessGetRun(req: HarnessGetRunReq): Promise<HarnessGetRunRes> {
     return window.apc.invoke(CH.harnessGetRun, req) as Promise<HarnessGetRunRes>
+  },
+  harnessListRuns(req: HarnessListRunsReq): Promise<HarnessListRunsRes> {
+    return window.apc.invoke(CH.harnessListRuns, req) as Promise<HarnessListRunsRes>
+  },
+  harnessGetProgress(req: HarnessGetProgressReq): Promise<HarnessGetProgressRes> {
+    return window.apc.invoke(CH.harnessGetProgress, req) as Promise<HarnessGetProgressRes>
+  },
+  harnessReadLog(req: HarnessReadLogReq): Promise<HarnessReadLogRes> {
+    return window.apc.invoke(CH.harnessReadLog, req) as Promise<HarnessReadLogRes>
   },
   harnessPromote(req: HarnessPromoteReq): Promise<HarnessPromoteRes> {
     return window.apc.invoke(CH.harnessPromote, req) as Promise<HarnessPromoteRes>
@@ -246,6 +305,24 @@ export const api = {
   fsListDocs(req: FsListDocsReq): Promise<FsListDocsRes> {
     return window.apc.invoke(CH.fsListDocs, req) as Promise<FsListDocsRes>
   },
+  fileRefsResolve(req: FileRefsResolveReq): Promise<FileRefsResolveRes> {
+    return window.apc.invoke(CH.fileRefsResolve, req) as Promise<FileRefsResolveRes>
+  },
+  filePreviewRead(req: FilePreviewReadReq): Promise<FilePreviewReadRes> {
+    return window.apc.invoke(CH.filePreviewRead, req) as Promise<FilePreviewReadRes>
+  },
+  clipboardReadText(): Promise<ClipboardReadTextRes> {
+    return window.apc.invoke(CH.clipboardReadText) as Promise<ClipboardReadTextRes>
+  },
+  terminalGetPreferences(): Promise<TerminalPreferencesRes> {
+    return window.apc.invoke(CH.terminalGetPreferences) as Promise<TerminalPreferencesRes>
+  },
+  terminalSetPreferences(req: TerminalSetPreferencesReq): Promise<TerminalPreferencesRes> {
+    return window.apc.invoke(CH.terminalSetPreferences, req) as Promise<TerminalPreferencesRes>
+  },
+  terminalDiagnostics(req: TerminalDiagnosticsReq): Promise<TerminalDiagnosticsRes> {
+    return window.apc.invoke(CH.terminalDiagnostics, req) as Promise<TerminalDiagnosticsRes>
+  },
   changesList(req: ChangesListReq): Promise<ChangesListRes> {
     return window.apc.invoke(CH.changesList, req) as Promise<ChangesListRes>
   },
@@ -278,6 +355,9 @@ export const api = {
   resizePty(req: PtyResizeReq): void { window.apc.resizePty(req) },
   onPtyData(cb: (id: string, data: string) => void): () => void { return window.apc.onPtyData(cb) },
   onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
+  onPtyDataV2(cb: (event: PtyDataEvent) => void): () => void { return window.apc.onPtyDataV2(cb) },
+  onPtyExitV2(cb: (event: PtyExitEvent) => void): () => void { return window.apc.onPtyExitV2(cb) },
+  onAgentActivity(cb: (event: AgentActivity) => void): () => void { return window.apc.onAgentActivity(cb) },
   onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void {
     return window.apc.onHarnessProgress(cb)
   },
@@ -286,6 +366,9 @@ export const api = {
   },
   onHarnessNodes(cb: (e: HarnessNodesEvent) => void): () => void {
     return window.apc.onHarnessNodes(cb)
+  },
+  onHarnessActivity(cb: (event: WikiRunEvent) => void): () => void {
+    return window.apc.onHarnessActivity(cb)
   },
 
   // Workspace session persistence
