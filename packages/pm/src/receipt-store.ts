@@ -69,7 +69,7 @@ export class ReceiptStore {
   }
 
   forTarget(targetId: string): ReviewReceipt | null {
-    const row = this.db.prepare('SELECT * FROM review_receipts WHERE target_id = ? LIMIT 1').get(targetId) as ReceiptRow | undefined
+    const row = this.db.prepare('SELECT * FROM review_receipts WHERE target_id = ? ORDER BY issued_at DESC LIMIT 1').get(targetId) as ReceiptRow | undefined
     return row ? toReceipt(row) : null
   }
 

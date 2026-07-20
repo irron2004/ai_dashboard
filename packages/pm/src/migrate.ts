@@ -122,7 +122,8 @@ export function migratePm(db: Db): void {
     CREATE INDEX IF NOT EXISTS idx_retro_targets_retro ON retro_targets(retro_id);
     CREATE INDEX IF NOT EXISTS idx_retro_questions_retro ON retro_questions(retro_id, target_id, seq);
     CREATE INDEX IF NOT EXISTS idx_receipts_repo ON review_receipts(repo_path, issued_at);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_target ON review_receipts(target_id);
+    DROP INDEX IF EXISTS idx_receipts_target;
+    CREATE INDEX IF NOT EXISTS idx_receipts_target_issued ON review_receipts(target_id, issued_at DESC);
     CREATE INDEX IF NOT EXISTS idx_receipts_retro ON review_receipts(retro_id);
     CREATE INDEX IF NOT EXISTS idx_gate_events_ts ON gate_events(ts DESC);
   `)

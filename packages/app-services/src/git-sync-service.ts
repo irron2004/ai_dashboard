@@ -166,6 +166,45 @@ export class GitSyncService {
       : { ok: false, reason: commandFailed(args, pulled), output: compactOutput(pulled), status: next }
   }
 
+  async headSha(repoPath: string): Promise<string | null> {
+    const result = await this.git(repoPath, ['rev-parse', 'HEAD'])
+    const sha = result.stdout.trim()
+    return result.code === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : null
+  }
+
+  async isAncestor(repoPath: string, ancestorSha: string, descendantSha = 'HEAD'): Promise<boolean> {
+    return (await this.git(repoPath, ['merge-base', '--is-ancestor', ancestorSha, descendantSha])).code === 0
+  }
+
+  async logSince(repoPath: string, sinceSha: string | null, limit = 30): Promise<Array<{ sha: string; when: string; subject: string }>> {
+    const range = sinceSha && await this.isAncestor(repoPath, sinceSha)
+      ? [`${sinceSha}..HEAD`]
+      : ['-n', String(limit), 'HEAD']
+    const result = await this.git(repoPath, ['log', '--pretty=format:%H%x09%cI%x09%s', ...range])
+    if (result.code !== 0 || !result.stdout.trim()) return []
+    return result.stdout.split('\n').filter(Boolean).map((line) => {
+      const [sha, when, ...subject] = line.split('\t')
+      return { sha, when, subject: subject.join('\t') }
+    })
+  }
+
+  async diffStatsSince(repoPath: string, sinceSha: string | null): Promise<{ changedFiles: number; additions: number; deletions: number }> {
+    const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+    const base = sinceSha && await this.isAncestor(repoPath, sinceSha) ? sinceSha : emptyTree
+    const result = await this.git(repoPath, ['diff', '--numstat', `${base}..HEAD`])
+    if (result.code !== 0 || !result.stdout.trim()) return { changedFiles: 0, additions: 0, deletions: 0 }
+    let changedFiles = 0
+    let additions = 0
+    let deletions = 0
+    for (const line of result.stdout.split('\n').filter(Boolean)) {
+      const [added, deleted] = line.split('\t')
+      changedFiles += 1
+      if (/^\d+$/.test(added)) additions += Number(added)
+      if (/^\d+$/.test(deleted)) deletions += Number(deleted)
+    }
+    return { changedFiles, additions, deletions }
+  }
+
   /** Stage and commit only. Pushing is deliberately a separate, gate-checked operation. */
   async commit(repoPath: string, files: string[], message: string): Promise<GitSyncResult> {
     const selected = [...new Set(files)].filter(Boolean)

@@ -80,6 +80,7 @@ export class RetroStore {
         INSERT INTO retro_targets (id, retro_id, project_id, repo_path, branch, prepared_head_sha, prepared_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(target.id, target.retroId, target.projectId, target.repoPath, target.branch ?? null, target.preparedHeadSha, target.preparedAt)
+      this.db.prepare('UPDATE retros SET completed_at = NULL WHERE id = ?').run(target.retroId)
       return { target, reset: false }
     }
 
@@ -94,6 +95,7 @@ export class RetroStore {
       this.db.prepare(`
         UPDATE retro_questions SET answer = NULL, skipped = 0, answered_at = NULL WHERE target_id = ?
       `).run(id)
+      this.db.prepare('UPDATE retros SET completed_at = NULL WHERE id = ?').run(input.retroId)
     }
     return { target: this.getTarget(id)!, reset }
   }
