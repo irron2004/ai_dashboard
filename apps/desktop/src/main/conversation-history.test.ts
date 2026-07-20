@@ -117,10 +117,43 @@ describe('conversation history', () => {
     })
 
     expect(result.sessions.map((item) => item.id)).toEqual(['new', 'old'])
+    expect(result.sessions.map((item) => item.workspacePath)).toEqual(['/work/apc/subdir', '/work/apc'])
     expect(result.sessions[0].exchanges[0].answer).toBe('new 첫 답변\n\nnew 둘째 답변')
     expect(result.scannedSources).toBe(3)
     expect(result.skippedSources).toBe(1)
     expect(result.truncated).toBe(false)
+  })
+
+  test('exposes only a project-verified session workspace hint', async () => {
+    const nested = {
+      ...session('nested', '/work/apc', '2026-07-15T12:00:00Z'),
+      worktreePath: '/work/apc/.worktrees/nested',
+    }
+    const forged = {
+      ...session('forged', '/work/apc', '2026-07-15T11:00:00Z'),
+      worktreePath: '/tmp/forged-worktree',
+    }
+    const rows = [nested, forged].map((item, index) => ({
+      source: {
+        id: item.id,
+        agentKind: 'codex' as const,
+        kind: 'jsonl-file' as const,
+        locator: `/sessions/${item.id}`,
+        mtimeMs: 20 - index,
+      },
+      session: item,
+    }))
+
+    const result = await loadConversationHistory({
+      adapters: [adapter(rows)],
+      projectId: 'p1',
+      repoPaths: ['/work/apc'],
+      agent: 'codex',
+      includeOlder: true,
+    })
+
+    expect(result.sessions.find((item) => item.id === 'nested')?.workspacePath).toBe('/work/apc/.worktrees/nested')
+    expect(result.sessions.find((item) => item.id === 'forged')?.workspacePath).toBe('/work/apc')
   })
 
   test('caps returned sessions without mixing in another agent', async () => {

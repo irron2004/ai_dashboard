@@ -28,7 +28,7 @@ function rankTime(value: string | undefined): number {
  * non-empty user prompt deliberately closes the active unit so an internal harness response cannot
  * be appended to the preceding real conversation.
  */
-export function toConversationSession(session: NormalizedSession): ConversationSession {
+export function toConversationSession(session: NormalizedSession, workspacePath?: string): ConversationSession {
   const exchanges: ConversationSession['exchanges'] = []
   let active: { index: number; answers: string[] } | null = null
 
@@ -70,6 +70,7 @@ export function toConversationSession(session: NormalizedSession): ConversationS
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     branch: session.branch,
+    ...(workspacePath ? { workspacePath } : {}),
     preview: newestFirst[0]?.question ?? '사용자 질문 없음',
     exchanges: newestFirst,
   }
@@ -183,7 +184,14 @@ export async function loadConversationHistory(opts: LoadConversationHistoryOpts)
         hasOlder = true
         continue
       }
-      const view = toConversationSession(session)
+      // Only expose a workspace hint that main has checked against a registered project root.
+      // A worktree nested in that root is more precise for relative transcript paths. A linked
+      // worktree outside it is not exposed as a session hint; active-worktree hints have their own
+      // independent git-list verification in the file-preview service.
+      const workspacePath = session.worktreePath && repoPathMatches(session.worktreePath, opts.repoPaths)
+        ? session.worktreePath
+        : candidatePath
+      const view = toConversationSession(session, workspacePath)
       const previous = byId.get(session.id)
       if (!previous || rank > previous.rank) byId.set(session.id, { session: view, rank })
     } catch {

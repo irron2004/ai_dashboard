@@ -79,6 +79,7 @@ const MAX_PARSED_FILE_REFERENCES = 100
 const FILE_EXTENSION_PATTERN = /\.(?:markdown|html|mdx|htm|md|py)/giu
 const LOCATION_SUFFIX_PATTERN = /^(?::[1-9]\d*(?::[1-9]\d*)?|#L[1-9]\d*(?:C[1-9]\d*)?)/iu
 const TRAILING_SOURCE_PUNCTUATION = /^[\])}>.,;!?…。，、；！？'"”’`]*$/u
+const FOLLOWING_TEXT_BOUNDARY_PATTERN = /^[\])}>.,;!?…。，、；！？'"”’`]+\s/u
 
 type SourceRange = { start: number; end: number }
 type ParsedPathLocation = { path: string; line?: number; column?: number }
@@ -141,6 +142,7 @@ function sourceFileEnd(value: string, allowFollowingText: boolean): {
     const validBoundary = remainder.length === 0
       || TRAILING_SOURCE_PUNCTUATION.test(remainder)
       || (allowFollowingText && /^\s/u.test(remainder))
+      || (allowFollowingText && FOLLOWING_TEXT_BOUNDARY_PATTERN.test(remainder))
     if (!validBoundary) continue
     const location = parsePathLocation(value.slice(0, end))
     if (location) return { end, location }

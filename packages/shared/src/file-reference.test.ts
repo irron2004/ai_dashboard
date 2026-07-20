@@ -92,6 +92,14 @@ describe('parseFileReferences', () => {
     ])
   })
 
+  test('ends a bare path before sentence punctuation followed by another path', () => {
+    const source = '문서는 docs/readme.md, 누락은 src/missing.py.'
+    expect(parseFileReferences(source).map(({ raw, path }) => ({ raw, path }))).toEqual([
+      { raw: 'docs/readme.md', path: 'docs/readme.md' },
+      { raw: 'src/missing.py', path: 'src/missing.py' },
+    ])
+  })
+
   test('excludes URLs, mailto, unsupported extensions, and fenced code blocks', () => {
     const text = [
       'https://example.com/source/app.py',

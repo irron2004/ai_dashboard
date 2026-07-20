@@ -1,4 +1,15 @@
-import { type ReactNode, createElement, useMemo } from 'react'
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  createElement,
+  useMemo,
+} from 'react'
+import type { ResolvedFileReference } from '@apc/shared'
+import {
+  type ResolveFileReferences,
+  useResolvedFileReferences,
+} from './FileReferenceText.js'
 
 type Block =
   | { type: 'heading'; level: number; text: string }
@@ -83,9 +94,31 @@ function parseBlocks(source: string): Block[] {
   return blocks
 }
 
-function tokenizeInline(text: string, onOpenWikiLink: (target: string) => void): ReactNode[] {
+type InlineContext = {
+  onOpenWikiLink: (target: string) => void
+  onOpenFileReference?: (reference: ResolvedFileReference) => void
+  markdownReferences: ReadonlyMap<string, ResolvedFileReference>
+}
+
+function openMarkdownReference(
+  event: ReactMouseEvent<HTMLAnchorElement> | ReactKeyboardEvent<HTMLAnchorElement>,
+  reference: ResolvedFileReference,
+  onOpen: (reference: ResolvedFileReference) => void,
+): void {
+  if ('key' in event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+  } else if (!event.ctrlKey && !event.metaKey) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  onOpen(reference)
+}
+
+function tokenizeInline(text: string, context: InlineContext): ReactNode[] {
   const parts: ReactNode[] = []
-  const pattern = /(\[\[[^\]]+\]\]|\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g
+  const onOpenFileReference = context.onOpenFileReference
+  const pattern = /(\[\[[^\]]+\]\]|\[[^\]]+\]\((?:[^()]|\([^()]*\))+\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g
   let last = 0
   let match: RegExpExecArray | null
   while ((match = pattern.exec(text))) {
@@ -95,7 +128,7 @@ function tokenizeInline(text: string, onOpenWikiLink: (target: string) => void):
       const raw = token.slice(2, -2)
       const [target, alias] = raw.split('|')
       parts.push(
-        <button key={`${match.index}:${token}`} type="button" className="markdown-viewer__wikilink" onClick={() => onOpenWikiLink(target.trim())}>
+        <button key={`${match.index}:${token}`} type="button" className="markdown-viewer__wikilink" onClick={() => context.onOpenWikiLink(target.trim())}>
           {alias?.trim() || target.trim()}
         </button>,
       )
@@ -106,10 +139,24 @@ function tokenizeInline(text: string, onOpenWikiLink: (target: string) => void):
     } else if (token.startsWith('*')) {
       parts.push(<em key={`${match.index}:${token}`}>{token.slice(1, -1)}</em>)
     } else {
-      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token)
+      const link = /^\[([^\]]+)\]\(((?:[^()]|\([^()]*\))+)\)$/.exec(token)
       if (link) {
+        const reference = context.markdownReferences.get(token)
         parts.push(
-          <a key={`${match.index}:${token}`} href={link[2]} target="_blank" rel="noreferrer">
+          <a
+            key={`${match.index}:${token}`}
+            href={link[2]}
+            target="_blank"
+            rel="noreferrer"
+            className={reference ? 'markdown-viewer__file-reference' : undefined}
+            title={reference ? `${reference.displayPath} · Ctrl/Cmd+클릭 또는 Enter로 미리보기` : undefined}
+            onClick={reference && onOpenFileReference
+              ? (event) => openMarkdownReference(event, reference, onOpenFileReference)
+              : undefined}
+            onKeyDown={reference && onOpenFileReference
+              ? (event) => openMarkdownReference(event, reference, onOpenFileReference)
+              : undefined}
+          >
             {link[1]}
           </a>,
         )
@@ -151,27 +198,27 @@ function renderCode(code: string, language: string): ReactNode {
   })
 }
 
-function renderBlocks(blocks: Block[], onOpenWikiLink: (target: string) => void): ReactNode[] {
+function renderBlocks(blocks: Block[], context: InlineContext): ReactNode[] {
   return blocks.map((block, index) => {
     switch (block.type) {
       case 'heading':
-        return createElement(`h${Math.min(block.level, 4)}`, { key: index, className: 'markdown-viewer__heading' }, tokenizeInline(block.text, onOpenWikiLink))
+        return createElement(`h${Math.min(block.level, 4)}`, { key: index, className: 'markdown-viewer__heading' }, tokenizeInline(block.text, context))
       case 'paragraph':
-        return <p key={index}>{tokenizeInline(block.text, onOpenWikiLink)}</p>
+        return <p key={index}>{tokenizeInline(block.text, context)}</p>
       case 'blockquote':
-        return <blockquote key={index}>{tokenizeInline(block.text, onOpenWikiLink)}</blockquote>
+        return <blockquote key={index}>{tokenizeInline(block.text, context)}</blockquote>
       case 'list':
         return block.ordered
-          ? <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{tokenizeInline(item, onOpenWikiLink)}</li>)}</ol>
-          : <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{tokenizeInline(item, onOpenWikiLink)}</li>)}</ul>
+          ? <ol key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{tokenizeInline(item, context)}</li>)}</ol>
+          : <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{tokenizeInline(item, context)}</li>)}</ul>
       case 'table':
         {
           const table = block as Extract<Block, { type: 'table' }>
         return (
           <table key={index} className="markdown-viewer__table">
-            <thead><tr>{table.header.map((cell, cellIndex) => <th key={cellIndex}>{tokenizeInline(cell, onOpenWikiLink)}</th>)}</tr></thead>
+            <thead><tr>{table.header.map((cell, cellIndex) => <th key={cellIndex}>{tokenizeInline(cell, context)}</th>)}</tr></thead>
             <tbody>
-              {table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{tokenizeInline(cell, onOpenWikiLink)}</td>)}</tr>)}
+              {table.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{tokenizeInline(cell, context)}</td>)}</tr>)}
             </tbody>
           </table>
         )
@@ -189,7 +236,55 @@ function renderBlocks(blocks: Block[], onOpenWikiLink: (target: string) => void)
   })
 }
 
-export function MarkdownContent({ markdown, onOpenWikiLink }: { markdown: string; onOpenWikiLink: (target: string) => void }) {
+export type MarkdownContentProps = {
+  markdown: string
+  onOpenWikiLink: (target: string) => void
+  projectId?: string
+  activeWorktreePath?: string
+  sessionWorkspacePath?: string
+  resolveFileReferences?: ResolveFileReferences
+  onOpenFileReference?: (reference: ResolvedFileReference) => void
+}
+
+export function MarkdownContent({
+  markdown,
+  onOpenWikiLink,
+  projectId,
+  activeWorktreePath,
+  sessionWorkspacePath,
+  resolveFileReferences,
+  onOpenFileReference,
+}: MarkdownContentProps) {
   const blocks = useMemo(() => parseBlocks(markdown), [markdown])
-  return <>{renderBlocks(blocks, onOpenWikiLink)}</>
+  const resolution = useResolvedFileReferences({
+    text: markdown,
+    projectId,
+    activeWorktreePath,
+    sessionWorkspacePath,
+    resolveReferences: resolveFileReferences,
+    enabled: Boolean(projectId && onOpenFileReference),
+  })
+  const markdownReferences = useMemo(() => new Map(
+    resolution.resolved
+      .filter((reference) => reference.form === 'markdown')
+      .map((reference) => [reference.raw, reference] as const),
+  ), [resolution.resolved])
+  const context = useMemo<InlineContext>(() => ({
+    onOpenWikiLink,
+    onOpenFileReference,
+    markdownReferences,
+  }), [markdownReferences, onOpenFileReference, onOpenWikiLink])
+  const reason = resolution.reason ?? resolution.unresolved[0]?.reason
+
+  return (
+    <>
+      {renderBlocks(blocks, context)}
+      {resolution.loading && resolution.candidates.length > 0 && (
+        <span className="file-reference-text__notice" role="status">파일 경로 확인 중…</span>
+      )}
+      {reason && (
+        <span className="file-reference-text__notice" role="status">파일 미리보기를 열 수 없습니다: {reason}</span>
+      )}
+    </>
+  )
 }

@@ -1,6 +1,11 @@
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { AgentType } from '@apc/shared'
+import type {
+  AgentType,
+  FileRefsResolveRes,
+  ParsedFileReference,
+  ResolvedFileReference,
+} from '@apc/shared'
 import type { ConversationHistoryRes } from '../../shared/ipc-contract.js'
 import { ConversationHistoryView } from './ConversationHistoryView.js'
 
@@ -15,7 +20,7 @@ function history(agent: AgentType): ConversationHistoryRes {
     sessions: isCodex ? [
       {
         id: 'codex-new', agent, startedAt: '2026-07-15T10:00:00Z', endedAt: '2026-07-15T10:20:00Z',
-        branch: 'feat/history', preview: '로그인 오류를 고쳐 줘',
+        branch: 'feat/history', workspacePath: '/repo/session', preview: '로그인 오류를 고쳐 줘',
         exchanges: [
           { id: 'q1', askedAt: '2026-07-15T10:01:00Z', question: '로그인 오류를 고쳐 줘', answer: '원인을 확인하고 **수정했습니다.**' },
           { id: 'q2', askedAt: '2026-07-15T10:10:00Z', question: '테스트도 통과해?', answer: null },
@@ -31,6 +36,19 @@ function history(agent: AgentType): ConversationHistoryRes {
         preview: `${agent} 질문`, exchanges: [{ id: 'q1', question: `${agent} 질문`, answer: `${agent} 답변` }],
       },
     ],
+  }
+}
+
+function resolved(candidate: ParsedFileReference): ResolvedFileReference {
+  return {
+    ...candidate,
+    token: candidate.path,
+    projectId: 'p1',
+    canonicalPath: `/repo/session/${candidate.path}`,
+    displayPath: candidate.path,
+    workspaceRoot: '/repo/session',
+    kind: candidate.path.endsWith('.py') ? 'python' : 'markdown',
+    size: 10,
   }
 }
 
@@ -194,5 +212,53 @@ describe('ConversationHistoryView', () => {
     await waitFor(() => screen.getByText('질문 2개 · feat/history'))
     expect(screen.getByTitle('로그인 오류를 고쳐 줘').className).toContain('question-history__session--active')
     expect(screen.getByRole('button', { name: /^Q2 로그인 오류를 고쳐 줘/ }).getAttribute('aria-expanded')).toBe('false')
+  })
+
+  test('keeps disclosure separate and opens verified question and answer paths without toggling on modifier click', async () => {
+    const result = history('codex')
+    result.sessions[0]!.exchanges = [{
+      id: 'paths',
+      askedAt: '2026-07-15T10:10:00Z',
+      question: '확인해 줘: docs/readme.md',
+      answer: '구현은 [source](src/main.py)에 있습니다.',
+    }]
+    const resolveFileReferences = vi.fn(async (req): Promise<FileRefsResolveRes> => ({
+      resolved: req.candidates.map(resolved),
+      unresolved: [],
+    }))
+    const onOpenFileReference = vi.fn()
+    const { container } = renderView({
+      fetchHistory: vi.fn(async () => result),
+      activeWorktreePath: '/repo/active',
+      resolveFileReferences,
+      onOpenFileReference,
+    })
+
+    const questionPath = await screen.findByRole('link', { name: 'docs/readme.md 파일 미리보기' })
+    const disclosure = screen.getByRole('button', { name: /^Q1 확인해 줘/ })
+    expect(container.querySelector('button button')).toBeNull()
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    expect(resolveFileReferences).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'p1', activeWorktreePath: '/repo/active', sessionWorkspacePath: '/repo/session',
+    }))
+
+    // An ordinary click keeps the history row's existing expand/collapse behavior.
+    fireEvent.click(questionPath)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true')
+    expect(onOpenFileReference).not.toHaveBeenCalled()
+    fireEvent.click(disclosure)
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+
+    fireEvent.click(questionPath, { ctrlKey: true })
+    expect(onOpenFileReference).toHaveBeenCalledWith(expect.objectContaining({ path: 'docs/readme.md' }))
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.keyDown(questionPath, { key: 'Enter' })
+    expect(onOpenFileReference).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(disclosure)
+    const answerPath = await screen.findByRole('link', { name: 'source' })
+    await waitFor(() => expect(answerPath.className).toContain('markdown-viewer__file-reference'))
+    fireEvent.click(answerPath, { metaKey: true })
+    expect(onOpenFileReference).toHaveBeenLastCalledWith(expect.objectContaining({ path: 'src/main.py' }))
   })
 })

@@ -188,6 +188,8 @@ export type ConversationSession = {
   startedAt?: string
   endedAt?: string
   branch?: string
+  /** Main-process-verified base for resolving relative paths mentioned in this transcript. */
+  workspacePath?: string
   preview: string
   exchanges: ConversationExchange[]
 }

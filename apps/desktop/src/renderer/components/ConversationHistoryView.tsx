@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentType } from '@apc/shared'
+import type { AgentType, ResolvedFileReference } from '@apc/shared'
 import type {
   ConversationHistoryReq,
   ConversationHistoryRes,
   ConversationSession,
 } from '../../shared/ipc-contract.js'
 import { MarkdownContent } from './MarkdownContent.js'
+import {
+  FileReferenceText,
+  type ResolveFileReferences,
+} from './FileReferenceText.js'
+import { api } from '../api.js'
 
 const HISTORY_AGENTS: AgentType[] = ['codex', 'claude', 'opencode']
 const AGENT_LABEL: Record<AgentType, string> = {
@@ -27,7 +32,13 @@ type Props = {
   focus: HistoryFocus | null
   onFocusConsumed: () => void
   fetchHistory: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
+  activeWorktreePath?: string
+  resolveFileReferences?: ResolveFileReferences
+  onOpenFileReference?: (reference: ResolvedFileReference) => void
 }
+
+const defaultResolveFileReferences: ResolveFileReferences = (req) => api.fileRefsResolve(req)
+const ignoreFileReference = () => {}
 
 function dateTime(iso: string | undefined): string {
   if (!iso) return '시간 정보 없음'
@@ -68,7 +79,15 @@ function newestFirst(result: ConversationHistoryRes): ConversationHistoryRes {
   }
 }
 
-export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fetchHistory }: Props) {
+export function ConversationHistoryView({
+  projectId,
+  focus,
+  onFocusConsumed,
+  fetchHistory,
+  activeWorktreePath,
+  resolveFileReferences = defaultResolveFileReferences,
+  onOpenFileReference,
+}: Props) {
   const [agent, setAgent] = useState<AgentType>('codex')
   const [result, setResult] = useState<ConversationHistoryRes | null>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
@@ -242,24 +261,49 @@ export function ConversationHistoryView({ projectId, focus, onFocusConsumed, fet
                           id={`conversation-exchange-${key}`}
                           className={isExpanded ? 'question-history__exchange question-history__exchange--open' : 'question-history__exchange'}
                         >
-                          <button
-                            type="button"
+                          <div
                             className="question-history__question"
-                            aria-expanded={isExpanded}
-                            aria-controls={answerId}
                             onClick={() => toggleAnswer(key)}
                           >
-                            <span className="question-history__qmark">Q{index + 1}</span>
-                            <span className="question-history__question-text">{exchange.question}</span>
+                            <button
+                              type="button"
+                              className="question-history__disclosure"
+                              aria-label={`Q${index + 1} ${exchange.question}`}
+                              aria-expanded={isExpanded}
+                              aria-controls={answerId}
+                            >
+                              <span className="question-history__qmark" aria-hidden="true">Q{index + 1}</span>
+                            </button>
+                            <span className="question-history__question-text">
+                              <FileReferenceText
+                                text={exchange.question}
+                                projectId={projectId}
+                                activeWorktreePath={activeWorktreePath}
+                                sessionWorkspacePath={selectedSession.workspacePath}
+                                resolveReferences={resolveFileReferences}
+                                enabled={Boolean(onOpenFileReference)}
+                                onOpenReference={onOpenFileReference ?? ignoreFileReference}
+                              />
+                            </span>
                             {askedAt && <span className="question-history__question-time">{askedAt}</span>}
                             <span className="question-history__chevron" aria-hidden="true">⌄</span>
-                          </button>
+                          </div>
                           {isExpanded && (
                             <div id={answerId} className="question-history__answer" role="region" aria-label={`Q${index + 1} 답변`}>
                               <span className="question-history__amark">A</span>
                               <div className="question-history__answer-body">
                                 {exchange.answer
-                                  ? <MarkdownContent markdown={exchange.answer} onOpenWikiLink={() => { /* history is read-only */ }} />
+                                  ? (
+                                    <MarkdownContent
+                                      markdown={exchange.answer}
+                                      onOpenWikiLink={() => { /* history is read-only */ }}
+                                      projectId={projectId}
+                                      activeWorktreePath={activeWorktreePath}
+                                      sessionWorkspacePath={selectedSession.workspacePath}
+                                      resolveFileReferences={resolveFileReferences}
+                                      onOpenFileReference={onOpenFileReference}
+                                    />
+                                  )
                                   : <p className="question-history__no-answer">기록된 답변이 없습니다.</p>}
                               </div>
                             </div>
