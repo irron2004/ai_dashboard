@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { Project } from '@apc/shared'
+import type { AgentActivity, Project } from '@apc/shared'
 
 const mocks = vi.hoisted(() => ({
   gitWorktrees: vi.fn(),
@@ -36,17 +36,39 @@ const worktrees = [
   { path: 'C:\\work\\apc-auth', branch: 'feat/auth', head: 'bbbbbbb', detached: false, isMain: false },
 ]
 
-function renderDock() {
+function renderDock(activities: readonly AgentActivity[] = []) {
   return render(
     <AgentWorkspaceDock
       projects={[project]}
       selectedProjectId="p1"
       openedProjectIds={['p1']}
       collapsed={false}
+      activities={activities}
       onToggleCollapsed={vi.fn()}
       onActiveAgentChange={vi.fn()}
     />,
   )
+}
+
+function activity(worktreePath: string, question: string, revision = 1): AgentActivity {
+  return {
+    pane: {
+      paneId: `${worktreePath}:codex-1`, projectId: 'p1', worktreePath, slotId: 'codex-1', agent: 'codex',
+    },
+    launchId: `launch-${revision}`,
+    connection: 'connected', phase: 'working', processAlive: true,
+    lastActivityAt: '2026-07-20T10:00:00Z',
+    lastQuestion: { displayText: question, askedAt: '2026-07-20T10:00:00Z', privacy: 'visible', source: 'pty' },
+    revision,
+  }
+}
+
+function seedSlots(path: string): void {
+  const hash = agentWorkspaceKey('p1', path).split(':').at(-1)
+  localStorage.setItem(`apc:agent-slots:p1:${hash}`, JSON.stringify({
+    path,
+    slots: [{ id: 'codex-1', agent: 'codex' }],
+  }))
 }
 
 function workspaceFor(container: HTMLElement, path: string): HTMLElement | null {
@@ -134,6 +156,27 @@ describe('AgentWorkspaceDock', () => {
       expect(workspace?.querySelectorAll('[data-agent="claude"]')).toHaveLength(1)
     })
     expect(screen.getByRole('tab', { name: 'feat/auth' }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  test('does not mix recent questions for the same agent across worktrees and slots', async () => {
+    seedSlots('C:\\work\\apc')
+    seedSlots('C:\\work\\apc-auth')
+    const { container } = renderDock([
+      activity('C:\\work\\apc', 'main 질문', 2),
+      activity('C:\\work\\apc-auth', 'auth 질문', 3),
+    ])
+
+    await screen.findByRole('tab', { name: /main/ })
+    const mainWorkspace = workspaceFor(container, 'C:\\work\\apc') as HTMLElement
+    expect(within(mainWorkspace).getByText('[main 질문]')).toBeDefined()
+    expect(within(mainWorkspace).queryByText('[auth 질문]')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'feat/auth' }))
+    await waitFor(() => {
+      const authWorkspace = workspaceFor(container, 'C:\\work\\apc-auth') as HTMLElement
+      expect(within(authWorkspace).getByText('[auth 질문]')).toBeDefined()
+      expect(within(authWorkspace).queryByText('[main 질문]')).toBeNull()
+    })
   })
 })
 

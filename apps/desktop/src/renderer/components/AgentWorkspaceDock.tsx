@@ -6,7 +6,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import type { AgentType, Project } from '@apc/shared'
+import type { AgentActivity, AgentType, Project } from '@apc/shared'
 import type { GitWorktreeDto } from '../../shared/ipc-contract.js'
 import { api } from '../api.js'
 import { useStore, type AgentRunStatus } from '../store.js'
@@ -53,6 +53,7 @@ type Props = {
   collapsed: boolean
   onToggleCollapsed: (next?: boolean) => void
   onActiveAgentChange: (agent: AgentType) => void
+  activities?: readonly AgentActivity[]
   resumeRequest?: AgentResumeRequest | null
   onResumeHandled?: () => void
 }
@@ -80,6 +81,24 @@ export function agentWorkspaceKey(projectId: string, worktreePath: string): stri
 
 export function agentTerminalKey(projectId: string, worktreePath: string, slotId: string): string {
   return `${agentWorkspaceKey(projectId, worktreePath)}:${slotId}`
+}
+
+export function activityForAgentSlot(
+  activities: readonly AgentActivity[],
+  projectId: string,
+  worktreePath: string,
+  slot: AgentSlot,
+): AgentActivity | undefined {
+  return activities
+    .filter((activity) => (
+      activity.pane.projectId === projectId
+      && activity.pane.worktreePath === worktreePath
+      && activity.pane.slotId === slot.id
+      && activity.pane.agent === slot.agent
+    ))
+    .reduce<AgentActivity | undefined>((latest, activity) => (
+      !latest || activity.revision > latest.revision ? activity : latest
+    ), undefined)
 }
 
 function slotsStorageKey(projectId: string, worktreePath: string): string {
@@ -155,6 +174,7 @@ export function AgentWorkspaceDock({
   collapsed,
   onToggleCollapsed,
   onActiveAgentChange,
+  activities = [],
   resumeRequest,
   onResumeHandled,
 }: Props) {
@@ -179,6 +199,15 @@ export function AgentWorkspaceDock({
   const pickerRef = useRef<HTMLDivElement | null>(null)
   const terminalBodyRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ onMove: (event: MouseEvent) => void; onUp: () => void } | null>(null)
+  const resizeTimerRef = useRef<number | null>(null)
+
+  const scheduleTerminalResize = useCallback(() => {
+    if (resizeTimerRef.current !== null) window.clearTimeout(resizeTimerRef.current)
+    resizeTimerRef.current = window.setTimeout(() => {
+      resizeTimerRef.current = null
+      window.dispatchEvent(new Event('resize'))
+    }, 50)
+  }, [])
 
   const ensureWorkspace = useCallback((projectId: string, worktreePath: string) => {
     const key = agentWorkspaceKey(projectId, worktreePath)
@@ -285,6 +314,7 @@ export function AgentWorkspaceDock({
   }, [pickerOpen])
 
   useEffect(() => () => {
+    if (resizeTimerRef.current !== null) window.clearTimeout(resizeTimerRef.current)
     if (!dragRef.current) return
     window.removeEventListener('mousemove', dragRef.current.onMove)
     window.removeEventListener('mouseup', dragRef.current.onUp)
@@ -329,7 +359,7 @@ export function AgentWorkspaceDock({
     const selectedId = selectedSlotByWorkspace[key] ?? slots[0]?.id
     const selected = slots.find((slot) => slot.id === selectedId) ?? slots[0]
     if (selected) onActiveAgentChange(selected.agent)
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
+    scheduleTerminalResize()
   }
 
   const addAgent = (agent: AgentType) => {
@@ -343,7 +373,7 @@ export function AgentWorkspaceDock({
     api.paneOpened({ projectId: selectedProjectId, agent })
     setPickerOpen(false)
     onToggleCollapsed(false)
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 50)
+    scheduleTerminalResize()
   }
 
   const removeAgent = (projectId: string, worktreePath: string, slot: AgentSlot) => {
@@ -607,6 +637,7 @@ export function AgentWorkspaceDock({
                 {slots.map((slot, index) => {
                   const terminalKey = agentTerminalKey(projectId, worktreePath, slot.id)
                   const status = statusOf(terminalKey)
+                  const activity = activityForAgentSlot(activities, projectId, worktreePath, slot)
                   const runtimePane = openPanes[terminalKey]
                   const legacyPane = worktree?.isMain && slot.id === `${slot.agent}-1`
                     ? openPanes[`${projectId}:${slot.agent}`]
@@ -633,6 +664,7 @@ export function AgentWorkspaceDock({
                           selected={slot.id === selectedSlotId}
                           shortcut={index + 1}
                           statusColor={STATUS_COLOR[status]}
+                          question={activity?.lastQuestion}
                           onStart={() => restartAgent(terminalKey)}
                           onStop={() => stopAgent(terminalKey)}
                           onSelect={() => activateSlot(workspaceKey, slots, slot)}

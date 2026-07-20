@@ -1,5 +1,6 @@
-import type { AgentType } from '@apc/shared'
+import type { AgentQuestionSummary, AgentType } from '@apc/shared'
 import type { AgentRunStatus } from '../store.js'
+import './agent-activity.css'
 
 type Props = {
   agent: AgentType
@@ -8,6 +9,7 @@ type Props = {
   selected: boolean
   shortcut: number
   statusColor: string
+  question?: AgentQuestionSummary
   onStart: () => void
   onStop: () => void
   onSelect: () => void
@@ -16,17 +18,30 @@ type Props = {
 
 const STOPPABLE: AgentRunStatus[] = ['running', 'attention']
 
-export function AgentDockHeader({ agent, label, status, selected, shortcut, statusColor, onStart, onStop, onSelect, onRemove }: Props) {
+export type PresentedAgentQuestion = {
+  summary: string
+  detail?: string
+}
+
+/** Never exposes displayText when its privacy contract says it is masked or hidden. */
+export function presentAgentQuestion(question: AgentQuestionSummary | undefined): PresentedAgentQuestion | null {
+  if (!question) return null
+  if (question.privacy === 'masked') return { summary: '[민감한 질문]', detail: '[민감한 질문]' }
+  if (question.privacy === 'hidden') return { summary: '[질문 숨김]' }
+  return { summary: `[${question.displayText}]`, detail: question.displayText }
+}
+
+export function AgentDockHeader({
+  agent, label, status, selected, shortcut, statusColor, question,
+  onStart, onStop, onSelect, onRemove,
+}: Props) {
   const stoppable = STOPPABLE.includes(status)
+  const presentedQuestion = presentAgentQuestion(question)
   return (
     <div
+      className={`agent-dock-header${selected ? ' agent-dock-header--selected' : ''}`}
       onClick={onSelect}
       title={`Shift+${shortcut}`}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-        padding: '3px 8px', fontSize: '0.8rem', flex: '0 0 auto',
-        background: selected ? '#23311f' : '#161616',
-      }}
     >
       <button
         type="button"
@@ -42,8 +57,15 @@ export function AgentDockHeader({ agent, label, status, selected, shortcut, stat
         style={{ background: 'none', border: 'none', color: stoppable ? '#dc7b7b' : '#555', cursor: stoppable ? 'pointer' : 'default', padding: 0, fontSize: '0.85rem', lineHeight: 1 }}
       >⏹</button>
       <span style={{ color: statusColor, fontSize: '0.9rem', lineHeight: 1 }}>●</span>
-      <span style={{ fontWeight: selected ? 600 : 400 }}>{label ?? agent}</span>
-      <span style={{ marginLeft: 'auto', fontSize: '0.65rem', opacity: 0.5 }}>⇧{shortcut}</span>
+      <span className="agent-dock-header__title">
+        <span className="agent-dock-header__agent">{label ?? agent}</span>
+        {presentedQuestion && (
+          <span className="agent-dock-header__question" title={presentedQuestion.detail}>
+            {presentedQuestion.summary}
+          </span>
+        )}
+      </span>
+      <span className="agent-dock-header__shortcut">⇧{shortcut}</span>
       {onRemove && (
         <button
           type="button"

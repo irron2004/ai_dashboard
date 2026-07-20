@@ -1,0 +1,102 @@
+.agent-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 8px;
+  background: #161616;
+  font-size: 0.8rem;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.agent-dock-header--selected { background: #23311f; }
+.agent-dock-header__title {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+.agent-dock-header__agent { flex: 0 0 auto; }
+.agent-dock-header--selected .agent-dock-header__agent { font-weight: 600; }
+.agent-dock-header__question {
+  min-width: 0;
+  overflow: hidden;
+  color: #aeb9c7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-dock-header__shortcut { margin-left: auto; font-size: 0.65rem; opacity: 0.5; }
+
+.agent-activity-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-activity-list__empty { padding: 12px; color: #7b8797; font-size: 0.8rem; }
+.agent-activity-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(120px, 0.8fr) minmax(140px, 1.2fr) auto;
+  grid-template-areas:
+    'status process identity detail time'
+    'status process identity question stale';
+  align-items: center;
+  gap: 3px 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #303846;
+  border-radius: 7px;
+  background: #171c24;
+  color: #d4dbe5;
+  text-align: left;
+  box-shadow: none;
+}
+.agent-activity-row:hover { background: #1d2530; transform: none; box-shadow: none; }
+.agent-activity-row__status {
+  grid-area: status;
+  min-width: 62px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #b9c2ce;
+  background: #303846;
+  font-size: 0.68rem;
+  text-align: center;
+}
+.agent-activity-row__status--working { color: #a8f0bd; background: rgb(74 222 128 / 12%); }
+.agent-activity-row__status--awaiting_user { color: #ffe38a; background: rgb(250 204 21 / 12%); }
+.agent-activity-row__status--error { color: #ffb1b1; background: rgb(248 113 113 / 12%); }
+.agent-activity-row__status--disconnected { color: #b8bec9; background: rgb(148 163 184 / 12%); }
+.agent-activity-row__process { grid-area: process; color: #596270; font-size: 0.68rem; }
+.agent-activity-row__process--alive { color: #4ade80; }
+.agent-activity-row__identity { grid-area: identity; display: grid; min-width: 0; }
+.agent-activity-row__identity strong { color: #eef3f9; font-size: 0.78rem; }
+.agent-activity-row__identity span,
+.agent-activity-row__detail,
+.agent-activity-row__question,
+.agent-activity-row__time,
+.agent-activity-row__stale {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-activity-row__identity span { color: #8693a5; }
+.agent-activity-row__detail { grid-area: detail; color: #b6c1ce; }
+.agent-activity-row__question { grid-area: question; color: #a9d8f7; }
+.agent-activity-row__time { grid-area: time; color: #78869a; }
+.agent-activity-row__stale { grid-area: stale; color: #f5bd67; }
+
+@media (max-width: 820px) {
+  .agent-activity-row {
+    grid-template-columns: auto auto minmax(0, 1fr);
+    grid-template-areas:
+      'status process identity'
+      'detail detail detail'
+      'question question time'
+      'stale stale stale';
+  }
+}
