@@ -145,6 +145,43 @@ test('worktree-agent-dock: worktree 전환과 동적 에이전트 추가를 실�
   await expectViewportContained(page)
 })
 
+test('agent-terminal-ime: 한글 조합 입력을 PTY에 한 번만 전달한다', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'CDP IME 입력 재현은 Chromium에서만 지원한다.')
+  await openFixture(page, 'many-projects-docs')
+
+  await page.getByRole('tab', { name: 'feat/fixture-browser-qa', exact: true }).click()
+  await page.getByRole('button', { name: '에이전트 추가', exact: true }).click()
+  await page.getByRole('menuitem', { name: /Codex/ }).click()
+
+  const terminalInput = page.locator('.agent-panes:visible .xterm-helper-textarea')
+  await expect(terminalInput).toHaveCount(1)
+  const inputGeometry = await terminalInput.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { minHeight: style.minHeight, padding: style.padding, borderWidth: style.borderWidth }
+  })
+  expect(inputGeometry).toEqual({ minHeight: '0px', padding: '0px', borderWidth: '0px' })
+
+  await page.evaluate(() => {
+    const state = window as typeof window & { __qaPtyWrites?: string[] }
+    state.__qaPtyWrites = []
+    const writePty = window.apc.writePty
+    window.apc.writePty = (request) => {
+      state.__qaPtyWrites?.push(request.data)
+      writePty(request)
+    }
+    document.querySelector<HTMLTextAreaElement>('.agent-panes:not([style*="display: none"]) .xterm-helper-textarea')?.focus()
+  })
+
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.imeSetComposition', { text: 'ㅎ', selectionStart: 1, selectionEnd: 1 })
+  await cdp.send('Input.imeSetComposition', { text: '하', selectionStart: 1, selectionEnd: 1 })
+  await cdp.send('Input.insertText', { text: '한글' })
+
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __qaPtyWrites?: string[] }
+  ).__qaPtyWrites)).toEqual(['한글'])
+})
+
 test('Windows 핵심 컴포넌트 snapshot: 실패 run list', async ({ page }) => {
   test.skip(process.platform !== 'win32', 'Pixel golden은 Windows 기준 환경에서만 비교한다.')
   await openFixture(page, 'auth-failure-long-path')

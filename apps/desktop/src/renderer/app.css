@@ -75,7 +75,7 @@ ul { list-style: none; }
 button,
 input,
 select,
-textarea {
+textarea:not(.xterm-helper-textarea) {
   font: inherit;
 }
 
@@ -103,7 +103,7 @@ button:disabled {
 
 input,
 select,
-textarea {
+textarea:not(.xterm-helper-textarea) {
   width: 100%;
   color: var(--text);
   background: rgba(10, 16, 23, 0.96);
@@ -116,12 +116,13 @@ textarea {
 
 input:focus,
 select:focus,
-textarea:focus {
+textarea:not(.xterm-helper-textarea):focus {
   border-color: rgba(117, 199, 255, 0.5);
   box-shadow: 0 0 0 3px rgba(117, 199, 255, 0.14);
 }
 
-textarea {
+/* xterm owns its hidden textarea geometry; changing it breaks native IME composition. */
+textarea:not(.xterm-helper-textarea) {
   min-height: 96px;
   resize: vertical;
 }
