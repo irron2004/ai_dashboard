@@ -14,7 +14,7 @@ export type WorkspacePaneRecord = {
   wasOpen: boolean
 }
 
-type PaneInput = {
+export type PaneInput = {
   projectId: string
   agent: string
   lastSessionId?: string | null
@@ -142,6 +142,23 @@ export class SessionStore {
       lastSessionId: row.lastSessionId == null ? null : String(row.lastSessionId),
       wasOpen: Number(row.wasOpen) === 1,
     }))
+  }
+
+  getPane(paneId: string): WorkspacePaneRecord | undefined {
+    const row = this.db.prepare(
+      `SELECT pane_id as paneId, project_id as projectId, worktree_path as worktreePath,
+              slot_id as slotId, agent, last_session_id as lastSessionId, was_open as wasOpen
+       FROM workspace_pane_v2 WHERE pane_id = ?`,
+    ).get(paneId)
+    return row ? {
+      paneId: String(row.paneId),
+      projectId: String(row.projectId),
+      worktreePath: String(row.worktreePath),
+      slotId: String(row.slotId),
+      agent: String(row.agent),
+      lastSessionId: row.lastSessionId == null ? null : String(row.lastSessionId),
+      wasOpen: Number(row.wasOpen) === 1,
+    } : undefined
   }
 
   setState(key: string, value: string): void {

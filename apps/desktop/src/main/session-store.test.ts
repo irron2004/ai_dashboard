@@ -68,6 +68,18 @@ describe('SessionStore', () => {
     ])
   })
 
+  test('v2 restores pane identity and preserves its own session across close and reopen', () => {
+    const identity = {
+      paneId: 'pane-feature-codex-2', projectId: 'p1', worktreePath: '/repo-feature',
+      slotId: 'codex-2', agent: 'codex',
+    }
+    store.upsertPane({ ...identity, lastSessionId: 'session-feature-2', wasOpen: true })
+    store.upsertPane({ ...identity, wasOpen: false })
+    expect(store.getPane(identity.paneId)).toEqual({ ...identity, lastSessionId: 'session-feature-2', wasOpen: false })
+    store.upsertPane({ ...identity, wasOpen: true })
+    expect(store.listOpenPaneRecords()).toEqual([{ ...identity, lastSessionId: 'session-feature-2', wasOpen: true }])
+  })
+
   test('ensureSchema migrates legacy rows into the primary worktree first slot once', () => {
     const db = new DatabaseSync(':memory:')
     db.exec(`
