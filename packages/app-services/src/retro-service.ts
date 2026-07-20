@@ -134,6 +134,7 @@ export class RetroService {
   updateTargetNotes(targetId: string, verificationEvidence: string, riskNotes: string): { ok: boolean; reason?: string } {
     const target = this.deps.retros.getTarget(targetId)
     if (!target) return { ok: false, reason: '회고 대상을 찾을 수 없습니다' }
+    if (target.receiptId) return { ok: false, reason: 'Receipt가 발급된 대상은 수정할 수 없습니다. HEAD가 변경되면 새 대상으로 다시 검토합니다' }
     this.deps.retros.setTargetReviewNotes(targetId, verificationEvidence, riskNotes)
     return { ok: true }
   }

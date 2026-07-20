@@ -140,13 +140,19 @@ export class RetroStore {
     `).all(retroId) as QuestionRow[]).map(toQuestion)
   }
 
-  answer(questionId: string, answer: string | null, skipped: boolean, now = new Date().toISOString()): void {
-    const row = this.db.prepare('SELECT critical FROM retro_questions WHERE id = ?').get(questionId) as { critical: number } | undefined
-    if (!row) return
+  answer(questionId: string, answer: string | null, skipped: boolean, now = new Date().toISOString()): boolean {
+    const row = this.db.prepare(`
+      SELECT q.critical, q.target_id, t.receipt_id
+      FROM retro_questions q
+      LEFT JOIN retro_targets t ON t.id = q.target_id
+      WHERE q.id = ?
+    `).get(questionId) as { critical: number; target_id: string | null; receipt_id: string | null } | undefined
+    if (!row || (row.target_id && row.receipt_id)) return false
     const allowSkip = skipped && row.critical !== 1
     const text = allowSkip ? null : answer?.trim() || null
     this.db.prepare('UPDATE retro_questions SET answer = ?, skipped = ?, answered_at = ? WHERE id = ?')
       .run(text, allowSkip ? 1 : 0, text || allowSkip ? now : null, questionId)
+    return true
   }
 
   unansweredCritical(targetId: string): number {

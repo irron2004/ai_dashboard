@@ -28,6 +28,9 @@ import type {
   TaskSetBlockedByReq, TaskSetBlockedByRes,
   ConversationHistoryReq, ConversationHistoryRes,
   NextNoteAddReq, NextNoteAddRes, NextNoteToggleReq, NextNoteDeleteReq, NextNoteMutRes,
+  RetroPrepareReq, RetroPrepareRes, RetroAnswerReq, RetroAnswerRes,
+  RetroTargetNotesReq, RetroTargetNotesRes, RetroCompleteReq, RetroCompleteRes,
+  ReceiptIssueReq, ReceiptIssueRes, GateQueryReq, GateStatusRes, GateInstallReq, GateInstallRes,
 } from '../shared/ipc-contract.js'
 import type { Project, AgentProfile, UnifiedSearchResponse, Task, NextNote, QuestionLogEntry } from '@apc/shared'
 import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
@@ -116,6 +119,27 @@ export const api = {
   },
   nextNoteDelete(req: NextNoteDeleteReq): Promise<NextNoteMutRes> {
     return window.apc.invoke(CH.nextNoteDelete, req) as Promise<NextNoteMutRes>
+  },
+  retroPrepare(req: RetroPrepareReq): Promise<RetroPrepareRes> {
+    return window.apc.invoke(CH.retroPrepare, req) as Promise<RetroPrepareRes>
+  },
+  retroAnswer(req: RetroAnswerReq): Promise<RetroAnswerRes> {
+    return window.apc.invoke(CH.retroAnswer, req) as Promise<RetroAnswerRes>
+  },
+  retroTargetNotes(req: RetroTargetNotesReq): Promise<RetroTargetNotesRes> {
+    return window.apc.invoke(CH.retroTargetNotes, req) as Promise<RetroTargetNotesRes>
+  },
+  retroComplete(req: RetroCompleteReq): Promise<RetroCompleteRes> {
+    return window.apc.invoke(CH.retroComplete, req) as Promise<RetroCompleteRes>
+  },
+  receiptIssue(req: ReceiptIssueReq): Promise<ReceiptIssueRes> {
+    return window.apc.invoke(CH.receiptIssue, req) as Promise<ReceiptIssueRes>
+  },
+  gateStatus(req: GateQueryReq): Promise<GateStatusRes> {
+    return window.apc.invoke(CH.gateStatus, req) as Promise<GateStatusRes>
+  },
+  gateInstall(req: GateInstallReq): Promise<GateInstallRes> {
+    return window.apc.invoke(CH.gateInstall, req) as Promise<GateInstallRes>
   },
   ingestAll(): Promise<{ sources: number; sessions: number; documents: number }> {
     return window.apc.invoke(CH.ingestAll) as Promise<{ sources: number; sessions: number; documents: number }>

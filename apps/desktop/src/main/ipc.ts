@@ -9,6 +9,8 @@ import type {
   ConfigEditReq, ConfigRollbackReq,
   ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
   GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitReq, GitPushReq,
+  RetroPrepareReq, RetroAnswerReq, RetroTargetNotesReq, RetroCompleteReq, ReceiptIssueReq,
+  GateQueryReq, GateInstallReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import { AgentKind } from '@apc/shared'
@@ -400,7 +402,84 @@ export function handlers(container: Container): Record<string, (payload: unknown
       const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitPushReq
       const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
       if (!resolved.ok) return { ok: false, reason: resolved.reason }
-      return container.gitSync.push(resolved.repoPath)
+      return container.gitSync.push(resolved.repoPath, {
+        // GitSyncService fetches/rebases first. Checking here binds authorization to the final HEAD,
+        // rather than to the pre-rebase SHA the renderer last displayed.
+        beforePush: async (repoPath) => {
+          const status = await container.gate.status(repoPath)
+          if (!status.ok) return { ok: false, reason: '⛔ Learning Gate 상태를 확인할 수 없어 Push를 중단했습니다' }
+          if (status.enabled && !status.headCovered) {
+            return { ok: false, reason: '⛔ 리뷰되지 않은 커밋이 있습니다 — 회고 탭에서 해당 HEAD의 Receipt를 발급하세요' }
+          }
+          return { ok: true }
+        },
+      })
+    },
+
+    [CH.retroPrepare]: async (payload: unknown) => {
+      const req = z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        targets: z.array(z.object({
+          projectId: z.string().min(1),
+          worktreePath: z.string().min(1).optional(),
+        }).strict()).max(100),
+      }).strict().parse(payload) as RetroPrepareReq
+      const targets: RetroPrepareReq['targets'] = []
+      const seen = new Set<string>()
+      for (const target of req.targets) {
+        const resolved = await resolveGitRepoPath(container, target.projectId, target.worktreePath)
+        if (!resolved.ok) return { ok: false, reason: resolved.reason }
+        const key = target.projectId + '\0' + resolved.repoPath
+        if (seen.has(key)) continue
+        seen.add(key)
+        targets.push({ projectId: target.projectId, worktreePath: resolved.repoPath })
+      }
+      return { ok: true, ...await container.retroService.prepare(req.date, targets) }
+    },
+
+    [CH.retroAnswer]: async (payload: unknown) => {
+      const req = z.object({
+        questionId: z.string().min(1),
+        answer: z.string().max(20_000).optional(),
+        skipped: z.boolean().optional(),
+      }).strict().parse(payload) as RetroAnswerReq
+      const ok = container.retroStore.answer(req.questionId, req.answer ?? null, req.skipped ?? false)
+      return ok ? { ok: true } : { ok: false, reason: '질문을 찾을 수 없거나 이미 Receipt로 확정된 대상입니다' }
+    },
+
+    [CH.retroTargetNotes]: async (payload: unknown) => {
+      const req = z.object({
+        targetId: z.string().min(1),
+        verificationEvidence: z.string().max(20_000),
+        riskNotes: z.string().max(20_000),
+      }).strict().parse(payload) as RetroTargetNotesReq
+      return container.retroService.updateTargetNotes(req.targetId, req.verificationEvidence, req.riskNotes)
+    },
+
+    [CH.retroComplete]: async (payload: unknown) => {
+      const req = z.object({ retroId: z.string().min(1) }).strict().parse(payload) as RetroCompleteReq
+      return container.retroService.complete(req.retroId)
+    },
+
+    [CH.receiptIssue]: async (payload: unknown) => {
+      const req = z.object({ targetId: z.string().min(1) }).strict().parse(payload) as ReceiptIssueReq
+      return container.retroService.issueReceipt(req.targetId)
+    },
+
+    [CH.gateStatus]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), worktreePath: z.string().min(1).optional() }).strict().parse(payload) as GateQueryReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) {
+        return { ok: false, reason: resolved.reason, enabled: false, hookInstalled: false, headSha: null, headCovered: false, reviewedCount: 0 }
+      }
+      return container.gate.status(resolved.repoPath)
+    },
+
+    [CH.gateInstall]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), worktreePath: z.string().min(1).optional() }).strict().parse(payload) as GateInstallReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gate.installHook(resolved.repoPath)
     },
   }
 }

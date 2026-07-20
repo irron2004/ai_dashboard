@@ -1,4 +1,8 @@
-import type { Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState, ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry, GitSyncStatus, GitSyncResult } from '@apc/shared'
+import type {
+  Project, Task, AgentRun, AgentProfile, Review, AgentType, WikiGeneration, RunState, KhState,
+  ProfileEdits, KhProjectPolicyProposal, EngineOptions, NextNote, QuestionLogEntry, GitSyncStatus,
+  GitSyncResult, Retro, RetroQuestion, RetroTarget, ReviewReceipt, GateEvent,
+} from '@apc/shared'
 
 /** Wiki authoring is intentionally single-engine. Keep this runtime constant shared by renderer and
  * main so stale localStorage or an older renderer cannot silently route a wiki run to another CLI. */
@@ -58,6 +62,14 @@ export const CH = {
   nextNoteAdd: 'c:nextNoteAdd',
   nextNoteToggle: 'c:nextNoteToggle',
   nextNoteDelete: 'c:nextNoteDelete',
+  // Learning Gate: server-owned daily review targets and push authorization.
+  retroPrepare: 'c:retroPrepare',
+  retroAnswer: 'c:retroAnswer',
+  retroTargetNotes: 'c:retroTargetNotes',
+  retroComplete: 'c:retroComplete',
+  receiptIssue: 'c:receiptIssue',
+  gateStatus: 'q:gateStatus',
+  gateInstall: 'c:gateInstall',
   // pty: renderer → main = ptyStart/ptyInput/ptyKill; main → renderer events = ptyData/ptyExit
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
@@ -146,6 +158,59 @@ export type NextNoteAddRes = { ok: boolean; note?: NextNote }
 export type NextNoteToggleReq = { id: string; done: boolean }
 export type NextNoteDeleteReq = { id: string }
 export type NextNoteMutRes = { ok: boolean }
+
+// Learning Gate (M1). A prepared target and its HEAD come from main; the renderer can only answer
+// that target and ask main to issue a receipt after main re-verifies the current Git snapshot.
+export type RetroProjectEvidenceDto = {
+  projectId: string
+  name: string
+  repoPath: string
+  branch: string | null
+  target: RetroTarget
+  headCovered: boolean
+  gateEnabled: boolean
+  hookInstalled: boolean
+  lastReceiptSha: string | null
+  commits: Array<{ sha: string; when: string; subject: string }>
+  workingTreeFiles: number
+  changedFiles: number
+  additions: number
+  deletions: number
+  resetByHeadDrift: boolean
+}
+export type RetroPrepareReq = {
+  date: string
+  targets: Array<{ projectId: string; worktreePath?: string }>
+}
+export type RetroPrepareRes = {
+  ok: boolean
+  reason?: string
+  retro?: Retro
+  questions?: RetroQuestion[]
+  projects?: RetroProjectEvidenceDto[]
+  skips?: GateEvent[]
+  problems?: string[]
+}
+export type RetroAnswerReq = { questionId: string; answer?: string; skipped?: boolean }
+export type RetroAnswerRes = { ok: boolean; reason?: string }
+export type RetroTargetNotesReq = { targetId: string; verificationEvidence: string; riskNotes: string }
+export type RetroTargetNotesRes = { ok: boolean; reason?: string }
+export type RetroCompleteReq = { retroId: string }
+export type RetroCompleteRes = { ok: boolean; reason?: string }
+export type ReceiptIssueReq = { targetId: string }
+export type ReceiptIssueRes = { ok: boolean; reason?: string; receipt?: ReviewReceipt }
+export type GateQueryReq = { projectId: string; worktreePath?: string }
+export type GateStatusRes = {
+  ok: boolean
+  reason?: string
+  enabled: boolean
+  hookInstalled: boolean
+  headSha: string | null
+  headCovered: boolean
+  reviewedCount: number
+}
+export type GateInstallReq = GateQueryReq
+export type GateInstallRes = { ok: boolean; reason?: string }
 export type GeneratePreflightReq = { projectId: string }
 export type GeneratePreflightCategoryId = 'agent-conversations' | 'project-docs' | 'tasks' | 'review-runs'
 export type GeneratePreflightCategory = {

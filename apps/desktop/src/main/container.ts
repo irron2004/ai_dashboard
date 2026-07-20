@@ -1,12 +1,12 @@
 import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
-import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy, NextNoteStore, QuestionLogStore } from '@apc/pm'
+import { migratePm, TaskStore, AgentRunStore, ReviewService, VaultWriter, validateBlockedBy, NextNoteStore, QuestionLogStore, ReceiptStore, RetroStore } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard, buildWorkspaceOverview, buildResumeCard, type WorkspaceOverview, type ResumeCard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, GitSyncService, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, GitSyncService, GateService, RetroService, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
@@ -82,6 +82,10 @@ export type Container = {
   taskProfiles: TaskProfileStore
   ingest: IngestService
   gitSync: GitSyncService
+  receipts: ReceiptStore
+  retroStore: RetroStore
+  gate: GateService
+  retroService: RetroService
   ingestAdapters: AgentIngestAdapter[]
   runService: RunService
   generate: GenerateService
@@ -240,6 +244,10 @@ export function buildContainer(opts: {
     },
   })
   const gitSync = new GitSyncService()
+  const receipts = new ReceiptStore(db)
+  const retroStore = new RetroStore(db)
+  const gate = new GateService()
+  const retroService = new RetroService({ registry, gitSync, gate, receipts, retros: retroStore })
   const ingestAdapters =
     opts.ingestAdapters ?? [new ClaudeAdapter(), new CodexAdapter(), new OpenCodeAdapter()]
   const remoteConversationFetcher = opts.remoteConversationFetcher ?? fetchRemoteConversations
@@ -457,7 +465,8 @@ export function buildContainer(opts: {
   return {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, runs, reviews, cursors, searchIndex, search, vault, taskProfiles,
-    ingest, gitSync, ingestAdapters, runService, generate, generatePreflight, generateProject,
+    ingest, gitSync, receipts, retroStore, gate, retroService,
+    ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy, harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
     devHarnessRun, devHarnessCancel, composeContext, devHarnessReadTranscript,
