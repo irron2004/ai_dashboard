@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { GitFileChange, GitSyncStatus } from '@apc/shared'
 import { api } from '../api.js'
+import { useStore } from '../store.js'
 
 type Props = {
   projectId: string | null
@@ -8,7 +9,7 @@ type Props = {
   onSynced?: () => void
 }
 
-type Busy = 'status' | 'fetch' | 'pull' | 'commitPush' | null
+type Busy = 'status' | 'fetch' | 'pull' | 'commit' | 'push' | null
 
 function shortStatus(file: GitFileChange): string {
   if (file.conflict) return '충돌'
@@ -29,6 +30,7 @@ function summarize(status: GitSyncStatus | null): string {
 }
 
 export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
+  const activeWorktree = useStore((state) => projectId ? state.activeWorktrees[projectId] ?? null : null)
   const [status, setStatus] = useState<GitSyncStatus | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [message, setMessage] = useState('')
@@ -40,7 +42,7 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
     setBusy(fetch ? 'fetch' : 'status')
     setNotice(null)
     try {
-      const next = await api.gitStatus({ projectId, fetch })
+      const next = await api.gitStatus({ projectId, fetch, worktreePath: activeWorktree ?? undefined })
       setStatus(next)
       setSelected((current) => current.filter((path) => next.files.some((file) => file.path === path)))
     } catch (e) {
@@ -48,13 +50,14 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
     } finally {
       setBusy(null)
     }
-  }, [projectId])
+  }, [activeWorktree, projectId])
 
   useEffect(() => { void loadStatus(false) }, [loadStatus])
 
   const selectableFiles = status?.files.filter((file) => !file.conflict) ?? []
   const allSelected = selectableFiles.length > 0 && selectableFiles.every((file) => selected.includes(file.path))
-  const canCommitPush = !!status?.ok && !status.detached && !!status.upstream && selected.length > 0 && !!message.trim() && !busy
+  const canCommit = !!status?.ok && selected.length > 0 && !!message.trim() && !busy
+  const canPush = !!status?.ok && !status.detached && !!status.upstream && status.ahead > 0 && !busy
   const canPull = !!status?.ok && !status.detached && !!status.upstream && status.behind > 0 && status.files.length === 0 && !busy
 
   const toggleAll = () => {
@@ -69,25 +72,36 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
     if (!projectId) return
     setBusy('pull')
     setNotice(null)
-    const result = await api.gitPull({ projectId })
+    const result = await api.gitPull({ projectId, worktreePath: activeWorktree ?? undefined })
     setStatus(result.status ?? status)
     setNotice({ ok: result.ok, text: result.ok ? (result.reason ?? 'Pull 완료') : (result.reason ?? 'Pull 실패') })
     if (result.ok) onSynced?.()
     setBusy(null)
   }
 
-  const runCommitPush = async () => {
+  const runCommit = async () => {
     if (!projectId) return
-    setBusy('commitPush')
+    setBusy('commit')
     setNotice(null)
-    const result = await api.gitCommitPush({ projectId, files: selected, message })
+    const result = await api.gitCommit({ projectId, files: selected, message, worktreePath: activeWorktree ?? undefined })
     setStatus(result.status ?? status)
-    setNotice({ ok: result.ok, text: result.ok ? 'Commit & Push 완료' : (result.reason ?? 'Commit & Push 실패') })
+    setNotice({ ok: result.ok, text: result.ok ? `Commit 완료${result.committedSha ? ` (${result.committedSha.slice(0, 7)})` : ''}` : (result.reason ?? 'Commit 실패') })
     if (result.ok) {
       setSelected([])
       setMessage('')
       onSynced?.()
     }
+    setBusy(null)
+  }
+
+  const runPush = async () => {
+    if (!projectId) return
+    setBusy('push')
+    setNotice(null)
+    const result = await api.gitPush({ projectId, worktreePath: activeWorktree ?? undefined })
+    setStatus(result.status ?? status)
+    setNotice({ ok: result.ok, text: result.ok ? 'Push 완료' : (result.reason ?? 'Push 실패') })
+    if (result.ok) onSynced?.()
     setBusy(null)
   }
 
@@ -98,7 +112,7 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
       <header className="panel__header git-sync__header">
         <div>
           <h2>Git 동기화</h2>
-          <p>{repoPath || '등록된 repo 경로 없음'}</p>
+          <p>{activeWorktree ?? repoPath ?? '등록된 repo 경로 없음'}{activeWorktree ? ' (worktree)' : ''}</p>
           <p className="git-sync__summary">{summarize(status)}</p>
         </div>
         <div className="git-sync__actions">
@@ -145,9 +159,12 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
           />
         </label>
         <div className="git-sync__commit-row">
-          <span>선택한 파일만 add/commit/push합니다. 충돌·no upstream·detached HEAD는 자동 처리하지 않습니다.</span>
-          <button type="button" className="button--accent" disabled={!canCommitPush} onClick={() => void runCommitPush()}>
-            {busy === 'commitPush' ? '동기화 중…' : 'Commit & Push'}
+          <span>선택한 파일만 commit합니다. Push는 별도 Learning Gate 검증을 받습니다.</span>
+          <button type="button" disabled={!canCommit} onClick={() => void runCommit()}>
+            {busy === 'commit' ? '커밋 중…' : 'Commit'}
+          </button>
+          <button type="button" className="button--accent" disabled={!canPush} onClick={() => void runPush()}>
+            {busy === 'push' ? 'Push 중…' : `Push${status?.ok && status.ahead > 0 ? ` (↑${status.ahead})` : ''}`}
           </button>
         </div>
       </div>

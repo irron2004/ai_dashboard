@@ -8,7 +8,7 @@ import type {
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
   ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
-  GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitPushReq,
+  GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitReq, GitPushReq,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import { AgentKind } from '@apc/shared'
@@ -30,6 +30,24 @@ function blockLegacyWikiContinuation(container: Container, runId: string) {
     finalState: shown.runState.state,
     reason: `이 run은 ${shown.runState.engine}로 생성되어 이어갈 수 없습니다. 새 Codex 위키 run을 시작하세요.`,
   }
+}
+
+/** A renderer-supplied cwd is accepted only if Git reports it as a worktree of the registered root. */
+export async function resolveGitRepoPath(
+  container: Container,
+  projectId: string,
+  worktreePath?: string,
+): Promise<{ ok: true; repoPath: string } | { ok: false; reason: string }> {
+  const project = container.registry.get(projectId)
+  if (!project) return { ok: false, reason: 'project not found' }
+  const base = project.repoPaths[0]
+  if (!base) return { ok: false, reason: '등록된 repo 경로가 없습니다' }
+  if (!worktreePath || worktreePath === base) return { ok: true, repoPath: base }
+  const listed = await listGitWorktrees(base)
+  const matched = listed.worktrees.find((worktree) => worktree.path === worktreePath)
+  return matched
+    ? { ok: true, repoPath: matched.path }
+    : { ok: false, reason: `등록되지 않은 worktree 경로입니다: ${worktreePath}` }
 }
 
 export function handlers(container: Container): Record<string, (payload: unknown) => Promise<unknown>> {
@@ -344,10 +362,10 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.gitStatus]: async (payload: unknown) => {
-      const req = z.object({ projectId: z.string(), fetch: z.boolean().optional() }).strict().parse(payload) as GitStatusReq
-      const project = container.registry.get(req.projectId)
-      if (!project) return { ok: false, reason: 'project not found', detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] }
-      return container.gitSync.status(project.repoPaths[0] ?? '', { fetch: req.fetch })
+      const req = z.object({ projectId: z.string(), fetch: z.boolean().optional(), worktreePath: z.string().optional() }).strict().parse(payload) as GitStatusReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason, detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] }
+      return container.gitSync.status(resolved.repoPath, { fetch: req.fetch })
     },
 
     [CH.gitWorktrees]: async (payload: unknown) => {
@@ -358,24 +376,31 @@ export function handlers(container: Container): Record<string, (payload: unknown
     },
 
     [CH.gitFetch]: async (payload: unknown) => {
-      const req = z.object({ projectId: z.string() }).strict().parse(payload) as GitFetchReq
-      const project = container.registry.get(req.projectId)
-      if (!project) return { ok: false, reason: 'project not found' }
-      return container.gitSync.fetch(project.repoPaths[0] ?? '')
+      const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitFetchReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.fetch(resolved.repoPath)
     },
 
     [CH.gitPull]: async (payload: unknown) => {
-      const req = z.object({ projectId: z.string() }).strict().parse(payload) as GitPullReq
-      const project = container.registry.get(req.projectId)
-      if (!project) return { ok: false, reason: 'project not found' }
-      return container.gitSync.pull(project.repoPaths[0] ?? '')
+      const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitPullReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.pull(resolved.repoPath)
     },
 
-    [CH.gitCommitPush]: async (payload: unknown) => {
-      const req = z.object({ projectId: z.string(), files: z.array(z.string()), message: z.string() }).strict().parse(payload) as GitCommitPushReq
-      const project = container.registry.get(req.projectId)
-      if (!project) return { ok: false, reason: 'project not found' }
-      return container.gitSync.commitPush(project.repoPaths[0] ?? '', req.files, req.message)
+    [CH.gitCommit]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), files: z.array(z.string()), message: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitCommitReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.commit(resolved.repoPath, req.files, req.message)
+    },
+
+    [CH.gitPush]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitPushReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.push(resolved.repoPath)
     },
   }
 }

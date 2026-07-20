@@ -83,7 +83,8 @@ export const CH = {
   gitWorktrees: 'q:gitWorktrees',
   gitFetch: 'c:gitFetch',
   gitPull: 'c:gitPull',
-  gitCommitPush: 'c:gitCommitPush',
+  gitCommit: 'c:gitCommit',
+  gitPush: 'c:gitPush',
   // workspace session persistence (main→renderer restore, renderer→main reports)
   workspaceRestore: 'workspace:restore',
   paneOpened: 'pane:opened',
@@ -302,7 +303,7 @@ export type ChangesListRes = {
 export type ChangesDiffReq = { projectId: string; relPath: string }
 export type ChangesDiffRes = { ok: boolean; patch?: string; reason?: string }
 
-export type GitStatusReq = { projectId: string; fetch?: boolean }
+export type GitStatusReq = { projectId: string; fetch?: boolean; worktreePath?: string }
 export type GitStatusRes = GitSyncStatus
 export type GitWorktreeDto = {
   path: string
@@ -315,9 +316,10 @@ export type GitWorktreeDto = {
 }
 export type GitWorktreesReq = { projectId: string }
 export type GitWorktreesRes = { ok: boolean; worktrees: GitWorktreeDto[]; reason?: string }
-export type GitFetchReq = { projectId: string }
-export type GitPullReq = { projectId: string }
-export type GitCommitPushReq = { projectId: string; files: string[]; message: string }
+export type GitFetchReq = { projectId: string; worktreePath?: string }
+export type GitPullReq = { projectId: string; worktreePath?: string }
+export type GitCommitReq = { projectId: string; files: string[]; message: string; worktreePath?: string }
+export type GitPushReq = { projectId: string; worktreePath?: string }
 export type GitSyncRes = GitSyncResult
 
 // Workspace session persistence

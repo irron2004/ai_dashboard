@@ -2,8 +2,10 @@ import { execFile } from 'node:child_process'
 import { isAbsolute, normalize } from 'node:path'
 import type { GitFileChange, GitFileChangeStatus, GitSyncResult, GitSyncStatus } from '@apc/shared'
 
-type GitRun = { code: number; stdout: string; stderr: string }
+export type GitRun = { code: number; stdout: string; stderr: string }
 type GitError = Error & { code?: number; stdout?: string | Buffer; stderr?: string | Buffer }
+
+export type BeforePushCheck = (repoPath: string) => Promise<{ ok: boolean; reason?: string }>
 
 const GIT_ENV = {
   ...process.env,
@@ -31,6 +33,20 @@ function safePath(path: string): boolean {
   if (!path || path.includes('\0') || isAbsolute(path)) return false
   const normalized = normalize(path).replace(/\\/g, '/')
   return normalized !== '..' && !normalized.startsWith('../')
+}
+
+export function runGit(cwd: string, args: string[], timeoutMs = 30_000): Promise<GitRun> {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, env: GIT_ENV, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (!error) { resolve({ code: 0, stdout: String(stdout), stderr: String(stderr) }); return }
+      const err = error as GitError
+      resolve({
+        code: typeof err.code === 'number' ? err.code : 1,
+        stdout: err.stdout?.toString() ?? String(stdout ?? ''),
+        stderr: err.stderr?.toString() ?? String(stderr ?? err.message),
+      })
+    })
+  })
 }
 
 function statusFromXY(xy: string, fallback: GitFileChangeStatus): GitFileChangeStatus {
@@ -110,17 +126,7 @@ export class GitSyncService {
   constructor(private readonly timeoutMs = 30_000) {}
 
   private git(cwd: string, args: string[], timeoutMs = this.timeoutMs): Promise<GitRun> {
-    return new Promise((resolve) => {
-      execFile('git', args, { cwd, env: GIT_ENV, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
-        if (!error) { resolve({ code: 0, stdout: String(stdout), stderr: String(stderr) }); return }
-        const err = error as GitError
-        resolve({
-          code: typeof err.code === 'number' ? err.code : 1,
-          stdout: err.stdout?.toString() ?? String(stdout ?? ''),
-          stderr: err.stderr?.toString() ?? String(stderr ?? err.message),
-        })
-      })
-    })
+    return runGit(cwd, args, timeoutMs)
   }
 
   async status(repoPath: string, opts: { fetch?: boolean } = {}): Promise<GitSyncStatus> {
@@ -160,7 +166,8 @@ export class GitSyncService {
       : { ok: false, reason: commandFailed(args, pulled), output: compactOutput(pulled), status: next }
   }
 
-  async commitPush(repoPath: string, files: string[], message: string): Promise<GitSyncResult> {
+  /** Stage and commit only. Pushing is deliberately a separate, gate-checked operation. */
+  async commit(repoPath: string, files: string[], message: string): Promise<GitSyncResult> {
     const selected = [...new Set(files)].filter(Boolean)
     if (selected.length === 0) return { ok: false, reason: '커밋할 파일을 선택하세요' }
     if (!message.trim()) return { ok: false, reason: '커밋 메시지를 입력하세요' }
@@ -169,8 +176,6 @@ export class GitSyncService {
 
     const before = await this.status(repoPath)
     if (!before.ok || !before.root) return { ok: false, reason: before.reason, status: before }
-    if (before.detached) return { ok: false, reason: 'detached HEAD 상태에서는 자동 push를 막았습니다', status: before }
-    if (!before.upstream) return { ok: false, reason: 'upstream branch가 없어 push할 수 없습니다. 먼저 git push -u origin <branch>를 설정하세요.', status: before }
     if (before.files.some((file) => file.conflict)) return { ok: false, reason: '충돌 파일이 있어 커밋을 중단했습니다', status: before }
     const selectedSet = new Set(selected)
     const stagedElsewhere = before.files.find((file) => file.staged && !selectedSet.has(file.path))
@@ -185,16 +190,38 @@ export class GitSyncService {
     const committed = await this.git(before.root, ['commit', '-m', message.trim()], 120_000)
     if (committed.code !== 0) return { ok: false, reason: commandFailed(['commit', '-m', '<message>'], committed), output: compactOutput(committed), status: await this.status(before.root) }
 
+    const head = await this.git(before.root, ['rev-parse', 'HEAD'])
+    return {
+      ok: true,
+      output: compactOutput(committed),
+      status: await this.status(before.root),
+      committedSha: head.code === 0 ? head.stdout.trim() : undefined,
+    }
+  }
+
+  /** Synchronize first, then verify the resulting HEAD immediately before push. */
+  async push(repoPath: string, opts: { beforePush?: BeforePushCheck } = {}): Promise<GitSyncResult> {
+    const before = await this.status(repoPath)
+    if (!before.ok || !before.root) return { ok: false, reason: before.reason, status: before }
+    if (before.detached) return { ok: false, reason: 'detached HEAD 상태에서는 자동 push를 막았습니다', status: before }
+    if (!before.upstream) return { ok: false, reason: 'upstream branch가 없어 push할 수 없습니다. 먼저 git push -u origin <branch>를 설정하세요.', status: before }
+
     const fetched = await this.git(before.root, ['fetch', '--prune', '--no-tags'], 60_000)
-    if (fetched.code !== 0) return { ok: false, reason: commandFailed(['fetch', '--prune', '--no-tags'], fetched), output: compactOutput(committed) + '\n' + compactOutput(fetched), status: await this.status(before.root) }
+    if (fetched.code !== 0) return { ok: false, reason: commandFailed(['fetch', '--prune', '--no-tags'], fetched), output: compactOutput(fetched), status: await this.status(before.root) }
 
     let current = await this.status(before.root)
-    let output = compactOutput(committed)
+    let output = compactOutput(fetched)
     if (current.behind > 0) {
-      if (current.files.length > 0) return { ok: false, reason: '원격 변경이 있지만 아직 남은 로컬 변경분이 있어 rebase를 중단했습니다. 남은 변경분을 정리한 뒤 Pull/Push 하세요.', output, status: current }
+      if (current.files.length > 0) return { ok: false, reason: '원격 변경이 있지만 working tree에 변경분이 있어 rebase를 중단했습니다. 정리 후 다시 Push 하세요.', output, status: current }
       const rebased = await this.git(before.root, ['pull', '--rebase'], 120_000)
       output = [output, compactOutput(rebased)].filter(Boolean).join('\n')
       if (rebased.code !== 0) return { ok: false, reason: commandFailed(['pull', '--rebase'], rebased), output, status: await this.status(before.root) }
+      current = await this.status(before.root)
+    }
+
+    if (opts.beforePush) {
+      const checked = await opts.beforePush(before.root)
+      if (!checked.ok) return { ok: false, reason: checked.reason ?? 'push 전 검증에 실패했습니다', output, status: current }
     }
 
     const pushed = await this.git(before.root, ['push'], 120_000)

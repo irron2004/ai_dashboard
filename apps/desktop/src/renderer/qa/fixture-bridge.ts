@@ -296,7 +296,8 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
       }
       case CH.gitFetch:
       case CH.gitPull:
-      case CH.gitCommitPush:
+      case CH.gitCommit:
+      case CH.gitPush:
         return Promise.resolve({ ok: true, reason: 'Fixture git operation completed' })
       default:
         return Promise.reject(new Error(`FixtureBridge has no response for IPC channel: ${channel}`))

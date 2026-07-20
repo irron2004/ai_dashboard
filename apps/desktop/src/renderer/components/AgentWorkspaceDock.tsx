@@ -165,6 +165,7 @@ export function AgentWorkspaceDock({
   const restartAgent = useStore((state) => state.restartAgent)
   const resumeAgentSession = useStore((state) => state.resumeAgentSession)
   const stopAgent = useStore((state) => state.stopAgent)
+  const setActiveWorktree = useStore((state) => state.setActiveWorktree)
 
   const [projectDocks, setProjectDocks] = useState<Record<string, ProjectDock>>({})
   const [slotsByWorkspace, setSlotsByWorkspace] = useState<Record<string, AgentSlot[]>>({})
@@ -217,6 +218,7 @@ export function AgentWorkspaceDock({
         ? preferredPath
         : (worktrees.find((worktree) => worktree.isMain)?.path ?? worktrees[0]?.path ?? null)
       activePathRef.current[projectId] = activePath
+      setActiveWorktree(projectId, activePath)
       if (activePath) ensureWorkspace(projectId, activePath)
       setProjectDocks((previous) => {
         const validPaths = new Set(worktrees.map((worktree) => worktree.path))
@@ -232,6 +234,7 @@ export function AgentWorkspaceDock({
       const worktrees = fallbackWorktrees(project)
       const activePath = worktrees[0]?.path ?? null
       activePathRef.current[projectId] = activePath
+      setActiveWorktree(projectId, activePath)
       if (activePath) ensureWorkspace(projectId, activePath)
       setProjectDocks((previous) => ({
         ...previous,
@@ -247,7 +250,7 @@ export function AgentWorkspaceDock({
     } finally {
       loadingProjectsRef.current.delete(projectId)
     }
-  }, [ensureWorkspace, projects])
+  }, [ensureWorkspace, projects, setActiveWorktree])
 
   useEffect(() => {
     if (selectedProjectId) void loadWorktrees(selectedProjectId)
@@ -307,6 +310,7 @@ export function AgentWorkspaceDock({
   const selectWorktree = (projectId: string, worktreePath: string) => {
     ensureWorkspace(projectId, worktreePath)
     activePathRef.current[projectId] = worktreePath
+    setActiveWorktree(projectId, worktreePath)
     try { localStorage.setItem(activeWorktreeStorageKey(projectId), worktreePath) } catch { /* ignore */ }
     setProjectDocks((previous) => {
       const dock = previous[projectId]

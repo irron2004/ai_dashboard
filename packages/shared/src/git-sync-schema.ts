@@ -34,5 +34,6 @@ export const GitSyncResultSchema = z.object({
   reason: z.string().optional(),
   output: z.string().optional(),
   status: GitSyncStatusSchema.optional(),
+  committedSha: z.string().optional(),
 })
 export type GitSyncResult = z.infer<typeof GitSyncResultSchema>

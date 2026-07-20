@@ -22,7 +22,7 @@ import type {
   ConfigEditReq, ConfigPreviewRes, ConfigApplyRes, ConfigRollbackReq, ConfigRollbackRes,
   FsReadDocReq, FsReadDocRes, FsListDocsReq, FsListDocsRes,
   ChangesListReq, ChangesListRes, ChangesDiffReq, ChangesDiffRes,
-  GitStatusReq, GitStatusRes, GitWorktreesReq, GitWorktreesRes, GitFetchReq, GitPullReq, GitCommitPushReq, GitSyncRes,
+  GitStatusReq, GitStatusRes, GitWorktreesReq, GitWorktreesRes, GitFetchReq, GitPullReq, GitCommitReq, GitPushReq, GitSyncRes,
   HarnessNodesEvent,
   PaneRef, WorkspaceRestore,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
@@ -240,8 +240,11 @@ export const api = {
   gitPull(req: GitPullReq): Promise<GitSyncRes> {
     return window.apc.invoke(CH.gitPull, req) as Promise<GitSyncRes>
   },
-  gitCommitPush(req: GitCommitPushReq): Promise<GitSyncRes> {
-    return window.apc.invoke(CH.gitCommitPush, req) as Promise<GitSyncRes>
+  gitCommit(req: GitCommitReq): Promise<GitSyncRes> {
+    return window.apc.invoke(CH.gitCommit, req) as Promise<GitSyncRes>
+  },
+  gitPush(req: GitPushReq): Promise<GitSyncRes> {
+    return window.apc.invoke(CH.gitPush, req) as Promise<GitSyncRes>
   },
 
   // PTY (event-based)

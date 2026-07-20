@@ -24,6 +24,9 @@ export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
 type ApcStore = {
   projects: Project[]
   selectedProjectId: string | null
+  /** Agent dock selection, shared by terminal, Git, diff and Learning Gate surfaces. */
+  activeWorktrees: Record<string, string | null>
+  setActiveWorktree(projectId: string, worktreePath: string | null): void
   dashboard: ProjectDashboardRes | null
   workspaceOverview: WorkspaceOverview | null
   resumeCard: ResumeCard | null
@@ -151,6 +154,10 @@ function updateHarnessConfig(state: ApcStore, projectId: string, next: HarnessCo
 export const useStore = create<ApcStore>((set, get) => ({
   projects: [],
   selectedProjectId: null,
+  activeWorktrees: {},
+  setActiveWorktree: (projectId, worktreePath) => set((state) => ({
+    activeWorktrees: { ...state.activeWorktrees, [projectId]: worktreePath },
+  })),
   dashboard: null,
   workspaceOverview: null,
   resumeCard: null,

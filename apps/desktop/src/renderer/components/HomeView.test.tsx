@@ -27,7 +27,8 @@ const gitStatus = vi.fn(async () => ({
   files: [{ path: 'src/x.ts', status: 'modified', staged: false, unstaged: true, conflict: false }],
   warnings: [],
 }))
-const gitCommitPush = vi.fn(async () => ({ ok: true, status: { ok: true, detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] } }))
+const gitCommit = vi.fn(async () => ({ ok: true, committedSha: 'a'.repeat(40), status: { ok: true, detached: false, ahead: 1, behind: 0, hasChanges: false, files: [], warnings: [] } }))
+const gitPush = vi.fn(async () => ({ ok: true, status: { ok: true, detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] } }))
 vi.mock('../api.js', () => ({
   api: new Proxy({}, {
     get: (_t, prop) => {
@@ -35,7 +36,8 @@ vi.mock('../api.js', () => ({
       if (prop === 'changesList') return (...a: unknown[]) => changesList(...a as [])
       if (prop === 'changesDiff') return (...a: unknown[]) => changesDiff(...a as [])
       if (prop === 'gitStatus') return (...a: unknown[]) => gitStatus(...a as [])
-      if (prop === 'gitCommitPush') return (...a: unknown[]) => gitCommitPush(...a as [])
+      if (prop === 'gitCommit') return (...a: unknown[]) => gitCommit(...a as [])
+      if (prop === 'gitPush') return (...a: unknown[]) => gitPush(...a as [])
       return vi.fn(async () => ({ ok: true, sources: 0, sessions: 0, documents: 0 }))
     },
   }),
@@ -49,7 +51,7 @@ const dashboard: ProjectDashboardRes = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useStore.setState({ selectedProjectId: 'p1', dashboard, ingesting: false })
+  useStore.setState({ selectedProjectId: 'p1', activeWorktrees: {}, dashboard, ingesting: false })
 })
 
 describe('HomeView', () => {
@@ -94,12 +96,13 @@ describe('ProjectDocumentsView', () => {
     expect(screen.queryByText('태스크 보드')).toBeNull()
   })
 
-  test('Git sync panel commits only selected files with a message', async () => {
+  test('Git sync panel commits selected files without pushing', async () => {
     render(<ProjectDocumentsView dashboard={dashboard} />)
     expect(await screen.findByText('Git 동기화')).toBeDefined()
     fireEvent.click((await screen.findAllByText('src/x.ts'))[0])
     fireEvent.change(screen.getByPlaceholderText(/feat: add git sync panel/), { target: { value: 'test: sync selected file' } })
-    fireEvent.click(screen.getByRole('button', { name: /Commit & Push/ }))
-    await waitFor(() => expect(gitCommitPush).toHaveBeenCalledWith({ projectId: 'p1', files: ['src/x.ts'], message: 'test: sync selected file' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Commit$/ }))
+    await waitFor(() => expect(gitCommit).toHaveBeenCalledWith({ projectId: 'p1', files: ['src/x.ts'], message: 'test: sync selected file', worktreePath: undefined }))
+    expect(gitPush).not.toHaveBeenCalled()
   })
 })
