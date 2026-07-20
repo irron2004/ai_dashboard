@@ -7,6 +7,7 @@ import { resumeCommand, findLatestSession, adapterFor } from '@apc/agents'
 import type { AgentKind, AgentPaneIdentity } from '@apc/shared'
 import { CH } from '../shared/ipc-contract.js'
 import type { AgentRuntimeCoordinatorEvent } from './agent-runtime-coordinator.js'
+import { buildPtyEnvironment, localPtyEnvironmentKind } from './pty-environment.js'
 
 export type IPtyLike = {
   onData(cb: (data: string) => void): void
@@ -153,8 +154,12 @@ export class PtyManager {
     }
 
     try {
+      const environment = buildPtyEnvironment({
+        kind: ssh ? 'ssh' : localPtyEnvironmentKind(process.env),
+        env: process.env,
+      })
       const child = pty.spawn(file, spawnArgs, {
-        name: 'xterm-256color', cols: 120, rows: 30, cwd: spawnCwd, env: process.env,
+        name: 'xterm-256color', cols: 120, rows: 30, cwd: spawnCwd, env: environment.env,
       })
       if (this.latestLaunch.get(id) !== launchId) {
         try { child.kill() } catch { /* superseded during spawn */ }

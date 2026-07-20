@@ -3,10 +3,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const startPty = vi.fn()
 const writePty = vi.fn()
+const resizePty = vi.fn()
 const clipboardReadText = vi.fn()
 const terminalInstances: Array<{
+  unicode: { activeVersion: string }
+  options: { fontFamily?: string; fontSize?: number }
   modes: { bracketedPasteMode: boolean }
   paste: ReturnType<typeof vi.fn>
+  refresh: ReturnType<typeof vi.fn>
   selection: string
   keyHandler?: (event: KeyboardEvent) => boolean
   dataHandler?: (data: string) => void
@@ -18,8 +22,9 @@ vi.mock('../api.js', () => ({
     startPty: (req: unknown) => startPty(req),
     killPty: vi.fn(),
     writePty: (req: unknown) => writePty(req),
-    resizePty: vi.fn(),
+    resizePty: (req: unknown) => resizePty(req),
     clipboardReadText: () => clipboardReadText(),
+    terminalGetPreferences: vi.fn(() => Promise.resolve({ ok: false })),
     onPtyData: () => () => {},
     onPtyExit: () => () => {},
   },
@@ -29,16 +34,22 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = 80
     rows = 24
+    unicode = { activeVersion: '6' }
+    options: { fontFamily?: string; fontSize?: number }
     modes = { bracketedPasteMode: true }
     paste = vi.fn()
+    refresh = vi.fn()
     selection = ''
     keyHandler?: (event: KeyboardEvent) => boolean
     dataHandler?: (data: string) => void
     output: string[] = []
-    constructor() { terminalInstances.push(this) }
+    constructor(options: { fontFamily?: string; fontSize?: number } = {}) {
+      this.options = { ...options }
+      terminalInstances.push(this)
+    }
     loadAddon() {}
     open() {}
-    write(value: string) { this.output.push(value) }
+    write(value: string, callback?: () => void) { this.output.push(value); callback?.() }
     dispose() {}
     getSelection() { return this.selection }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) { this.keyHandler = handler }
@@ -47,6 +58,7 @@ vi.mock('@xterm/xterm', () => ({
   },
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
+vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class { activate() {}; dispose() {} } }))
 
 import { AgentTerminal } from './AgentTerminal.js'
 
@@ -66,6 +78,13 @@ beforeEach(() => {
 })
 
 describe('AgentTerminal', () => {
+  it('activates Unicode 11 and starts with a CJK-capable font stack', () => {
+    render(<AgentTerminal sessionId="pane-1" command="" args={[]} cwd="/repo" />)
+
+    expect(terminalInstances[0].unicode.activeVersion).toBe('11')
+    expect(terminalInstances[0].options.fontFamily).toContain('D2Coding')
+  })
+
   it('re-spawns the pty when restartNonce changes', () => {
     const props = { sessionId: 'p1:claude', command: 'claude', args: [] as string[], cwd: '/x', agent: 'claude' as const }
     const { rerender } = render(<AgentTerminal {...props} restartNonce={0} />)

@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
+import './terminal.css'
 import { api } from '../api.js'
 import { TerminalPasteController, multilinePasteMessage, type TerminalNotice } from '../terminal-paste-controller.js'
 import { TerminalQuestionBuffer } from '../terminal-question-buffer.js'
+import {
+  DEFAULT_TERMINAL_FONT_FAMILY,
+  TerminalRenderCoordinator,
+  activateUnicode11,
+  inspectTerminalFonts,
+  type TerminalFontDiagnostic,
+  type TerminalFontProbeResult,
+} from '../terminal-rendering.js'
 import { TerminalContextMenu } from './TerminalContextMenu.js'
 
 export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
@@ -20,11 +30,39 @@ export type AgentTerminalProps = {
   onStatus?: (status: AgentRunStatus) => void
   onActivate?: () => void
   onQuestionCandidate?: (text: string) => void
+  onRenderingDiagnostic?: (diagnostic: TerminalFontDiagnostic) => void
 }
 
 // Heuristic: agent CLIs print prompts when they need the user to approve/permit something.
 const ATTENTION_RE = /(\(y\/n\)|\[y\/n\]|\by\/n\b|allow\b|permission|approve|proceed\?|grant|do you want)/i
 const SECURE_PROMPT_RE = /(?:password|passphrase|pin|verification code|one[- ]time code)\s*[:?]?\s*$/i
+
+function probeBrowserFont(family: string, sample: string, fontSize: number): TerminalFontProbeResult {
+  if (!document.fonts) return { installed: true, glyphs: true }
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  if (!context) return { installed: true, glyphs: true }
+  const escaped = family.replace(/"/g, '\\"')
+  const quoted = `"${escaped}"`
+  const genericFamilies = ['monospace', 'serif', 'sans-serif'] as const
+  const probeText = 'mmmmmmmmmmlliWW@@'
+  const measure = (text: string, stack: string) => {
+    context.font = `${fontSize}px ${stack}`
+    return context.measureText(text).width
+  }
+  const installed = genericFamilies.some((fallback) => (
+    Math.abs(measure(probeText, `${quoted}, ${fallback}`) - measure(probeText, fallback)) > 0.01
+  ))
+  if (!installed) return { installed: false, glyphs: false }
+
+  const fallbackWidths = genericFamilies.map((fallback) => measure(sample, `${quoted}, ${fallback}`))
+  const stableAcrossFallbacks = Math.max(...fallbackWidths) - Math.min(...fallbackWidths) < 0.01
+  const declaration = `${fontSize}px ${quoted}`
+  return {
+    installed: true,
+    glyphs: stableAcrossFallbacks && document.fonts.check(declaration, sample),
+  }
+}
 
 /**
  * Agent Work Execution Panel terminal. Spawns a PTY in the main process and mirrors it
@@ -32,12 +70,13 @@ const SECURE_PROMPT_RE = /(?:password|passphrase|pin|verification code|one[- ]ti
  */
 export function AgentTerminal({
   sessionId, command, args, cwd, agent, resumeSessionId, restartNonce,
-  onStatus, onActivate, onQuestionCandidate,
+  onStatus, onActivate, onQuestionCandidate, onRenderingDiagnostic,
 }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const pasteControllerRef = useRef<TerminalPasteController | null>(null)
   const [notice, setNotice] = useState<TerminalNotice | null>(null)
+  const [renderingDiagnostic, setRenderingDiagnostic] = useState<TerminalFontDiagnostic | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   // keep callbacks in refs so a new identity each render doesn't remount the terminal
   const onStatusRef = useRef(onStatus)
@@ -46,16 +85,63 @@ export function AgentTerminal({
   onActivateRef.current = onActivate
   const onQuestionCandidateRef = useRef(onQuestionCandidate)
   onQuestionCandidateRef.current = onQuestionCandidate
+  const onRenderingDiagnosticRef = useRef(onRenderingDiagnostic)
+  onRenderingDiagnosticRef.current = onRenderingDiagnostic
 
   useEffect(() => {
     if (!hostRef.current) return
-    const term = new Terminal({ convertEol: true, fontSize: 13, cursorBlink: true })
+    const host = hostRef.current
+    const term = new Terminal({
+      convertEol: true,
+      fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
+      fontSize: 13,
+      cursorBlink: true,
+    })
     const fit = new FitAddon()
+    const unicode11 = new Unicode11Addon()
     const questionBuffer = new TerminalQuestionBuffer()
+    activateUnicode11(term, unicode11)
     term.loadAddon(fit)
-    term.open(hostRef.current)
-    fit.fit()
+    term.open(host)
     terminalRef.current = term
+
+    const requestFrame = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16)
+    const cancelFrame = typeof window.cancelAnimationFrame === 'function'
+      ? window.cancelAnimationFrame.bind(window)
+      : window.clearTimeout.bind(window)
+    const renderCoordinator = new TerminalRenderCoordinator({
+      fit: () => fit.fit(),
+      dimensions: () => ({ cols: term.cols, rows: term.rows }),
+      resize: (cols, rows) => { void api.resizePty({ id: sessionId, cols, rows }) },
+      refresh: (start, end) => term.refresh(start, end),
+      requestFrame,
+      cancelFrame,
+    })
+
+    let disposed = false
+    const updateFontDiagnostic = () => {
+      if (disposed) return
+      const diagnostic = inspectTerminalFonts(
+        (family, sample) => probeBrowserFont(family, sample, term.options.fontSize ?? 13),
+        term.options.fontFamily ?? DEFAULT_TERMINAL_FONT_FAMILY,
+      )
+      setRenderingDiagnostic(diagnostic)
+      onRenderingDiagnosticRef.current?.(diagnostic)
+    }
+    updateFontDiagnostic()
+    renderCoordinator.schedule()
+
+    void api.terminalGetPreferences()
+      .then((result) => {
+        if (disposed || !result.ok || !result.preferences) return
+        term.options.fontFamily = result.preferences.fontFamily || DEFAULT_TERMINAL_FONT_FAMILY
+        term.options.fontSize = result.preferences.fontSize
+        updateFontDiagnostic()
+        renderCoordinator.schedule()
+      })
+      .catch(() => { /* preferences are optional during an older-main upgrade */ })
 
     const pasteController = new TerminalPasteController({
       readClipboard: () => api.clipboardReadText(),
@@ -73,13 +159,13 @@ export function AgentTerminal({
     onStatusRef.current?.('running')
     const offData = api.onPtyData((id, data) => {
       if (id !== sessionId) return
-      term.write(data)
+      term.write(data, () => renderCoordinator.schedule())
       if (ATTENTION_RE.test(data)) onStatusRef.current?.('attention')
       if (SECURE_PROMPT_RE.test(data.trimEnd())) questionBuffer.setSecurePrompt(true)
     })
     const offExit = api.onPtyExit((id, code) => {
       if (id !== sessionId) return
-      term.write(`\r\n[process exited: ${code}]\r\n`)
+      term.write(`\r\n[process exited: ${code}]\r\n`, () => renderCoordinator.schedule())
       onStatusRef.current?.('done')
     })
     // Activation (pane grow) is click-only — see onMouseDown on the host below. Typing does NOT activate.
@@ -102,19 +188,30 @@ export function AgentTerminal({
       sessionId: resumeSessionId ?? undefined,
     })
 
-    const onResize = () => {
-      try {
-        fit.fit()
-        api.resizePty({ id: sessionId, cols: term.cols, rows: term.rows })
-      } catch { /* not attached */ }
+    const scheduleRender = () => renderCoordinator.schedule()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') scheduleRender()
     }
-    window.addEventListener('resize', onResize)
-    const ro = new ResizeObserver(onResize)
-    ro.observe(hostRef.current)
+    window.addEventListener('resize', scheduleRender)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    host.addEventListener('transitionend', scheduleRender)
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleRender)
+    ro?.observe(host)
+    document.fonts?.addEventListener('loadingdone', scheduleRender)
+    void document.fonts?.ready.then(() => {
+      if (disposed) return
+      updateFontDiagnostic()
+      scheduleRender()
+    })
 
     return () => {
-      window.removeEventListener('resize', onResize)
-      ro.disconnect()
+      disposed = true
+      window.removeEventListener('resize', scheduleRender)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      host.removeEventListener('transitionend', scheduleRender)
+      document.fonts?.removeEventListener('loadingdone', scheduleRender)
+      ro?.disconnect()
+      renderCoordinator.dispose()
       inputSub.dispose()
       selSub.dispose()
       pasteController.dispose()
@@ -143,6 +240,9 @@ export function AgentTerminal({
       <div ref={hostRef} className="agent-terminal" style={{ width: '100%', height: '100%' }} />
       <div className={`agent-terminal__notice agent-terminal__notice--${notice?.kind ?? 'info'}`} role="status" aria-live="polite">
         {notice?.message ?? ''}
+      </div>
+      <div className="agent-terminal__diagnostic" aria-live="polite">
+        {renderingDiagnostic?.warnings.join(' · ') ?? ''}
       </div>
       {contextMenu && (
         <TerminalContextMenu
