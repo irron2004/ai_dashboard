@@ -9,6 +9,12 @@ export function openDb(file: string): Db {
   return db
 }
 
+/** SQLite has no portable `ADD COLUMN IF NOT EXISTS`; probe before upgrading legacy DBs. */
+function addColumnIfMissing(db: Db, table: string, column: string, ddl: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  if (!columns.some((entry) => entry.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+}
+
 export function migrate(db: Db): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
@@ -17,6 +23,10 @@ export function migrate(db: Db): void {
       status       TEXT NOT NULL,
       goal         TEXT,
       current_focus TEXT,
+      goal_source  TEXT,
+      goal_confirmed_at TEXT,
+      current_focus_source TEXT,
+      current_focus_confirmed_at TEXT,
       start_date   TEXT,
       target_date  TEXT,
       project_type TEXT NOT NULL,
@@ -40,9 +50,20 @@ export function migrate(db: Db): void {
     );
   `)
 
-  // Idempotent column add: node:sqlite has no "ADD COLUMN IF NOT EXISTS", so probe first.
-  const cols = db.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>
-  if (!cols.some((c) => c.name === 'domain')) {
-    db.exec(`ALTER TABLE projects ADD COLUMN domain TEXT NOT NULL DEFAULT 'project-docs'`)
-  }
+  addColumnIfMissing(db, 'projects', 'domain', "domain TEXT NOT NULL DEFAULT 'project-docs'")
+  addColumnIfMissing(db, 'projects', 'goal_source', 'goal_source TEXT')
+  addColumnIfMissing(db, 'projects', 'goal_confirmed_at', 'goal_confirmed_at TEXT')
+  addColumnIfMissing(db, 'projects', 'current_focus_source', 'current_focus_source TEXT')
+  addColumnIfMissing(db, 'projects', 'current_focus_confirmed_at', 'current_focus_confirmed_at TEXT')
+
+  // Values that existed before provenance support were user-managed registry data. Backfill once.
+  const migratedAt = new Date().toISOString()
+  db.prepare(
+    `UPDATE projects SET goal_source = 'user', goal_confirmed_at = COALESCE(goal_confirmed_at, ?)
+     WHERE goal IS NOT NULL AND TRIM(goal) <> '' AND goal_source IS NULL`,
+  ).run(migratedAt)
+  db.prepare(
+    `UPDATE projects SET current_focus_source = 'user', current_focus_confirmed_at = COALESCE(current_focus_confirmed_at, ?)
+     WHERE current_focus IS NOT NULL AND TRIM(current_focus) <> '' AND current_focus_source IS NULL`,
+  ).run(migratedAt)
 }

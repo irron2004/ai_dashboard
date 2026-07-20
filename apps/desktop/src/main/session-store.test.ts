@@ -45,4 +45,46 @@ describe('SessionStore', () => {
     store.upsertPane({ projectId: 'p1', agent: 'claude', wasOpen: true })
     expect(store.listOpenPanes()).toEqual([{ projectId: 'p1', agent: 'claude', lastSessionId: 'a' }])
   })
+
+  test('v2 keeps duplicate agent panes isolated by worktree and slot', () => {
+    store.upsertPane({
+      paneId: 'pane-main', projectId: 'p1', worktreePath: '/repo', slotId: 'codex-1',
+      agent: 'codex', lastSessionId: 'main-session', wasOpen: true,
+    })
+    store.upsertPane({
+      paneId: 'pane-feature', projectId: 'p1', worktreePath: '/repo-feature', slotId: 'codex-1',
+      agent: 'codex', lastSessionId: 'feature-session', wasOpen: true,
+    })
+
+    expect(store.listOpenPaneRecords()).toEqual([
+      {
+        paneId: 'pane-main', projectId: 'p1', worktreePath: '/repo', slotId: 'codex-1',
+        agent: 'codex', lastSessionId: 'main-session', wasOpen: true,
+      },
+      {
+        paneId: 'pane-feature', projectId: 'p1', worktreePath: '/repo-feature', slotId: 'codex-1',
+        agent: 'codex', lastSessionId: 'feature-session', wasOpen: true,
+      },
+    ])
+  })
+
+  test('ensureSchema migrates legacy rows into the primary worktree first slot once', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec(`
+      CREATE TABLE workspace_pane (
+        project_id TEXT NOT NULL, agent TEXT NOT NULL, last_session_id TEXT,
+        last_active TEXT, was_open INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (project_id, agent)
+      );
+      INSERT INTO workspace_pane VALUES ('p1', 'claude', 'legacy-session', '2026-07-20T00:00:00Z', 1);
+    `)
+    const migrated = new SessionStore(db, { primaryWorktreeForProject: () => '/repo' })
+    migrated.ensureSchema()
+    migrated.ensureSchema()
+
+    expect(migrated.listOpenPaneRecords()).toEqual([{
+      paneId: 'legacy:p1:claude:1', projectId: 'p1', worktreePath: '/repo', slotId: 'claude-1',
+      agent: 'claude', lastSessionId: 'legacy-session', wasOpen: true,
+    }])
+  })
 })

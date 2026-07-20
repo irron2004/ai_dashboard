@@ -23,7 +23,13 @@ export function migratePm(db: Db): void {
       linked_wiki_pages   TEXT NOT NULL DEFAULT '[]',
       context_package TEXT,
       review_status TEXT NOT NULL DEFAULT 'none',
-      blocked_by    TEXT NOT NULL DEFAULT '[]'
+      blocked_by    TEXT NOT NULL DEFAULT '[]',
+      source        TEXT NOT NULL DEFAULT 'manual',
+      source_ref    TEXT,
+      created_at    TEXT,
+      updated_at    TEXT,
+      user_edited_at TEXT,
+      deleted_at    TEXT
     );
     CREATE TABLE IF NOT EXISTS agent_runs (
       id            TEXT PRIMARY KEY,
@@ -52,7 +58,11 @@ export function migratePm(db: Db): void {
       project_id TEXT NOT NULL,
       text       TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      done       INTEGER NOT NULL DEFAULT 0
+      done       INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT,
+      pinned     INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT,
+      converted_task_id TEXT
     );
     CREATE TABLE IF NOT EXISTS question_log (
       session_id TEXT NOT NULL,
@@ -114,6 +124,33 @@ export function migratePm(db: Db): void {
       reason    TEXT NOT NULL,
       ts        TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS agent_activity (
+      pane_id                    TEXT PRIMARY KEY,
+      project_id                 TEXT NOT NULL,
+      worktree_path              TEXT NOT NULL,
+      slot_id                    TEXT NOT NULL,
+      agent                      TEXT NOT NULL,
+      session_id                 TEXT,
+      launch_id                  TEXT NOT NULL,
+      connection                 TEXT NOT NULL,
+      phase                      TEXT NOT NULL,
+      process_alive              INTEGER NOT NULL DEFAULT 0,
+      last_activity_at           TEXT NOT NULL,
+      last_input_at              TEXT,
+      last_output_at             TEXT,
+      stale_since                TEXT,
+      current_label              TEXT,
+      last_question_display      TEXT,
+      last_question_asked_at     TEXT,
+      last_question_session_id   TEXT,
+      last_question_exchange_id  TEXT,
+      last_question_privacy      TEXT,
+      last_question_source       TEXT,
+      exit_code                  INTEGER,
+      reason                     TEXT,
+      revision                   INTEGER NOT NULL DEFAULT 0,
+      updated_at                 TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
     CREATE INDEX IF NOT EXISTS idx_runs_task ON agent_runs(task_id);
     CREATE INDEX IF NOT EXISTS idx_next_notes_project ON next_notes(project_id);
@@ -126,6 +163,7 @@ export function migratePm(db: Db): void {
     CREATE INDEX IF NOT EXISTS idx_receipts_target_issued ON review_receipts(target_id, issued_at DESC);
     CREATE INDEX IF NOT EXISTS idx_receipts_retro ON review_receipts(retro_id);
     CREATE INDEX IF NOT EXISTS idx_gate_events_ts ON gate_events(ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_activity_project ON agent_activity(project_id, updated_at DESC);
   `)
 
   // Upgrade path for DBs created before these columns existed.
@@ -134,4 +172,37 @@ export function migratePm(db: Db): void {
   addColumnIfMissing(db, 'tasks', 'acceptance_criteria', "acceptance_criteria TEXT NOT NULL DEFAULT '[]'")
   addColumnIfMissing(db, 'tasks', 'linked_wiki_pages', "linked_wiki_pages TEXT NOT NULL DEFAULT '[]'")
   addColumnIfMissing(db, 'tasks', 'blocked_by', "blocked_by TEXT NOT NULL DEFAULT '[]'")
+  addColumnIfMissing(db, 'tasks', 'source', "source TEXT NOT NULL DEFAULT 'manual'")
+  addColumnIfMissing(db, 'tasks', 'source_ref', 'source_ref TEXT')
+  addColumnIfMissing(db, 'tasks', 'created_at', 'created_at TEXT')
+  addColumnIfMissing(db, 'tasks', 'updated_at', 'updated_at TEXT')
+  addColumnIfMissing(db, 'tasks', 'user_edited_at', 'user_edited_at TEXT')
+  addColumnIfMissing(db, 'tasks', 'deleted_at', 'deleted_at TEXT')
+
+  addColumnIfMissing(db, 'next_notes', 'updated_at', 'updated_at TEXT')
+  addColumnIfMissing(db, 'next_notes', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0')
+  addColumnIfMissing(db, 'next_notes', 'archived_at', 'archived_at TEXT')
+  addColumnIfMissing(db, 'next_notes', 'converted_task_id', 'converted_task_id TEXT')
+
+  const migratedAt = new Date().toISOString()
+  db.prepare(
+    `UPDATE tasks SET source = 'conversation'
+     WHERE id LIKE 'req:%' OR id LIKE 'todo:%'`,
+  ).run()
+  db.prepare(
+    `UPDATE tasks SET source = 'review'
+     WHERE id LIKE 'auto-%' AND source = 'manual'`,
+  ).run()
+  db.prepare(
+    `UPDATE tasks SET created_at = ?
+     WHERE created_at IS NULL OR created_at = ''`,
+  ).run(migratedAt)
+  db.prepare(
+    `UPDATE tasks SET updated_at = COALESCE(NULLIF(updated_at, ''), created_at, ?)
+     WHERE updated_at IS NULL OR updated_at = ''`,
+  ).run(migratedAt)
+  db.prepare(
+    `UPDATE next_notes SET updated_at = created_at
+     WHERE updated_at IS NULL OR updated_at = ''`,
+  ).run()
 }
