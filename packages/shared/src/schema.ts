@@ -8,6 +8,8 @@ export type AgentType = AgentKind
 export const ProjectType = z.enum(['git', 'obsidian', 'hybrid'])
 export const ProjectStatus = z.enum(['active', 'maintenance', 'paused', 'archived'])
 export const ProjectDomain = z.enum(['project-docs', 'paper'])
+export const ProjectContextSource = z.enum(['user', 'agent'])
+export type ProjectContextSource = z.infer<typeof ProjectContextSource>
 
 export const ProjectSchema = z.object({
   id: z.string().min(1),
@@ -15,6 +17,10 @@ export const ProjectSchema = z.object({
   status: ProjectStatus,
   goal: z.string().optional(),
   currentFocus: z.string().optional(),
+  goalSource: ProjectContextSource.optional(),
+  goalConfirmedAt: z.string().optional(),
+  currentFocusSource: ProjectContextSource.optional(),
+  currentFocusConfirmedAt: z.string().optional(),
   startDate: z.string().optional(),
   targetDate: z.string().optional(),
   projectType: ProjectType,
@@ -30,6 +36,8 @@ export const ReviewStatus = z.enum(['none', 'pending', 'approved', 'needs_change
 // Value + type merge: consumers import `type TaskStatus` / `type ReviewStatus` to type columns/params.
 export type TaskStatus = z.infer<typeof TaskStatus>
 export type ReviewStatus = z.infer<typeof ReviewStatus>
+export const TaskSource = z.enum(['manual', 'conversation', 'note', 'review', 'system'])
+export type TaskSource = z.infer<typeof TaskSource>
 
 export const TaskSchema = z.object({
   id: z.string().min(1),
@@ -47,8 +55,21 @@ export const TaskSchema = z.object({
   blockedBy: z.array(z.string()).default([]),
   contextPackage: z.string().optional(),
   reviewStatus: ReviewStatus.default('none'),
+  // Optional at the shared wire boundary so legacy fixtures and persisted rows still parse.
+  // Stores normalize these fields on read; every new producer must write them explicitly.
+  source: TaskSource.optional(),
+  sourceRef: z.string().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  userEditedAt: z.string().optional(),
+  deletedAt: z.string().optional(),
 })
 export type Task = z.infer<typeof TaskSchema>
+
+/** Legacy tasks predate provenance. Treat them as manual until the DB backfill runs. */
+export function taskSourceOf(task: Pick<Task, 'source'>): TaskSource {
+  return task.source ?? 'manual'
+}
 
 export const NextNoteSchema = z.object({
   id: z.string().min(1),
@@ -56,8 +77,20 @@ export const NextNoteSchema = z.object({
   text: z.string().min(1),
   createdAt: z.string(),
   done: z.boolean().default(false),
+  // Optional on the wire for pre-migration NextNote values. NextNoteStore returns normalized values.
+  updatedAt: z.string().optional(),
+  pinned: z.boolean().optional(),
+  archivedAt: z.string().optional(),
+  convertedTaskId: z.string().optional(),
 })
 export type NextNote = z.infer<typeof NextNoteSchema>
+
+export type NextNoteLifecycle = 'active' | 'completed' | 'archived'
+
+export function nextNoteLifecycle(note: Pick<NextNote, 'done' | 'archivedAt'>): NextNoteLifecycle {
+  if (note.archivedAt) return 'archived'
+  return note.done ? 'completed' : 'active'
+}
 
 export const QuestionLogEntrySchema = z.object({
   projectId: z.string(),

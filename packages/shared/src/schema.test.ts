@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { ProjectSchema, TaskSchema, AgentRunSchema, ReviewSchema, AgentKind } from './schema.js'
+import {
+  ProjectSchema, TaskSchema, AgentRunSchema, ReviewSchema, AgentKind,
+  NextNoteSchema, nextNoteLifecycle, taskSourceOf,
+} from './schema.js'
 
 describe('ProjectSchema', () => {
   test('parses a valid hybrid project', () => {
@@ -30,6 +33,20 @@ describe('ProjectSchema', () => {
       }),
     ).toThrow()
   })
+
+  test('preserves context provenance while accepting legacy projects', () => {
+    const legacy = ProjectSchema.parse({
+      id: 'legacy', name: 'Legacy', status: 'active', projectType: 'git',
+    })
+    expect(legacy.goalSource).toBeUndefined()
+
+    const suggested = ProjectSchema.parse({
+      id: 'new', name: 'New', status: 'active', projectType: 'git',
+      goal: 'Ship the dashboard', goalSource: 'agent',
+    })
+    expect(suggested.goalSource).toBe('agent')
+    expect(suggested.goalConfirmedAt).toBeUndefined()
+  })
 })
 
 describe('TaskSchema', () => {
@@ -55,6 +72,30 @@ describe('TaskSchema', () => {
       id: 'T2', projectId: 'p1', title: 'y', status: 'todo', blockedBy: ['T1'],
     })
     expect(b.blockedBy).toEqual(['T1'])
+  })
+
+  test('parses provenance and treats legacy tasks as manual', () => {
+    const legacy = TaskSchema.parse({ id: 'T1', projectId: 'p1', title: 'legacy', status: 'todo' })
+    expect(taskSourceOf(legacy)).toBe('manual')
+
+    const extracted = TaskSchema.parse({
+      id: 'T2', projectId: 'p1', title: 'from chat', status: 'todo',
+      source: 'conversation', sourceRef: 'session-1', createdAt: '2026-07-20T00:00:00Z',
+      updatedAt: '2026-07-20T00:00:00Z',
+    })
+    expect(taskSourceOf(extracted)).toBe('conversation')
+    expect(extracted.sourceRef).toBe('session-1')
+  })
+})
+
+describe('NextNoteSchema', () => {
+  test('derives an exclusive display lifecycle from legacy-compatible fields', () => {
+    const active = NextNoteSchema.parse({
+      id: 'N1', projectId: 'p1', text: 'remember', createdAt: '2026-07-20T00:00:00Z',
+    })
+    expect(nextNoteLifecycle(active)).toBe('active')
+    expect(nextNoteLifecycle({ ...active, done: true })).toBe('completed')
+    expect(nextNoteLifecycle({ ...active, done: true, archivedAt: '2026-07-21T00:00:00Z' })).toBe('archived')
   })
 })
 
