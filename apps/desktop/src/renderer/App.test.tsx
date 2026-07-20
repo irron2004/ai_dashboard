@@ -59,7 +59,10 @@ vi.mock('./components/FilePreviewPanel.js', () => ({
 }))
 vi.mock('./components/ProjectSidebar.js', () => ({
   ProjectSidebar: ({ onSelect }: { onSelect: (projectId: string) => void }) => (
-    <button type="button" onClick={() => onSelect('p1')}>sidebar project</button>
+    <>
+      <button type="button" onClick={() => onSelect('p1')}>sidebar project</button>
+      <button type="button" onClick={() => onSelect('p2')}>sidebar project two</button>
+    </>
   ),
 }))
 vi.mock('./components/MainPanel.js', () => ({
@@ -115,7 +118,11 @@ const project: Project = {
   id: 'p1', name: 'APC', status: 'active', projectType: 'git', domain: 'project-docs',
   repoPaths: ['/repo'], vaultPaths: [], sourcePaths: [],
 }
+const projectTwo: Project = {
+  ...project, id: 'p2', name: 'Second project', repoPaths: ['/repo-two'],
+}
 const dashboard = { project, activeTasks: [], reviewQueue: [], recentRuns: [], allTasks: [] }
+const dashboardTwo = { ...dashboard, project: projectTwo }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -265,6 +272,21 @@ describe('App project navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'open file preview' }))
 
     expect(screen.getByRole('complementary', { name: '파일 미리보기' }).textContent).toBe('docs/spec.md')
+  })
+
+  it('closes the old project preview immediately when switching projects', async () => {
+    useStore.setState({ selectedProjectId: 'p1', dashboard })
+    appMocks.projectDashboard.mockImplementation(async ({ projectId }: { projectId: string }) => (
+      projectId === 'p2' ? dashboardTwo : dashboard
+    ))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'open file preview' }))
+    expect(screen.getByRole('complementary', { name: '파일 미리보기' })).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'sidebar project two' }))
+
+    await waitFor(() => expect(useStore.getState().selectedProjectId).toBe('p2'))
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: '파일 미리보기' })).toBeNull())
   })
 
   it('routes a transcript-backed recent question to the exact history session', () => {
