@@ -46,16 +46,22 @@ export class ProjectRegistry {
 
   register(input: Project): void {
     const parsed = ProjectSchema.parse(input)
-    const now = this.now()
+    const needsGoalConfirmation = Boolean(
+      parsed.goal && !parsed.goalConfirmedAt && parsed.goalSource !== 'agent',
+    )
+    const needsFocusConfirmation = Boolean(
+      parsed.currentFocus && !parsed.currentFocusConfirmedAt && parsed.currentFocusSource !== 'agent',
+    )
+    const confirmationTime = needsGoalConfirmation || needsFocusConfirmation ? this.now() : undefined
     const p = ProjectSchema.parse({
       ...parsed,
       goalSource: parsed.goal ? (parsed.goalSource ?? 'user') : undefined,
       goalConfirmedAt: parsed.goal
-        ? (parsed.goalConfirmedAt ?? (parsed.goalSource === 'agent' ? undefined : now))
+        ? (parsed.goalConfirmedAt ?? (parsed.goalSource === 'agent' ? undefined : confirmationTime))
         : undefined,
       currentFocusSource: parsed.currentFocus ? (parsed.currentFocusSource ?? 'user') : undefined,
       currentFocusConfirmedAt: parsed.currentFocus
-        ? (parsed.currentFocusConfirmedAt ?? (parsed.currentFocusSource === 'agent' ? undefined : now))
+        ? (parsed.currentFocusConfirmedAt ?? (parsed.currentFocusSource === 'agent' ? undefined : confirmationTime))
         : undefined,
     })
     this.db
@@ -117,6 +123,67 @@ export class ProjectRegistry {
   /** Update an existing project in place (same id). Equivalent to register for a known id. */
   update(input: Project): void {
     this.register(input)
+  }
+
+  /** Apply a human-authored context patch. Supplying an empty string clears that field. */
+  updateUserContext(
+    id: string,
+    patch: { goal?: string | null; currentFocus?: string | null },
+  ): Project | undefined {
+    const current = this.get(id)
+    if (!current) return undefined
+    const now = this.now()
+    const hasGoal = Object.prototype.hasOwnProperty.call(patch, 'goal')
+    const hasFocus = Object.prototype.hasOwnProperty.call(patch, 'currentFocus')
+    const goal = hasGoal ? (patch.goal?.trim() || undefined) : current.goal
+    const currentFocus = hasFocus ? (patch.currentFocus?.trim() || undefined) : current.currentFocus
+    const updated: Project = {
+      ...current,
+      goal,
+      currentFocus,
+      goalSource: hasGoal ? (goal ? 'user' : undefined) : current.goalSource,
+      goalConfirmedAt: hasGoal ? (goal ? now : undefined) : current.goalConfirmedAt,
+      currentFocusSource: hasFocus ? (currentFocus ? 'user' : undefined) : current.currentFocusSource,
+      currentFocusConfirmedAt: hasFocus ? (currentFocus ? now : undefined) : current.currentFocusConfirmedAt,
+    }
+    this.update(updated)
+    return this.get(id)
+  }
+
+  /** Record an agent proposal only while the field has no user-confirmed value. */
+  proposeContext(
+    id: string,
+    field: 'goal' | 'currentFocus',
+    value: string,
+  ): { ok: true; project: Project } | { ok: false; reason: 'project-not-found' | 'confirmed-value-exists' | 'empty-value' } {
+    const current = this.get(id)
+    if (!current) return { ok: false, reason: 'project-not-found' }
+    const proposal = value.trim()
+    if (!proposal) return { ok: false, reason: 'empty-value' }
+    const confirmedAt = field === 'goal' ? current.goalConfirmedAt : current.currentFocusConfirmedAt
+    if (confirmedAt) return { ok: false, reason: 'confirmed-value-exists' }
+
+    const updated: Project = field === 'goal'
+      ? { ...current, goal: proposal, goalSource: 'agent', goalConfirmedAt: undefined }
+      : { ...current, currentFocus: proposal, currentFocusSource: 'agent', currentFocusConfirmedAt: undefined }
+    this.update(updated)
+    return { ok: true, project: this.get(id)! }
+  }
+
+  confirmContext(
+    id: string,
+    field: 'goal' | 'currentFocus',
+  ): { ok: true; project: Project } | { ok: false; reason: 'project-not-found' | 'empty-value' } {
+    const current = this.get(id)
+    if (!current) return { ok: false, reason: 'project-not-found' }
+    const value = field === 'goal' ? current.goal : current.currentFocus
+    if (!value?.trim()) return { ok: false, reason: 'empty-value' }
+    const confirmedAt = this.now()
+    const updated: Project = field === 'goal'
+      ? { ...current, goalConfirmedAt: confirmedAt }
+      : { ...current, currentFocusConfirmedAt: confirmedAt }
+    this.update(updated)
+    return { ok: true, project: this.get(id)! }
   }
 
   /** Delete a project; its project_source_map rows cascade (FK ON DELETE CASCADE). */

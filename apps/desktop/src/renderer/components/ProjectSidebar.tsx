@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import type { Project } from '@apc/shared'
+import type { ProjectContextConfirmReq, ProjectContextInput, ProjectContextMutRes } from '../../shared/ipc-contract.js'
 import { api } from '../api.js'
+import { ProjectContextFields, type ProjectContextField } from './ProjectContextFields.js'
+
+type ProjectSaveResult = void | { ok: boolean; reason?: string }
 
 type Props = {
   projects: Project[]
@@ -8,8 +12,9 @@ type Props = {
   collapsed: boolean
   onToggleCollapse: () => void
   onSelect: (projectId: string) => void
-  onAdd: (name: string, projectType: string, repoPath: string, domain: string) => void
-  onUpdate: (id: string, name: string, projectType: string, repoPath: string, domain: string) => void
+  onAdd: (name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput) => ProjectSaveResult | Promise<ProjectSaveResult>
+  onUpdate: (id: string, name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput) => ProjectSaveResult | Promise<ProjectSaveResult>
+  onConfirmContext?: (req: ProjectContextConfirmReq) => ProjectContextMutRes | Promise<ProjectContextMutRes>
   onDelete: (id: string) => void
   badges?: Record<string, { running: number; review: number }>
 }
@@ -32,7 +37,7 @@ const STATUS_LABEL: Record<Project['status'], string> = {
   archived: '보관됨',
 }
 
-export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggleCollapse, onSelect, onAdd, onUpdate, onDelete, badges = {} }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggleCollapse, onSelect, onAdd, onUpdate, onConfirmContext, onDelete, badges = {} }: Props) {
   const groups = groupByStatus(projects)
   const [showDialog, setShowDialog] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -41,6 +46,15 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
   const [projectType, setProjectType] = useState('git')
   const [pathMode, setPathMode] = useState<PathMode>('local')
   const [domain, setDomain] = useState<'project-docs' | 'paper'>('project-docs')
+  const [goal, setGoal] = useState('')
+  const [currentFocus, setCurrentFocus] = useState('')
+  const [goalSource, setGoalSource] = useState<Project['goalSource']>()
+  const [goalConfirmedAt, setGoalConfirmedAt] = useState<string>()
+  const [currentFocusSource, setCurrentFocusSource] = useState<Project['currentFocusSource']>()
+  const [currentFocusConfirmedAt, setCurrentFocusConfirmedAt] = useState<string>()
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [confirmingField, setConfirmingField] = useState<ProjectContextField | null>(null)
 
   // local
   const [repoPath, setRepoPath] = useState('')
@@ -57,6 +71,9 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
     setName(''); setRepoPath(''); setProjectType('git'); setPathMode('local')
     setSshHost(''); setSshPort('22'); setSshUser(''); setSshPath('')
     setSshStatus('idle'); setSshError(''); setEditingId(null); setDomain('project-docs')
+    setGoal(''); setCurrentFocus(''); setGoalSource(undefined); setGoalConfirmedAt(undefined)
+    setCurrentFocusSource(undefined); setCurrentFocusConfirmedAt(undefined)
+    setSaving(false); setSaveError(''); setConfirmingField(null)
   }
 
   const openAdd = () => { resetForm(); setShowDialog(true) }
@@ -67,6 +84,12 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
     setName(p.name)
     setProjectType(p.projectType)
     setDomain((p.domain ?? 'project-docs') as 'project-docs' | 'paper')
+    setGoal(p.goal ?? '')
+    setCurrentFocus(p.currentFocus ?? '')
+    setGoalSource(p.goalSource)
+    setGoalConfirmedAt(p.goalConfirmedAt)
+    setCurrentFocusSource(p.currentFocusSource)
+    setCurrentFocusConfirmedAt(p.currentFocusConfirmedAt)
     const path = p.repoPaths[0] ?? ''
     if (path.startsWith('ssh://')) {
       setPathMode('ssh')
@@ -106,7 +129,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
     }
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!name.trim()) return
     let finalPath = ''
     if (pathMode === 'local') {
@@ -115,10 +138,43 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
       if (!sshHost || !sshUser || !sshPath) return
       finalPath = `ssh://${sshUser}@${sshHost}:${sshPort}${sshPath}`
     }
-    if (editingId) onUpdate(editingId, name.trim(), projectType, finalPath, domain)
-    else onAdd(name.trim(), projectType, finalPath, domain)
-    resetForm()
-    setShowDialog(false)
+    const context: ProjectContextInput = {
+      goal: goal.trim() || undefined,
+      currentFocus: currentFocus.trim() || undefined,
+    }
+    setSaving(true)
+    setSaveError('')
+    try {
+      const result = editingId
+        ? await onUpdate(editingId, name.trim(), projectType, finalPath, domain, context)
+        : await onAdd(name.trim(), projectType, finalPath, domain, context)
+      if (result && !result.ok) throw new Error(result.reason ?? '프로젝트를 저장하지 못했습니다')
+      resetForm()
+      setShowDialog(false)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error))
+      setSaving(false)
+    }
+  }
+
+  const handleConfirmContext = async (field: ProjectContextField) => {
+    if (!editingId || !onConfirmContext) return
+    setConfirmingField(field)
+    setSaveError('')
+    try {
+      const result = await onConfirmContext({ projectId: editingId, field })
+      if (!result.ok || !result.project) throw new Error(result.reason ?? '제안을 확정하지 못했습니다')
+      setGoal(result.project.goal ?? '')
+      setCurrentFocus(result.project.currentFocus ?? '')
+      setGoalSource(result.project.goalSource)
+      setGoalConfirmedAt(result.project.goalConfirmedAt)
+      setCurrentFocusSource(result.project.currentFocusSource)
+      setCurrentFocusConfirmedAt(result.project.currentFocusConfirmedAt)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setConfirmingField(null)
+    }
   }
 
   const handleDelete = (p: Project) => {
@@ -243,7 +299,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
               }}
             >
               <button type="button" style={menuItemStyle} onClick={() => { setMenu(null); openEdit(target) }}>
-                ✎ 연결 편집
+                ✎ 프로젝트 편집
               </button>
               <button type="button" style={{ ...menuItemStyle, color: '#e06c6c' }} onClick={() => handleDelete(target)}>
                 🗑 삭제
@@ -254,7 +310,7 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
       })()}
 
       {showDialog && (
-        <div className="add-project-overlay" onClick={() => { resetForm(); setShowDialog(false) }}>
+        <div className="add-project-overlay" onClick={() => { if (!saving) { resetForm(); setShowDialog(false) } }}>
           <div className="add-project-dialog" onClick={(e) => e.stopPropagation()}>
             <h2>{editingId ? 'Edit Project' : 'New Project'}</h2>
 
@@ -277,6 +333,24 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
               <option value="project-docs">Project docs</option>
               <option value="paper">Paper (autosci)</option>
             </select>
+
+            <ProjectContextFields
+              goal={goal}
+              currentFocus={currentFocus}
+              goalSource={goalSource}
+              goalConfirmedAt={goalConfirmedAt}
+              currentFocusSource={currentFocusSource}
+              currentFocusConfirmedAt={currentFocusConfirmedAt}
+              disabled={saving}
+              confirmingField={confirmingField}
+              onGoalChange={(value) => {
+                setGoal(value); setGoalSource(value.trim() ? 'user' : undefined); setGoalConfirmedAt(undefined)
+              }}
+              onCurrentFocusChange={(value) => {
+                setCurrentFocus(value); setCurrentFocusSource(value.trim() ? 'user' : undefined); setCurrentFocusConfirmedAt(undefined)
+              }}
+              onConfirm={onConfirmContext ? handleConfirmContext : undefined}
+            />
 
             {/* Path mode toggle */}
             <div className="add-project-dialog__tabs">
@@ -336,15 +410,16 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
             {submitReason && (
               <p style={{ color: '#d9a', fontSize: '0.8rem', margin: '4px 0 0' }}>{submitReason}</p>
             )}
+            {saveError && <p role="alert" className="add-project-dialog__error">{saveError}</p>}
             <div className="add-project-dialog__actions">
-              <button type="button" onClick={() => { resetForm(); setShowDialog(false) }}>Cancel</button>
+              <button type="button" disabled={saving} onClick={() => { resetForm(); setShowDialog(false) }}>Cancel</button>
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={!!submitReason}
+                disabled={!!submitReason || saving}
                 style={{ background: '#2a4a2a', borderColor: '#4a8a4a', opacity: submitReason ? 0.5 : 1 }}
               >
-                {editingId ? 'Save' : 'Create'}
+                {saving ? 'Saving…' : editingId ? 'Save' : 'Create'}
               </button>
             </div>
           </div>
