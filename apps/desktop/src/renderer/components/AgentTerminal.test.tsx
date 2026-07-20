@@ -10,7 +10,7 @@ let ptyDataV2Callback: ((event: { id: string; launchId: string; data: string }) 
 let ptyExitV2Callback: ((event: { id: string; launchId: string; code: number }) => void) | null = null
 const terminalInstances: Array<{
   unicode: { activeVersion: string }
-  options: { fontFamily?: string; fontSize?: number }
+  options: { allowProposedApi?: boolean; fontFamily?: string; fontSize?: number }
   modes: { bracketedPasteMode: boolean }
   paste: ReturnType<typeof vi.fn>
   refresh: ReturnType<typeof vi.fn>
@@ -46,7 +46,7 @@ vi.mock('@xterm/xterm', () => ({
     cols = 80
     rows = 24
     unicode = { activeVersion: '6' }
-    options: { fontFamily?: string; fontSize?: number }
+    options: { allowProposedApi?: boolean; fontFamily?: string; fontSize?: number }
     modes = { bracketedPasteMode: true }
     paste = vi.fn()
     refresh = vi.fn()
@@ -54,7 +54,7 @@ vi.mock('@xterm/xterm', () => ({
     keyHandler?: (event: KeyboardEvent) => boolean
     dataHandler?: (data: string) => void
     output: string[] = []
-    constructor(options: { fontFamily?: string; fontSize?: number } = {}) {
+    constructor(options: { allowProposedApi?: boolean; fontFamily?: string; fontSize?: number } = {}) {
       this.options = { ...options }
       terminalInstances.push(this)
     }
@@ -95,6 +95,7 @@ describe('AgentTerminal', () => {
     render(<AgentTerminal sessionId="pane-1" command="" args={[]} cwd="/repo" />)
 
     expect(terminalInstances[0].unicode.activeVersion).toBe('11')
+    expect(terminalInstances[0].options.allowProposedApi).toBe(true)
     expect(terminalInstances[0].options.fontFamily).toContain('D2Coding')
   })
 

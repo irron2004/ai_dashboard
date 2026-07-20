@@ -94,6 +94,7 @@ export function AgentTerminal({
     if (!hostRef.current) return
     const host = hostRef.current
     const term = new Terminal({
+      allowProposedApi: true,
       convertEol: true,
       fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
       fontSize: 13,
