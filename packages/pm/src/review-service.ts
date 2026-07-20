@@ -32,9 +32,9 @@ export class ReviewService {
       const t = TaskSchema.parse({
         id: this.nextId(), projectId, title, status: 'todo',
         assigneeType: 'agent', priority: 'medium', reviewStatus: 'none',
+        source: 'review', sourceRef: review.id,
       })
-      this.tasks.create(t)
-      created.push(t)
+      created.push(this.tasks.create(t))
     }
     return created
   }

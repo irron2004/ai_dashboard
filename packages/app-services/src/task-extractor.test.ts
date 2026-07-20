@@ -44,9 +44,11 @@ describe('extractTasks', () => {
     expect(request.title).toBe('LLM Title')
     expect(request.assignee).toBe('claude')
     expect(request.contextPackage).toBe('s1')
+    expect(request).toMatchObject({ source: 'conversation', sourceRef: 's1' })
     expect(todos[0].id).toBe('todo:p1:s1:a')
     expect(todos[0].parentTaskId).toBe('req:p1:s1')
     expect(todos[0].status).toBe('todo')
+    expect(todos[0]).toMatchObject({ source: 'conversation', sourceRef: 's1:a' })
   })
   it('derives request status: in_progress if any open todo, else done', async () => {
     const open = session({ turns: [{ role: 'assistant', text: '', toolCalls: [todoCall([{ content: 'A', status: 'pending' }])] }] as NormalizedSession['turns'] })
@@ -133,5 +135,15 @@ describe('reconcileSessionTasks', () => {
     reconcileSessionTasks(store, 'p1', 's1', request, todos)
     const ids = store.listByProject('p1').map((t) => t.id).sort()
     expect(ids).toEqual(['req:p1:s1', 'todo:p1:s1:a', 'todo:p1:s1:b', 'todo:p1:s2:z'])
+  })
+
+  it('delegates vanished derived tasks to the preservation-aware removal hook', () => {
+    const store = fakeStore()
+    const removeMissingDerived = vi.fn(() => false)
+    Object.assign(store, { removeMissingDerived })
+    store.create(mk('todo:p1:s1:edited', { source: 'conversation', userEditedAt: '2026-07-20' }))
+    reconcileSessionTasks(store, 'p1', 's1', mk('req:p1:s1'), [])
+    expect(removeMissingDerived).toHaveBeenCalledWith('todo:p1:s1:edited')
+    expect(store.map.has('todo:p1:s1:edited')).toBe(true)
   })
 })

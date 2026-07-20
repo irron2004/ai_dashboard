@@ -39,6 +39,7 @@ describe('ReviewService.applyReview', () => {
     expect(created.map((t) => t.title)).toEqual(['do follow-up A', 'do follow-up B'])
     expect(tasks.get('TASK-NEW-1')!.status).toBe('todo')
     expect(tasks.get('TASK-NEW-2')!.projectId).toBe('p1')
+    expect(tasks.get('TASK-NEW-1')).toMatchObject({ source: 'review', sourceRef: 'REVIEW-1' })
   })
   test('persists the review row', () => {
     svc.applyReview(review('approved'))
