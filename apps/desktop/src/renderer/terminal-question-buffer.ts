@@ -98,6 +98,7 @@ export class TerminalQuestionBuffer {
 
   private submit(target: string[]): void {
     if (!this.securePrompt && this.reliable && this.value.trim()) target.push(this.value)
+    this.securePrompt = false
     this.resetLine()
   }
 
