@@ -62,6 +62,39 @@ describe('PmHome', () => {
     expect(within(nextUp).queryByText('needs review')).toBeNull()
   })
 
+  test('opens the shared editor from nextUp and refreshes only after a successful save', async () => {
+    const updated = { ...dashboard.allTasks[0], title: 'edited work' }
+    const invoke = vi.fn((channel: string) => Promise.resolve(
+      channel === CH.taskUpdate ? { ok: true, task: updated } : { ok: true },
+    ))
+    const onChanged = vi.fn()
+    ;(window as unknown as { apc: unknown }).apc = {
+      invoke,
+      onDevHarnessLog: () => () => {},
+      onDevHarnessStarted: () => () => {},
+    }
+    try {
+      render(<PmHome dashboard={dashboard} onChanged={onChanged} />)
+      fireEvent.click(within(screen.getByTestId('next-up')).getByRole('button', { name: 'do work 편집' }))
+      fireEvent.change(screen.getByLabelText('Task 제목'), { target: { value: 'edited work' } })
+      fireEvent.click(screen.getByRole('button', { name: '저장' }))
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith(CH.taskUpdate, {
+        projectId: 'p1', taskId: 'T1', title: 'edited work', status: 'in_progress', priority: 'high', dueDate: '2026-06-15',
+      }))
+      expect(onChanged).toHaveBeenCalled()
+      expect(screen.queryByRole('dialog', { name: 'Task 편집' })).toBeNull()
+    } finally {
+      delete (window as unknown as { apc?: unknown }).apc
+    }
+  })
+
+  test('opens a blank Task editor from the next-up heading', () => {
+    render(<PmHome dashboard={dashboard} />)
+    fireEvent.click(screen.getByRole('button', { name: '새 Task' }))
+    expect(screen.getByRole('dialog', { name: '새 Task' })).toBeDefined()
+    expect((screen.getByLabelText('Task 제목') as HTMLInputElement).value).toBe('')
+  })
+
   test('composes the exact 다음 할 일 task without selecting it again', async () => {
     const invoke = vi.fn((channel: string) => Promise.resolve(
       channel === CH.composeContext ? { ok: true, prompt: 'context for do work' } : { ok: true },

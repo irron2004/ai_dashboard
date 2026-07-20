@@ -1,6 +1,7 @@
-import { render, screen, within, fireEvent } from '@testing-library/react'
-import { describe, expect, test, vi } from 'vitest'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { Task } from '@apc/shared'
+import { CH } from '../../shared/ipc-contract.js'
 import { TaskBoard } from './TaskBoard.js'
 
 const t = (id: string, status: Task['status'], title: string, extra: Partial<Task> = {}): Task => ({
@@ -30,6 +31,12 @@ describe('TaskBoard', () => {
     const card = within(screen.getByTestId('col-in_progress')).getByText('build it').closest('.pm-board__card')!
     expect(within(card as HTMLElement).getByText('high')).toBeDefined()
     expect(within(card as HTMLElement).getByText('2026-06-10')).toBeDefined()
+  })
+
+  test('always identifies source and marks a user-edited Task', () => {
+    render(<TaskBoard tasks={[t('S1', 'todo', 'from note', { source: 'note', userEditedAt: '2026-07-20T10:00:00Z' })]} />)
+    expect(screen.getByText('출처: 메모 전환')).toBeDefined()
+    expect(screen.getByText('사용자 수정')).toBeDefined()
   })
 
   test('does not render a rejected column and shows — for empty columns', () => {
@@ -98,4 +105,46 @@ describe('TaskBoard', () => {
     expect((screen.getByRole('button', { name: 'already done 컨텍스트 조립' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'already done Harness 실행' }) as HTMLButtonElement).disabled).toBe(true)
   })
+
+  test('opens the exact Task and completes it only after persistence succeeds', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ ok: true, task: { ...tasks[1], status: 'done' } }))
+    const onOpenTask = vi.fn()
+    const onChanged = vi.fn()
+    ;(window as unknown as { apc: unknown }).apc = { invoke }
+    render(<TaskBoard tasks={[tasks[1]]} onOpenTask={onOpenTask} onChanged={onChanged} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'build it 편집' }))
+    expect(onOpenTask).toHaveBeenCalledWith(tasks[1])
+    fireEvent.click(screen.getByRole('button', { name: 'build it 완료' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(CH.taskUpdate, {
+      projectId: 'p1', taskId: 'T2', title: 'build it', status: 'done', priority: 'high', dueDate: '2026-06-10',
+    }))
+    expect(onChanged).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not notify a completion when persistence fails', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ ok: false, reason: 'write-failed' }))
+    const onChanged = vi.fn()
+    ;(window as unknown as { apc: unknown }).apc = { invoke }
+    render(<TaskBoard tasks={[tasks[0]]} onChanged={onChanged} />)
+    fireEvent.click(screen.getByRole('button', { name: 'plan it 완료' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('write-failed'))
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+
+  test('confirms deletion and sends the project-scoped command', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ ok: true, task: { ...tasks[0], deletedAt: 'now' } }))
+    const onChanged = vi.fn()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    ;(window as unknown as { apc: unknown }).apc = { invoke }
+    render(<TaskBoard tasks={[tasks[0]]} onChanged={onChanged} />)
+    fireEvent.click(screen.getByRole('button', { name: 'plan it 삭제' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(CH.taskDelete, { projectId: 'p1', taskId: 'T1' }))
+    expect(onChanged).toHaveBeenCalled()
+  })
+})
+
+afterEach(() => {
+  delete (window as unknown as { apc?: unknown }).apc
+  vi.restoreAllMocks()
 })

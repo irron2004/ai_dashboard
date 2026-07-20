@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { ResumeCard } from '@apc/dashboard-api'
 import type { AgentType } from '@apc/shared'
+import type { Task } from '@apc/shared'
+import { ProjectNotesDrawer } from './ProjectNotesDrawer.js'
 
 type Props = {
   card: ResumeCard
@@ -8,10 +10,13 @@ type Props = {
   onResume: (target: { agent: AgentType; sessionId: string }) => void
   onOpenHistory: () => void
   onAddNote: (text: string) => void
+  onChanged?: () => void
+  onOpenTask?: (task: Task) => void
 }
 
-export function ResumeBanner({ card, onDismiss, onResume, onOpenHistory, onAddNote }: Props) {
+export function ResumeBanner({ card, onDismiss, onResume, onOpenHistory, onAddNote, onChanged, onOpenTask }: Props) {
   const [draft, setDraft] = useState('')
+  const [notesOpen, setNotesOpen] = useState(false)
   const submit = () => { const t = draft.trim(); if (t) { onAddNote(t); setDraft('') } }
   return (
     <div className="resume-banner" role="dialog" aria-label={`${card.project.name} 이어서`}>
@@ -24,14 +29,18 @@ export function ResumeBanner({ card, onDismiss, onResume, onOpenHistory, onAddNo
         <div className="resume-banner__row">마지막 Q <span className="resume-banner__agent">{card.lastQuestion.agent}</span>: “{card.lastQuestion.text}”</div>
       )}
       {card.nextNotes.length > 0 && (
-        <ul className="resume-banner__notes">
-          {card.nextNotes.map((n) => <li key={n.id}>📌 {n.text}</li>)}
-        </ul>
+        <div className="resume-banner__note-summary">
+          <strong>프로젝트 메모</strong>
+          <ul className="resume-banner__notes">
+            {card.nextNotes.map((n) => <li key={n.id}>📌 {n.text}</li>)}
+          </ul>
+          <button type="button" onClick={() => setNotesOpen(true)}>프로젝트 메모 열기</button>
+        </div>
       )}
       <div className="resume-banner__addnote">
         <input
-          aria-label="다음 할 일 추가"
-          placeholder="📌 다음 할 일…"
+          aria-label="프로젝트 메모 추가"
+          placeholder="📌 프로젝트 메모…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
@@ -43,6 +52,15 @@ export function ResumeBanner({ card, onDismiss, onResume, onOpenHistory, onAddNo
         )}
         <button type="button" onClick={onOpenHistory}>질문 히스토리</button>
       </div>
+      {notesOpen && (
+        <ProjectNotesDrawer
+          projectId={card.project.id}
+          initialNotes={card.nextNotes}
+          onClose={() => setNotesOpen(false)}
+          onChanged={onChanged}
+          onOpenTask={onOpenTask}
+        />
+      )}
     </div>
   )
 }

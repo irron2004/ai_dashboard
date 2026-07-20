@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import type { Task, TaskStatus } from '@apc/shared'
+import { taskSourceOf, type Task, type TaskStatus } from '@apc/shared'
 import { unresolvedBlockers } from '@apc/dashboard-api'
+import { api } from '../api.js'
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'todo', label: '할 일' },
@@ -14,11 +15,66 @@ type Props = {
   onSetBlockedBy?: (taskId: string, blockedBy: string[]) => void
   onComposeTask?: (taskId: string) => void
   onRunTask?: (taskId: string) => void
+  onOpenTask?: (task: Task) => void
+  onChanged?: () => void
 }
 
-export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask }: Props) {
+const SOURCE_LABEL: Record<ReturnType<typeof taskSourceOf>, string> = {
+  manual: '직접 생성',
+  conversation: '대화 추출',
+  note: '메모 전환',
+  review: '리뷰 생성',
+  system: '시스템',
+}
+
+export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask, onOpenTask, onChanged }: Props) {
   const [editing, setEditing] = useState<string | null>(null)
+  const [mutating, setMutating] = useState<string | null>(null)
+  const [mutationError, setMutationError] = useState<{ taskId: string; message: string } | null>(null)
   const byId = new Map(tasks.map((t) => [t.id, t]))
+
+  const complete = async (task: Task) => {
+    setMutating(task.id)
+    setMutationError(null)
+    try {
+      const result = await api.taskUpdate({
+        projectId: task.projectId,
+        taskId: task.id,
+        title: task.title,
+        status: 'done',
+        priority: task.priority,
+        dueDate: task.dueDate,
+      })
+      if (!result.ok) {
+        setMutationError({ taskId: task.id, message: result.reason ?? '완료 상태를 저장하지 못했습니다.' })
+        return
+      }
+      onChanged?.()
+    } catch {
+      setMutationError({ taskId: task.id, message: '완료 상태를 저장하지 못했습니다.' })
+    } finally {
+      setMutating(null)
+    }
+  }
+
+  const remove = async (task: Task) => {
+    if (!window.confirm(`“${task.title}” Task를 삭제할까요?`)) return
+    setMutating(task.id)
+    setMutationError(null)
+    try {
+      const result = await api.taskDelete({ projectId: task.projectId, taskId: task.id })
+      if (!result.ok) {
+        setMutationError({ taskId: task.id, message: result.reason ?? 'Task를 삭제하지 못했습니다.' })
+        return
+      }
+      onChanged?.()
+    } catch {
+      setMutationError({ taskId: task.id, message: 'Task를 삭제하지 못했습니다.' })
+    } finally {
+      setMutating(null)
+    }
+  }
+
   return (
     <div className="pm-board">
       {COLUMNS.map(({ status, label }) => {
@@ -33,9 +89,14 @@ export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask }: P
                 const blockers = unresolvedBlockers(task, byId)
                 const composeDisabled = task.status === 'done' || task.status === 'rejected'
                 const runDisabled = composeDisabled || task.status === 'review' || blockers.length > 0
+                const busy = mutating === task.id
                 return (
                   <div key={task.id} className="pm-board__card">
                     <span className="pm-board__card-title">{task.title}</span>
+                    <span className="pm-board__provenance">
+                      <span className={`pm-board__source pm-board__source--${taskSourceOf(task)}`}>출처: {SOURCE_LABEL[taskSourceOf(task)]}</span>
+                      {task.userEditedAt && <span className="pm-board__edited">사용자 수정</span>}
+                    </span>
                     <span className="pm-board__card-meta">
                       <span className={`pm-board__priority pm-board__priority--${task.priority}`}>{task.priority}</span>
                       {task.dueDate && <span className="pm-board__due">{task.dueDate}</span>}
@@ -73,6 +134,16 @@ export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask }: P
                         )}
                       </span>
                     )}
+                    {(onOpenTask || onChanged) && (
+                      <span className="pm-board__manage-actions">
+                        {onOpenTask && <button type="button" aria-label={`${task.title} 편집`} onClick={() => onOpenTask(task)} disabled={busy}>편집</button>}
+                        {onChanged && task.status !== 'done' && task.status !== 'rejected' && (
+                          <button type="button" aria-label={`${task.title} 완료`} onClick={() => void complete(task)} disabled={busy}>완료</button>
+                        )}
+                        {onChanged && <button type="button" aria-label={`${task.title} 삭제`} onClick={() => void remove(task)} disabled={busy}>삭제</button>}
+                      </span>
+                    )}
+                    {mutationError?.taskId === task.id && <p className="pm-board__mutation-error" role="alert">{mutationError.message}</p>}
                     {onSetBlockedBy && editing === task.id && (
                       <select
                         multiple className="pm-board__dep-select" aria-label={`차단 작업 선택 ${task.title}`}

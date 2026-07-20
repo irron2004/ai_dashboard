@@ -6,8 +6,9 @@ import { nextUp } from '@apc/dashboard-api'
 import { TimelineStrip } from './TimelineStrip.js'
 import { TaskBoard } from './TaskBoard.js'
 import { DevHarnessPanel, type DevHarnessPanelRequest } from './DevHarnessPanel.js'
+import { TaskEditorDialog } from './TaskEditorDialog.js'
 
-type Props = { dashboard: ProjectDashboardRes }
+type Props = { dashboard: ProjectDashboardRes; onChanged?: () => void }
 
 const RUN_STATUS_LABEL: Record<AgentRun['status'], string> = {
   running: '실행 중',
@@ -35,10 +36,11 @@ function runTime(iso: string, now = Date.now()): { label: string; local: string 
   return { label: local, local }
 }
 
-export function PmHome({ dashboard }: Props) {
+export function PmHome({ dashboard, onChanged }: Props) {
   const { project, reviewQueue, recentRuns, allTasks } = dashboard
   const [depOverrides, setDepOverrides] = useState<Record<string, string[]>>({})
   const [panelRequest, setPanelRequest] = useState<DevHarnessPanelRequest | null>(null)
+  const [taskEditor, setTaskEditor] = useState<Task | 'new' | null>(null)
   const requestSequence = useRef(0)
   const tasks: Task[] = allTasks.map((t) => (depOverrides[t.id] ? { ...t, blockedBy: depOverrides[t.id] } : t))
   const handleSetBlockedBy = async (taskId: string, blockedBy: string[]) => {
@@ -118,7 +120,10 @@ export function PmHome({ dashboard }: Props) {
       )}
 
       <section className="pm-home__next-up" data-testid="next-up">
-        <h2>다음 할 일</h2>
+        <div className="pm-home__section-heading">
+          <h2>다음 할 일</h2>
+          <button type="button" onClick={() => setTaskEditor('new')}>새 Task</button>
+        </div>
         {upNext.length === 0 ? (
           <p className="pm-home__empty">진행할 수 있는 작업 없음</p>
         ) : (
@@ -129,6 +134,7 @@ export function PmHome({ dashboard }: Props) {
                 <span className={`pm-board__priority pm-board__priority--${t.priority}`}>{t.priority}</span>
                 {t.dueDate && <span className="pm-board__due">{t.dueDate}</span>}
                 <span className="pm-home__next-actions">
+                  <button type="button" aria-label={`${t.title} 편집`} onClick={() => setTaskEditor(t)}>편집</button>
                   <button type="button" aria-label={`${t.title} 컨텍스트 조립`} onClick={() => requestTaskAction('compose', t.id)}>📋 조립</button>
                   <button type="button" aria-label={`${t.title} Harness 실행`} onClick={() => requestTaskAction('run', t.id)}>▶ Run</button>
                 </span>
@@ -145,6 +151,8 @@ export function PmHome({ dashboard }: Props) {
           onSetBlockedBy={handleSetBlockedBy}
           onComposeTask={(taskId) => requestTaskAction('compose', taskId)}
           onRunTask={(taskId) => requestTaskAction('run', taskId)}
+          onOpenTask={(task) => setTaskEditor(task)}
+          onChanged={() => onChanged?.()}
         />
       </section>
 
@@ -199,6 +207,14 @@ export function PmHome({ dashboard }: Props) {
           </ul>
         )}
       </section>
+      {taskEditor && (
+        <TaskEditorDialog
+          projectId={project.id}
+          task={taskEditor === 'new' ? undefined : taskEditor}
+          onClose={() => setTaskEditor(null)}
+          onChanged={() => onChanged?.()}
+        />
+      )}
     </div>
   )
 }

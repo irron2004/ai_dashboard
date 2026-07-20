@@ -30,8 +30,21 @@ describe('ResumeBanner', () => {
   test('adding a note fires onAddNote with the typed text', async () => {
     const onAddNote = vi.fn()
     render(<ResumeBanner card={card} onDismiss={() => {}} onResume={() => {}} onOpenHistory={() => {}} onAddNote={onAddNote} />)
-    fireEvent.change(screen.getByPlaceholderText(/다음 할 일/), { target: { value: 'bear 2차 검증' } })
-    fireEvent.keyDown(screen.getByPlaceholderText(/다음 할 일/), { key: 'Enter' })
+    fireEvent.change(screen.getByPlaceholderText(/프로젝트 메모/), { target: { value: 'bear 2차 검증' } })
+    fireEvent.keyDown(screen.getByPlaceholderText(/프로젝트 메모/), { key: 'Enter' })
     await waitFor(() => expect(onAddNote).toHaveBeenCalledWith('bear 2차 검증'))
+  })
+
+  test('labels legacy next notes as project notes and opens the shared drawer', async () => {
+    const invoke = vi.fn(() => Promise.resolve({ ok: true, notes: card.nextNotes }))
+    ;(window as unknown as { apc: unknown }).apc = { invoke }
+    try {
+      render(<ResumeBanner card={card} onDismiss={() => {}} onResume={() => {}} onOpenHistory={() => {}} onAddNote={() => {}} />)
+      expect(screen.getByText('프로젝트 메모')).toBeDefined()
+      fireEvent.click(screen.getByRole('button', { name: '프로젝트 메모 열기' }))
+      expect(await screen.findByRole('dialog', { name: '프로젝트 메모' })).toBeDefined()
+    } finally {
+      delete (window as unknown as { apc?: unknown }).apc
+    }
   })
 })
