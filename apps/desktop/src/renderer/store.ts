@@ -1,6 +1,13 @@
 import { create } from 'zustand'
-import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import { WIKI_GENERATION_ENGINE, type GeneratePreflightCategoryId, type GeneratePreflightRes, type ProjectDashboardRes, type GenerateProjectRes, type HarnessCanonicalProposalsRes, type WikiPolicyRecordDto, type HarnessLiveNode, type HarnessNodesEvent, type ProjectStructureHintDto } from '../shared/ipc-contract.js'
+import type { AgentActivity, AgentPaneIdentity, Project, AgentProfile, AgentType } from '@apc/shared'
+import {
+  WIKI_GENERATION_ENGINE,
+  type GeneratePreflightCategoryId, type GeneratePreflightRes, type ProjectDashboardRes,
+  type GenerateProjectRes, type HarnessCanonicalProposalsRes, type WikiPolicyRecordDto,
+  type HarnessLiveNode, type HarnessNodesEvent, type ProjectStructureHintDto,
+  type ProjectContextConfirmReq, type ProjectContextInput, type ProjectContextMutRes,
+  type WorkspaceRestore,
+} from '../shared/ipc-contract.js'
 import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
@@ -27,6 +34,14 @@ type ApcStore = {
   /** Agent dock selection, shared by terminal, Git, diff and Learning Gate surfaces. */
   activeWorktrees: Record<string, string | null>
   setActiveWorktree(projectId: string, worktreePath: string | null): void
+  paneTarget: { pane: AgentPaneIdentity; nonce: number } | null
+  focusAgentPane(pane: AgentPaneIdentity): void
+  clearPaneTarget(paneId?: string): void
+  activities: AgentActivity[]
+  activitySnapshotAsOf: string | null
+  activityLoadGeneration: number
+  mergeAgentActivity(activity: AgentActivity): void
+  loadAgentActivities(projectId?: string): Promise<void>
   dashboard: ProjectDashboardRes | null
   workspaceOverview: WorkspaceOverview | null
   resumeCard: ResumeCard | null
@@ -80,7 +95,7 @@ type ApcStore = {
   loadWikiPolicy(projectId: string): Promise<void>
   revertWikiPolicy(projectId: string): Promise<void>
 
-  hydrateWorkspace(p: { panes: Array<{ projectId: string; agent: AgentType; lastSessionId: string | null }>; selectedProjectId: string | null }): void
+  hydrateWorkspace(p: WorkspaceRestore): void
   setAgentStatus(key: string, status: AgentRunStatus): void
   /** Per-session restart token keyed by `${projectId}:${agent}`. Bumping it re-spawns that agent's terminal. */
   restartNonce: Record<string, number>
@@ -96,8 +111,9 @@ type ApcStore = {
   clearGeneratePreflight(): void
   clearGeneration(): void
   loadProjects(): Promise<void>
-  addProject(name: string, projectType: string, repoPath: string, domain: string): Promise<void>
-  updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string): Promise<void>
+  addProject(name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<void>
+  updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<void>
+  confirmProjectContext(req: ProjectContextConfirmReq): Promise<ProjectContextMutRes>
   deleteProject(id: string): Promise<void>
   selectProject(projectId: string): Promise<void>
   loadWorkspaceOverview(): Promise<void>
@@ -151,6 +167,22 @@ function updateHarnessConfig(state: ApcStore, projectId: string, next: HarnessCo
   return { harnessConfigs: { ...state.harnessConfigs, [projectId]: next } }
 }
 
+/** Revision is pane-local. Snapshot/event arrival order must never roll a pane backwards. */
+export function mergeAgentActivities(
+  current: readonly AgentActivity[],
+  incoming: readonly AgentActivity[],
+): AgentActivity[] {
+  const byPane = new Map(current.map((activity) => [activity.pane.paneId, activity]))
+  for (const activity of incoming) {
+    const existing = byPane.get(activity.pane.paneId)
+    if (!existing || activity.revision > existing.revision) byPane.set(activity.pane.paneId, activity)
+  }
+  return [...byPane.values()].sort((left, right) => (
+    right.lastActivityAt.localeCompare(left.lastActivityAt)
+    || left.pane.paneId.localeCompare(right.pane.paneId)
+  ))
+}
+
 export const useStore = create<ApcStore>((set, get) => ({
   projects: [],
   selectedProjectId: null,
@@ -158,6 +190,37 @@ export const useStore = create<ApcStore>((set, get) => ({
   setActiveWorktree: (projectId, worktreePath) => set((state) => ({
     activeWorktrees: { ...state.activeWorktrees, [projectId]: worktreePath },
   })),
+  paneTarget: null,
+  focusAgentPane: (pane) => set((state) => ({
+    activeWorktrees: { ...state.activeWorktrees, [pane.projectId]: pane.worktreePath },
+    paneTarget: { pane, nonce: (state.paneTarget?.nonce ?? 0) + 1 },
+  })),
+  clearPaneTarget: (paneId) => set((state) => (
+    !state.paneTarget || (paneId && state.paneTarget.pane.paneId !== paneId)
+      ? {}
+      : { paneTarget: null }
+  )),
+  activities: [],
+  activitySnapshotAsOf: null,
+  activityLoadGeneration: 0,
+  mergeAgentActivity: (activity) => set((state) => ({
+    activities: mergeAgentActivities(state.activities, [activity]),
+  })),
+  loadAgentActivities: async (projectId) => {
+    const generation = get().activityLoadGeneration + 1
+    set({ activityLoadGeneration: generation })
+    try {
+      const snapshot = await api.agentActivitySnapshot(projectId ? { projectId } : {})
+      if (get().activityLoadGeneration !== generation) return
+      if (projectId && get().selectedProjectId !== projectId) return
+      set((state) => ({
+        activities: mergeAgentActivities(state.activities, snapshot.activities),
+        activitySnapshotAsOf: snapshot.asOf,
+      }))
+    } catch (error) {
+      if (get().activityLoadGeneration === generation) set({ error: `Failed to load agent activity: ${error}` })
+    }
+  },
   dashboard: null,
   workspaceOverview: null,
   resumeCard: null,
@@ -196,7 +259,12 @@ export const useStore = create<ApcStore>((set, get) => ({
 
   hydrateWorkspace(p) {
     const openPanes: Record<string, { agent: AgentType; sessionId: string | null }> = {}
-    for (const pane of p.panes) openPanes[`${pane.projectId}:${pane.agent}`] = { agent: pane.agent, sessionId: pane.lastSessionId }
+    for (const pane of p.panes) {
+      openPanes[pane.paneId ?? `${pane.projectId}:${pane.agent}`] = {
+        agent: pane.agent,
+        sessionId: pane.lastSessionId,
+      }
+    }
     set({ openPanes, selectedProjectId: p.selectedProjectId ?? get().selectedProjectId })
   },
 
@@ -286,22 +354,40 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
-  async addProject(name: string, projectType: string, repoPath: string, domain: string) {
+  async addProject(name: string, projectType: string, repoPath: string, domain: string, context = {}) {
     try {
-      await api.registerProject({ name, projectType, repoPath, domain })
+      await api.registerProject({ name, projectType, repoPath, domain, ...context })
       await get().loadProjects()
     } catch (e) {
       set({ error: `Failed to add project: ${e}` })
     }
   },
 
-  async updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string) {
+  async updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context = {}) {
     try {
-      await api.updateProject({ id, name, projectType, repoPath, domain })
+      await api.updateProject({ id, name, projectType, repoPath, domain, ...context })
       await get().loadProjects()
       if (get().selectedProjectId === id) await get().selectProject(id)
     } catch (e) {
       set({ error: `Failed to update project: ${e}` })
+    }
+  },
+
+  async confirmProjectContext(req) {
+    try {
+      const result = await api.projectContextConfirm(req)
+      if (!result.ok || !result.project) return result
+      set((state) => ({
+        projects: state.projects.map((project) => project.id === result.project!.id ? result.project! : project),
+        dashboard: state.dashboard?.project.id === result.project!.id
+          ? { ...state.dashboard, project: result.project! }
+          : state.dashboard,
+      }))
+      return result
+    } catch (error) {
+      const reason = `Failed to confirm project context: ${error}`
+      set({ error: reason })
+      return { ok: false, reason }
     }
   },
 
@@ -339,6 +425,7 @@ export const useStore = create<ApcStore>((set, get) => ({
 
   async loadResumeCard(projectId) {
     const card = await api.resumeCard(projectId)
+    if (get().selectedProjectId !== projectId) return
     set({ resumeCard: card, resumeBannerOpen: Boolean(card?.hasHistory) })
   },
   openResumeBanner() { set({ resumeBannerOpen: true }) },

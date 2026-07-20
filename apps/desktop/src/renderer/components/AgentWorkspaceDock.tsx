@@ -6,7 +6,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import type { AgentActivity, AgentType, Project } from '@apc/shared'
+import type { AgentActivity, AgentPaneIdentity, AgentType, Project } from '@apc/shared'
 import type { GitWorktreeDto } from '../../shared/ipc-contract.js'
 import { api } from '../api.js'
 import { useStore, type AgentRunStatus } from '../store.js'
@@ -81,6 +81,22 @@ export function agentWorkspaceKey(projectId: string, worktreePath: string): stri
 
 export function agentTerminalKey(projectId: string, worktreePath: string, slotId: string): string {
   return `${agentWorkspaceKey(projectId, worktreePath)}:${slotId}`
+}
+
+export function paneIdentityForSlot(
+  projectId: string,
+  worktreePath: string,
+  slot: AgentSlot,
+  sessionId?: string | null,
+): AgentPaneIdentity {
+  return {
+    paneId: agentTerminalKey(projectId, worktreePath, slot.id),
+    projectId,
+    worktreePath,
+    slotId: slot.id,
+    agent: slot.agent,
+    ...(sessionId ? { sessionId } : {}),
+  }
 }
 
 export function activityForAgentSlot(
@@ -186,6 +202,8 @@ export function AgentWorkspaceDock({
   const resumeAgentSession = useStore((state) => state.resumeAgentSession)
   const stopAgent = useStore((state) => state.stopAgent)
   const setActiveWorktree = useStore((state) => state.setActiveWorktree)
+  const paneTarget = useStore((state) => state.paneTarget)
+  const clearPaneTarget = useStore((state) => state.clearPaneTarget)
 
   const [projectDocks, setProjectDocks] = useState<Record<string, ProjectDock>>({})
   const [slotsByWorkspace, setSlotsByWorkspace] = useState<Record<string, AgentSlot[]>>({})
@@ -216,7 +234,7 @@ export function AgentWorkspaceDock({
     setSelectedSlotByWorkspace((previous) => key in previous
       ? previous
       : { ...previous, [key]: restored[0]?.id ?? null })
-    for (const agent of new Set(restored.map((slot) => slot.agent))) api.paneOpened({ projectId, agent })
+    for (const slot of restored) api.paneOpened(paneIdentityForSlot(projectId, worktreePath, slot))
   }, [])
 
   const loadWorktrees = useCallback(async (projectId: string, force = false) => {
@@ -286,18 +304,21 @@ export function AgentWorkspaceDock({
   }, [loadWorktrees, selectedProjectId])
 
   // A recently-used project's terminals stay mounted until App's FIFO evicts that project. Mirror
-  // that lifecycle to the legacy session store at the agent-kind level (duplicate slots are one row).
+  // that lifecycle to the session store with each worktree/slot pane identity intact.
   useEffect(() => {
     const lost = openedProjectsRef.current.filter((projectId) => !openedProjectIds.includes(projectId))
     for (const projectId of lost) {
-      const agents = new Set<AgentType>()
       for (const [key, slots] of Object.entries(slotsByWorkspace)) {
-        if (key.startsWith(`${projectId}:`)) for (const slot of slots) agents.add(slot.agent)
+        if (!key.startsWith(`${projectId}:`)) continue
+        const dock = projectDocks[projectId]
+        for (const worktreePath of dock?.visitedPaths ?? []) {
+          if (agentWorkspaceKey(projectId, worktreePath) !== key) continue
+          for (const slot of slots) api.paneClosed(paneIdentityForSlot(projectId, worktreePath, slot))
+        }
       }
-      for (const agent of agents) api.paneClosed({ projectId, agent })
     }
     openedProjectsRef.current = openedProjectIds
-  }, [openedProjectIds, slotsByWorkspace])
+  }, [openedProjectIds, projectDocks, slotsByWorkspace])
 
   useEffect(() => {
     if (!pickerOpen) return
@@ -370,7 +391,7 @@ export function AgentWorkspaceDock({
     setSlotsByWorkspace((previous) => ({ ...previous, [selectedWorkspaceKey]: next }))
     persistAgentSlots(selectedProjectId, selectedDock.activePath, next)
     activateSlot(selectedWorkspaceKey, next, slot)
-    api.paneOpened({ projectId: selectedProjectId, agent })
+    api.paneOpened(paneIdentityForSlot(selectedProjectId, selectedDock.activePath, slot))
     setPickerOpen(false)
     onToggleCollapsed(false)
     scheduleTerminalResize()
@@ -396,13 +417,53 @@ export function AgentWorkspaceDock({
       setSelectedSlotByWorkspace((previous) => ({ ...previous, [key]: replacement?.id ?? null }))
       if (replacement) onActiveAgentChange(replacement.agent)
     }
-    const sameAgentStillOpen = Object.entries(slotsByWorkspace).some(([candidateKey, candidateSlots]) => {
-      if (!candidateKey.startsWith(`${projectId}:`)) return false
-      const consideredSlots = candidateKey === key ? next : candidateSlots
-      return consideredSlots.some((candidate) => candidate.agent === slot.agent)
-    })
-    if (!sameAgentStillOpen) api.paneClosed({ projectId, agent: slot.agent })
+    api.paneClosed(paneIdentityForSlot(projectId, worktreePath, slot))
   }
+
+  useEffect(() => {
+    const target = paneTarget?.pane
+    if (!target || target.projectId !== selectedProjectId) return
+    const dock = projectDocks[target.projectId]
+    if (!dock || dock.loading) return
+    if (!dock.worktrees.some((worktree) => worktree.path === target.worktreePath)) {
+      clearPaneTarget(target.paneId)
+      return
+    }
+    if (dock.activePath !== target.worktreePath) {
+      selectWorktree(target.projectId, target.worktreePath)
+      return
+    }
+
+    const workspaceKey = agentWorkspaceKey(target.projectId, target.worktreePath)
+    const current = slotsByWorkspace[workspaceKey]
+    if (!current) {
+      ensureWorkspace(target.projectId, target.worktreePath)
+      return
+    }
+    let slot = current.find((candidate) => candidate.id === target.slotId && candidate.agent === target.agent)
+    let next = current
+    if (!slot) {
+      slot = { id: target.slotId, agent: target.agent }
+      next = [...current, slot]
+      setSlotsByWorkspace((previous) => ({ ...previous, [workspaceKey]: next }))
+      persistAgentSlots(target.projectId, target.worktreePath, next)
+      api.paneOpened(paneIdentityForSlot(target.projectId, target.worktreePath, slot, target.sessionId))
+    }
+    activateSlot(workspaceKey, next, slot)
+    onToggleCollapsed(false)
+    scheduleTerminalResize()
+    clearPaneTarget(target.paneId)
+  }, [
+    activateSlot,
+    clearPaneTarget,
+    ensureWorkspace,
+    onToggleCollapsed,
+    paneTarget,
+    projectDocks,
+    scheduleTerminalResize,
+    selectedProjectId,
+    slotsByWorkspace,
+  ])
 
   const startColumnDrag = (workspaceKey: string, slots: AgentSlot[], index: number) => (event: ReactMouseEvent) => {
     event.preventDefault()
@@ -470,7 +531,7 @@ export function AgentWorkspaceDock({
       next = [...current, slot]
       setSlotsByWorkspace((previous) => ({ ...previous, [selectedWorkspaceKey]: next }))
       persistAgentSlots(selectedProjectId, selectedDock.activePath, next)
-      api.paneOpened({ projectId: selectedProjectId, agent: resumeRequest.agent })
+      api.paneOpened(paneIdentityForSlot(selectedProjectId, selectedDock.activePath, slot, resumeRequest.sessionId))
     }
     activateSlot(selectedWorkspaceKey, next, slot)
     resumeAgentSession(
@@ -677,6 +738,7 @@ export function AgentWorkspaceDock({
                             command={slot.agent}
                             args={[]}
                             cwd={worktreePath}
+                            paneIdentity={paneIdentityForSlot(projectId, worktreePath, slot, resumeSessionId)}
                             agent={slot.agent}
                             restartNonce={restartNonce[terminalKey] ?? 0}
                             resumeSessionId={resumeSessionId}

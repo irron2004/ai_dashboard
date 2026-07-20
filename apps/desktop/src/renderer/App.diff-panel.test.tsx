@@ -5,15 +5,18 @@ import type { ReactNode } from 'react'
 const mocks = vi.hoisted(() => ({
   listProjects: vi.fn(),
   workspaceOverview: vi.fn(),
+  agentActivitySnapshot: vi.fn(),
 }))
 
 vi.mock('./api.js', () => ({
   api: {
     listProjects: mocks.listProjects,
     workspaceOverview: mocks.workspaceOverview,
+    agentActivitySnapshot: mocks.agentActivitySnapshot,
     onHarnessProgress: () => () => {},
     onHarnessEngineLog: () => () => {},
     onHarnessNodes: () => () => {},
+    onAgentActivity: () => () => {},
     onWorkspaceRestore: () => () => {},
     selectProject: vi.fn(),
     paneOpened: vi.fn(),
@@ -40,6 +43,7 @@ beforeEach(() => {
   // post-assertion store updates leaking between mounted App instances.
   mocks.listProjects.mockReturnValue(new Promise(() => {}))
   mocks.workspaceOverview.mockReturnValue(new Promise(() => {}))
+  mocks.agentActivitySnapshot.mockResolvedValue({ activities: [], asOf: '2026-07-20T00:00:00Z' })
   useStore.setState({
     projects: [],
     selectedProjectId: null,
@@ -47,6 +51,10 @@ beforeEach(() => {
     workspaceOverview: null,
     resumeCard: null,
     resumeBannerOpen: false,
+    activities: [],
+    activitySnapshotAsOf: null,
+    activityLoadGeneration: 0,
+    paneTarget: null,
     openPanes: {},
     error: null,
   })

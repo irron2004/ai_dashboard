@@ -13,7 +13,7 @@ describe('ProjectSidebar domain', () => {
     fireEvent.change(screen.getByLabelText('Repository path'), { target: { value: '/tmp/p' } })
     fireEvent.click(screen.getByText('Create'))                        // new-project submit is "Create"
     expect(onAdd).toHaveBeenCalledWith('Papers', 'git', '/tmp/p', 'paper', {
-      goal: undefined, currentFocus: undefined,
+      goal: '', currentFocus: '',
     })
     await waitFor(() => expect(screen.queryByText('New Project')).toBeNull())
   })
@@ -51,7 +51,7 @@ describe('ProjectSidebar edit-connection save validation', () => {
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
     expect(onUpdate).toHaveBeenCalledWith('p1', 'Remote', 'git', 'ssh://me@a6000:22/home/me/proj', 'paper', {
-      goal: undefined, currentFocus: undefined,
+      goal: '', currentFocus: '',
     })
     await waitFor(() => expect(screen.queryByText('Edit Project')).toBeNull())
   })

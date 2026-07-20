@@ -139,8 +139,10 @@ export function ProjectSidebar({ projects, selectedProjectId, collapsed, onToggl
       finalPath = `ssh://${sshUser}@${sshHost}:${sshPort}${sshPath}`
     }
     const context: ProjectContextInput = {
-      goal: goal.trim() || undefined,
-      currentFocus: currentFocus.trim() || undefined,
+      // Keep empty strings as explicit clear operations. `undefined` is dropped by IPC serialization
+      // and would accidentally preserve an old value while editing.
+      goal: goal.trim(),
+      currentFocus: currentFocus.trim(),
     }
     setSaving(true)
     setSaveError('')

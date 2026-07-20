@@ -1,9 +1,14 @@
 import type { WorkspaceOverview } from '@apc/dashboard-api'
+import type { AgentActivity, AgentPaneIdentity } from '@apc/shared'
+import { AgentActivityList } from './AgentActivityList.js'
 
 type Props = {
   overview: WorkspaceOverview | null
   onRefresh: () => void
   onOpenProject: (projectId: string) => void
+  activities?: readonly AgentActivity[]
+  onOpenActivityPane?: (pane: AgentPaneIdentity) => void
+  onOpenActivityQuestion?: (activity: AgentActivity) => void
 }
 
 /** hh:mm for a run's startedAt; falls back to the raw string if unparseable. */
@@ -12,7 +17,20 @@ function runTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-export function WorkspaceHome({ overview, onRefresh, onOpenProject }: Props) {
+function contextSource(source: 'user' | 'agent' | undefined, confirmedAt: string | undefined): string | null {
+  if (source === 'user') return '사용자 작성'
+  if (source === 'agent') return confirmedAt ? 'AI 제안 · 사용자 확정' : 'AI 제안'
+  return null
+}
+
+export function WorkspaceHome({
+  overview,
+  onRefresh,
+  onOpenProject,
+  activities = [],
+  onOpenActivityPane = () => {},
+  onOpenActivityQuestion = () => {},
+}: Props) {
   return (
     <div className="workspace-home">
       <header className="workspace-home__header">
@@ -25,7 +43,13 @@ export function WorkspaceHome({ overview, onRefresh, onOpenProject }: Props) {
         <p className="workspace-home__empty">프로젝트 없음</p>
       ) : (
         <div className="workspace-home__grid">
-          {overview.projects.map((p) => (
+          {overview.projects.map((p) => {
+            const projectActivities = activities.filter((activity) => activity.pane.projectId === p.project.id)
+            const questions = projectActivities
+              .filter((activity) => activity.lastQuestion)
+              .sort((left, right) => right.lastQuestion!.askedAt.localeCompare(left.lastQuestion!.askedAt))
+              .slice(0, 3)
+            return (
             <section key={p.project.id} className="workspace-card" data-testid={`workspace-card-${p.project.id}`}>
               <header className="workspace-card__head">
                 <button type="button" className="workspace-card__title" onClick={() => onOpenProject(p.project.id)}>
@@ -33,6 +57,22 @@ export function WorkspaceHome({ overview, onRefresh, onOpenProject }: Props) {
                 </button>
                 <span className="workspace-card__domain">{p.project.domain}</span>
               </header>
+              {(p.project.goal || p.project.currentFocus) && (
+                <div className="workspace-card__context">
+                  {p.project.goal && (
+                    <div>
+                      <span>목표 {contextSource(p.project.goalSource, p.project.goalConfirmedAt) && <small>{contextSource(p.project.goalSource, p.project.goalConfirmedAt)}</small>}</span>
+                      <strong>{p.project.goal}</strong>
+                    </div>
+                  )}
+                  {p.project.currentFocus && (
+                    <div>
+                      <span>현재 집중 {contextSource(p.project.currentFocusSource, p.project.currentFocusConfirmedAt) && <small>{contextSource(p.project.currentFocusSource, p.project.currentFocusConfirmedAt)}</small>}</span>
+                      <strong>{p.project.currentFocus}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="workspace-card__badges">
                 <span className="workspace-card__badge">진행중 {p.activeTaskCount}</span>
                 {p.runningRuns.length > 0 && (
@@ -49,6 +89,29 @@ export function WorkspaceHome({ overview, onRefresh, onOpenProject }: Props) {
                     <li key={r.id}><span className="run-status">{r.agent}</span> · {runTime(r.startedAt)}</li>
                   ))}
                 </ul>
+              )}
+              <div className="workspace-card__activity">
+                <h3>에이전트 상태</h3>
+                <AgentActivityList
+                  activities={projectActivities}
+                  onSelectPane={onOpenActivityPane}
+                  emptyMessage="최근 에이전트 활동 없음"
+                />
+              </div>
+              {questions.length > 0 && (
+                <div className="workspace-card__questions">
+                  <h3>최근 질문</h3>
+                  <ul>
+                    {questions.map((activity) => (
+                      <li key={`${activity.pane.paneId}:${activity.lastQuestion!.askedAt}`}>
+                        <button type="button" onClick={() => onOpenActivityQuestion(activity)}>
+                          <span>{activity.pane.agent}</span>
+                          {activity.lastQuestion!.displayText}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               <div className="workspace-card__next">
                 <h3>다음 할 일</h3>
@@ -67,7 +130,7 @@ export function WorkspaceHome({ overview, onRefresh, onOpenProject }: Props) {
                 )}
               </div>
             </section>
-          ))}
+          )})}
         </div>
       )}
     </div>

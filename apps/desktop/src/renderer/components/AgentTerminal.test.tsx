@@ -4,7 +4,10 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 const startPty = vi.fn()
 const writePty = vi.fn()
 const resizePty = vi.fn()
+const killPty = vi.fn()
 const clipboardReadText = vi.fn()
+let ptyDataV2Callback: ((event: { id: string; launchId: string; data: string }) => void) | null = null
+let ptyExitV2Callback: ((event: { id: string; launchId: string; code: number }) => void) | null = null
 const terminalInstances: Array<{
   unicode: { activeVersion: string }
   options: { fontFamily?: string; fontSize?: number }
@@ -20,13 +23,21 @@ const terminalInstances: Array<{
 vi.mock('../api.js', () => ({
   api: {
     startPty: (req: unknown) => startPty(req),
-    killPty: vi.fn(),
+    killPty: (req: unknown) => killPty(req),
     writePty: (req: unknown) => writePty(req),
     resizePty: (req: unknown) => resizePty(req),
     clipboardReadText: () => clipboardReadText(),
     terminalGetPreferences: vi.fn(() => Promise.resolve({ ok: false })),
     onPtyData: () => () => {},
     onPtyExit: () => () => {},
+    onPtyDataV2: (callback: NonNullable<typeof ptyDataV2Callback>) => {
+      ptyDataV2Callback = callback
+      return () => { ptyDataV2Callback = null }
+    },
+    onPtyExitV2: (callback: NonNullable<typeof ptyExitV2Callback>) => {
+      ptyExitV2Callback = callback
+      return () => { ptyExitV2Callback = null }
+    },
   },
 }))
 
@@ -65,6 +76,8 @@ import { AgentTerminal } from './AgentTerminal.js'
 beforeEach(() => {
   vi.clearAllMocks()
   terminalInstances.length = 0
+  ptyDataV2Callback = null
+  ptyExitV2Callback = null
   clipboardReadText.mockResolvedValue({ ok: true, text: '' })
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -130,6 +143,37 @@ describe('AgentTerminal', () => {
     render(<AgentTerminal sessionId="pane-1" command="" args={[]} cwd="/repo" onQuestionCandidate={onQuestionCandidate} />)
     terminalInstances[0].dataHandler?.('테스트해줘\r')
     expect(onQuestionCandidate).toHaveBeenCalledWith('테스트해줘')
-    expect(writePty).toHaveBeenCalledWith({ id: 'pane-1', data: '테스트해줘\r' })
+    expect(writePty).toHaveBeenCalledWith({
+      id: 'pane-1', data: '테스트해줘\r', launchId: undefined, questionCandidates: ['테스트해줘'],
+    })
+  })
+
+  it('scopes PTY I/O and cleanup to the current pane launch', () => {
+    const pane = {
+      paneId: 'p1:main:codex-1', projectId: 'p1', worktreePath: '/repo', slotId: 'codex-1', agent: 'codex' as const,
+    }
+    const { unmount } = render(
+      <AgentTerminal sessionId={pane.paneId} command="codex" args={[]} cwd="/repo" paneIdentity={pane} agent="codex" />,
+    )
+    const startRequest = startPty.mock.calls.at(-1)?.[0] as { launchId: string; pane: typeof pane }
+    expect(startRequest).toEqual(expect.objectContaining({ pane, launchId: expect.any(String) }))
+
+    ptyDataV2Callback?.({ id: pane.paneId, launchId: 'stale-launch', data: 'stale output' })
+    expect(terminalInstances[0].output.join('')).not.toContain('stale output')
+    ptyDataV2Callback?.({ id: pane.paneId, launchId: startRequest.launchId, data: 'current output' })
+    expect(terminalInstances[0].output.join('')).toContain('current output')
+
+    terminalInstances[0].dataHandler?.('확인해줘\r')
+    expect(writePty).toHaveBeenCalledWith({
+      id: pane.paneId,
+      data: '확인해줘\r',
+      launchId: startRequest.launchId,
+      questionCandidates: ['확인해줘'],
+    })
+
+    ptyExitV2Callback?.({ id: pane.paneId, launchId: 'stale-launch', code: 1 })
+    expect(terminalInstances[0].output.join('')).not.toContain('process exited')
+    unmount()
+    expect(killPty).toHaveBeenCalledWith({ id: pane.paneId, launchId: startRequest.launchId, reason: 'unmount' })
   })
 })

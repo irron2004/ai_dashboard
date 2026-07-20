@@ -5,6 +5,7 @@ import type {
   ProjectDashboardRes,
 } from '../../shared/ipc-contract.js'
 import type { WorkspaceOverview } from '@apc/dashboard-api'
+import type { AgentActivity, AgentPaneIdentity, ResolvedFileReference } from '@apc/shared'
 import { HomeView, ProjectDocumentsView } from './HomeView.js'
 import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
@@ -27,9 +28,14 @@ type Props = {
   overview?: WorkspaceOverview | null
   onRefreshWorkspace?: () => void
   onOpenProject?: (projectId: string) => void
+  activities?: readonly AgentActivity[]
+  onOpenActivityPane?: (pane: AgentPaneIdentity) => void
+  onOpenActivityQuestion?: (activity: AgentActivity) => void
   historyFocus?: HistoryFocus | null
   onHistoryFocusConsumed?: () => void
   fetchConversationHistory?: (req: ConversationHistoryReq) => Promise<ConversationHistoryRes>
+  activeWorktreePath?: string
+  onOpenFileReference?: (reference: ResolvedFileReference) => void
 }
 
 const TABS: { id: MainTab; icon: string; label: string }[] = [
@@ -52,9 +58,14 @@ export function MainPanel({
   overview,
   onRefreshWorkspace,
   onOpenProject,
+  activities,
+  onOpenActivityPane,
+  onOpenActivityQuestion,
   historyFocus,
   onHistoryFocusConsumed,
   fetchConversationHistory,
+  activeWorktreePath,
+  onOpenFileReference,
 }: Props) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const projectRequired = tab !== 'workspace' && tab !== 'retro' && projectLoadState !== 'ready'
@@ -132,6 +143,8 @@ export function MainPanel({
             focus={historyFocus ?? null}
             onFocusConsumed={onHistoryFocusConsumed ?? (() => {})}
             fetchHistory={fetchConversationHistory}
+            activeWorktreePath={activeWorktreePath}
+            onOpenFileReference={onOpenFileReference}
           />
         )}
         {tab === 'workspace' && (
@@ -139,6 +152,9 @@ export function MainPanel({
             overview={overview ?? null}
             onRefresh={onRefreshWorkspace ?? (() => {})}
             onOpenProject={onOpenProject ?? (() => {})}
+            activities={activities ?? []}
+            onOpenActivityPane={onOpenActivityPane ?? (() => {})}
+            onOpenActivityQuestion={onOpenActivityQuestion ?? (() => {})}
           />
         )}
         {tab === 'retro' && <RetroView />}

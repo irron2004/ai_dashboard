@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Project } from '@apc/shared'
+import type { AgentActivity, Project, ResolvedFileReference } from '@apc/shared'
 
 const appMocks = vi.hoisted(() => ({
   restoreCallback: null as ((payload: {
@@ -12,6 +12,8 @@ const appMocks = vi.hoisted(() => ({
   projectDashboard: vi.fn(),
   resumeCard: vi.fn(),
   conversationHistory: vi.fn(),
+  agentActivitySnapshot: vi.fn(),
+  activityCallback: null as ((activity: AgentActivity) => void) | null,
   paneOpened: vi.fn(),
   paneClosed: vi.fn(),
   persistSelectedProject: vi.fn(),
@@ -24,12 +26,19 @@ vi.mock('./api.js', () => ({
     projectDashboard: appMocks.projectDashboard,
     resumeCard: appMocks.resumeCard,
     conversationHistory: appMocks.conversationHistory,
+    agentActivitySnapshot: appMocks.agentActivitySnapshot,
     paneOpened: appMocks.paneOpened,
     paneClosed: appMocks.paneClosed,
     selectProject: appMocks.persistSelectedProject,
     onHarnessProgress: () => () => {},
     onHarnessEngineLog: () => () => {},
     onHarnessNodes: () => () => {},
+    onAgentActivity: (callback: (activity: AgentActivity) => void) => {
+      appMocks.activityCallback = callback
+      return () => {
+        if (appMocks.activityCallback === callback) appMocks.activityCallback = null
+      }
+    },
     onWorkspaceRestore: (callback: NonNullable<typeof appMocks.restoreCallback>) => {
       appMocks.restoreCallback = callback
       return () => { appMocks.restoreCallback = null }
@@ -38,6 +47,16 @@ vi.mock('./api.js', () => ({
 }))
 
 vi.mock('./components/AgentTerminal.js', () => ({ AgentTerminal: () => null }))
+vi.mock('./components/ProjectNotesDrawer.js', () => ({
+  ProjectNotesDrawer: ({ projectId }: { projectId: string }) => (
+    <div role="dialog" aria-label="프로젝트 메모">notes:{projectId}</div>
+  ),
+}))
+vi.mock('./components/FilePreviewPanel.js', () => ({
+  FilePreviewPanel: ({ reference }: { reference: ResolvedFileReference | null }) => (
+    reference ? <aside aria-label="파일 미리보기">{reference.displayPath}</aside> : null
+  ),
+}))
 vi.mock('./components/ProjectSidebar.js', () => ({
   ProjectSidebar: ({ onSelect }: { onSelect: (projectId: string) => void }) => (
     <button type="button" onClick={() => onSelect('p1')}>sidebar project</button>
@@ -45,18 +64,43 @@ vi.mock('./components/ProjectSidebar.js', () => ({
 }))
 vi.mock('./components/MainPanel.js', () => ({
   MainPanel: ({
-    tab, projectLoadState, onOpenProject, historyFocus,
+    tab, projectLoadState, onOpenProject, historyFocus, onOpenFileReference, onOpenActivityQuestion,
   }: {
     tab: string
     projectLoadState: string
     onOpenProject: (projectId: string) => void
-    historyFocus?: { agent: string } | null
+    historyFocus?: { agent: string; sessionId?: string } | null
+    onOpenFileReference?: (reference: ResolvedFileReference) => void
+    onOpenActivityQuestion?: (activity: AgentActivity) => void
   }) => (
     <div>
       <span data-testid="active-main-tab">{tab}</span>
       <span data-testid="project-load-state">{projectLoadState}</span>
       <span data-testid="history-focus-agent">{historyFocus?.agent ?? ''}</span>
+      <span data-testid="history-focus-session">{historyFocus?.sessionId ?? ''}</span>
       <button type="button" onClick={() => onOpenProject('p1')}>workspace project</button>
+      <button
+        type="button"
+        onClick={() => onOpenFileReference?.({
+          raw: 'docs/spec.md', path: 'docs/spec.md', form: 'bare', start: 0, end: 12,
+          projectId: 'p1', token: 'preview-token', canonicalPath: '/repo/docs/spec.md',
+          displayPath: 'docs/spec.md', kind: 'markdown', workspaceRoot: '/repo', size: 42,
+        })}
+      >open file preview</button>
+      <button
+        type="button"
+        onClick={() => onOpenActivityQuestion?.({
+          pane: {
+            paneId: 'p1:main:claude-1', projectId: 'p1', worktreePath: '/repo', slotId: 'claude-1', agent: 'claude',
+          },
+          launchId: 'launch-transcript', connection: 'connected', phase: 'awaiting_user', processAlive: false,
+          lastActivityAt: '2026-07-20T10:00:00Z', revision: 2,
+          lastQuestion: {
+            displayText: '히스토리 질문', askedAt: '2026-07-20T10:00:00Z', privacy: 'visible',
+            source: 'transcript', sessionId: 'session-question', exchangeId: 'exchange-1',
+          },
+        })}
+      >open transcript question</button>
     </div>
   ),
 }))
@@ -74,10 +118,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   appMocks.restoreCallback = null
+  appMocks.activityCallback = null
   appMocks.listProjects.mockResolvedValue([project])
   appMocks.workspaceOverview.mockResolvedValue({ generatedAt: '', projects: [] })
   appMocks.projectDashboard.mockResolvedValue(dashboard)
   appMocks.resumeCard.mockResolvedValue(null)
+  appMocks.agentActivitySnapshot.mockResolvedValue({ activities: [], asOf: '2026-07-20T00:00:00Z' })
   appMocks.conversationHistory.mockResolvedValue({
     projectId: 'p1', agent: 'claude', sessions: [], scannedSources: 0, skippedSources: 0, truncated: false,
   })
@@ -88,6 +134,11 @@ beforeEach(() => {
     workspaceOverview: null,
     resumeCard: null,
     resumeBannerOpen: false,
+    activities: [],
+    activitySnapshotAsOf: null,
+    activityLoadGeneration: 0,
+    activeWorktrees: {},
+    paneTarget: null,
     openPanes: {},
     error: null,
   })
@@ -192,5 +243,34 @@ describe('App project navigation', () => {
     expect(screen.getByTestId('active-main-tab').textContent).toBe('history')
     expect(screen.getByTestId('history-focus-agent').textContent).toBe('claude')
     expect(screen.queryByRole('dialog', { name: /이어서/ })).toBeNull()
+  })
+
+  it('opens project notes from Ctrl/Cmd+Shift+N only when a project is selected', () => {
+    useStore.setState({ selectedProjectId: 'p1', dashboard })
+    render(<App />)
+
+    fireEvent.keyDown(window, { code: 'KeyN', key: 'N', ctrlKey: true, shiftKey: true })
+
+    expect(screen.getByRole('dialog', { name: '프로젝트 메모' }).textContent).toContain('p1')
+  })
+
+  it('mounts the right-side preview selected by the conversation surface', () => {
+    useStore.setState({ selectedProjectId: 'p1', dashboard })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open file preview' }))
+
+    expect(screen.getByRole('complementary', { name: '파일 미리보기' }).textContent).toBe('docs/spec.md')
+  })
+
+  it('routes a transcript-backed recent question to the exact history session', () => {
+    useStore.setState({ selectedProjectId: 'p1', dashboard })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'open transcript question' }))
+
+    expect(screen.getByTestId('active-main-tab').textContent).toBe('history')
+    expect(screen.getByTestId('history-focus-agent').textContent).toBe('claude')
+    expect(screen.getByTestId('history-focus-session').textContent).toBe('session-question')
   })
 })

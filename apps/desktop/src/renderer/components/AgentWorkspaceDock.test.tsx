@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { AgentActivity, Project } from '@apc/shared'
 
@@ -23,7 +23,9 @@ vi.mock('./AgentTerminal.js', () => ({
   ),
 }))
 
-import { AgentWorkspaceDock, agentWorkspaceKey, nextAgentSlot, readAgentSlots } from './AgentWorkspaceDock.js'
+import {
+  AgentWorkspaceDock, agentTerminalKey, agentWorkspaceKey, nextAgentSlot, paneIdentityForSlot, readAgentSlots,
+} from './AgentWorkspaceDock.js'
 import { useStore } from '../store.js'
 
 const project: Project = {
@@ -81,7 +83,8 @@ beforeEach(() => {
   localStorage.clear()
   mocks.gitWorktrees.mockResolvedValue({ ok: true, worktrees })
   useStore.setState({
-    agentStatus: {}, openPanes: {}, restartNonce: {}, stoppingKeys: {},
+    selectedProjectId: 'p1', agentStatus: {}, openPanes: {}, restartNonce: {}, stoppingKeys: {},
+    activeWorktrees: {}, paneTarget: null,
   })
 })
 
@@ -127,17 +130,18 @@ describe('AgentWorkspaceDock', () => {
     await waitFor(() => expect(workspace.querySelectorAll('[data-agent="codex"]')).toHaveLength(1))
   })
 
-  test('reports only the last removed slot of an agent kind as closed', async () => {
+  test('reports the exact worktree and slot identity when a pane opens and closes', async () => {
     renderDock()
     await screen.findByRole('tab', { name: /main/ })
 
     fireEvent.click(screen.getByRole('button', { name: '에이전트 추가' }))
     fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /Claude/ }))
-    expect(mocks.paneOpened).toHaveBeenCalledWith({ projectId: 'p1', agent: 'claude' })
+    const pane = paneIdentityForSlot('p1', 'C:\\work\\apc', { id: 'claude-1', agent: 'claude' })
+    expect(mocks.paneOpened).toHaveBeenCalledWith(pane)
 
     fireEvent.click(screen.getByRole('button', { name: 'Claude 에이전트 제거' }))
 
-    expect(mocks.paneClosed).toHaveBeenCalledWith({ projectId: 'p1', agent: 'claude' })
+    expect(mocks.paneClosed).toHaveBeenCalledWith(pane)
   })
 
   test('persists the configured slots independently for each worktree', async () => {
@@ -177,6 +181,24 @@ describe('AgentWorkspaceDock', () => {
       expect(within(authWorkspace).getByText('[auth 질문]')).toBeDefined()
       expect(within(authWorkspace).queryByText('[main 질문]')).toBeNull()
     })
+  })
+
+  test('consumes an exact pane target by selecting its worktree and slot', async () => {
+    seedSlots('C:\\work\\apc-auth')
+    const { container } = renderDock()
+    await screen.findByRole('tab', { name: /main/ })
+    const target = paneIdentityForSlot('p1', 'C:\\work\\apc-auth', { id: 'codex-2', agent: 'codex' })
+
+    act(() => useStore.getState().focusAgentPane(target))
+
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'feat/auth' }).getAttribute('aria-selected')).toBe('true'))
+    await waitFor(() => {
+      const featureWorkspace = workspaceFor(container, 'C:\\work\\apc-auth') as HTMLElement
+      expect(featureWorkspace.querySelector(`[data-session-id="${agentTerminalKey('p1', 'C:\\work\\apc-auth', 'codex-2')}"]`)).not.toBeNull()
+    })
+    expect(mocks.paneOpened).toHaveBeenCalledWith(target)
+    expect(useStore.getState().paneTarget).toBeNull()
+    expect(useStore.getState().activeWorktrees.p1).toBe('C:\\work\\apc-auth')
   })
 })
 

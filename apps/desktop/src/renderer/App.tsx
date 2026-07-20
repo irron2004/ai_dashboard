@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react'
-import type { AgentType } from '@apc/shared'
+import { parseFileReferences, type AgentActivity, type AgentPaneIdentity, type AgentType, type ResolvedFileReference } from '@apc/shared'
 import { useStore } from './store.js'
 import { api } from './api.js'
 import { ProjectSidebar } from './components/ProjectSidebar.js'
@@ -13,10 +13,13 @@ import { SearchModal } from './components/SearchModal.js'
 import { DiffPanel } from './components/DiffPanel.js'
 import { GlobalMenu } from './components/GlobalMenu.js'
 import { ResumeBanner } from './components/ResumeBanner.js'
+import { ProjectNotesDrawer } from './components/ProjectNotesDrawer.js'
+import { FilePreviewPanel } from './components/FilePreviewPanel.js'
 import type { HistoryFocus } from './components/ConversationHistoryView.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
 import type { ConversationHistoryReq } from '../shared/ipc-contract.js'
 import './app.css'
+import './components/project-context-pm.css'
 
 // Keep this many recently-visited projects' agent terminals mounted (alive) so switching back and forth
 // among them never reloads claude/codex/opencode. The oldest beyond this is unmounted (reloads on revisit).
@@ -28,8 +31,9 @@ export function App() {
   const {
     projects, selectedProjectId, dashboard, error,
     harnessLoading, workspaceOverview,
-    resumeCard, resumeBannerOpen, loadResumeCard, openResumeBanner, dismissResumeBanner, addNextNote,
-    loadProjects, addProject, updateProject, deleteProject, selectProject, clearError, loadWorkspaceOverview,
+    resumeCard, resumeBannerOpen, loadResumeCard, dismissResumeBanner, addNextNote,
+    activities, activeWorktrees, loadAgentActivities, mergeAgentActivity, focusAgentPane,
+    loadProjects, addProject, updateProject, confirmProjectContext, deleteProject, selectProject, clearError, loadWorkspaceOverview,
   } = useStore()
   const [agent, setAgent] = useState<AgentType>('claude')
   const [agentResumeRequest, setAgentResumeRequest] = useState<AgentResumeRequest | null>(null)
@@ -45,6 +49,8 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [diffOpen, setDiffOpen] = useState(false)
   const [historyFocus, setHistoryFocus] = useState<HistoryFocus | null>(null)
+  const [notesOpen, setNotesOpen] = useState(false)
+  const [previewReference, setPreviewReference] = useState<ResolvedFileReference | null>(null)
   const [sidebarW, setSidebarW] = useState(220)            // projects sidebar width (grid track) when expanded
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:sidebarCollapsed') === '1' } catch { return false }
@@ -147,6 +153,10 @@ export function App() {
   useEffect(() => api.onHarnessProgress((e) => useStore.getState().setHarnessProgress(e.state)), [])
   useEffect(() => api.onHarnessEngineLog((e) => useStore.getState().appendHarnessEngineLog(e)), [])
   useEffect(() => api.onHarnessNodes((e) => useStore.getState().addHarnessLiveNodes(e)), [])
+  useEffect(() => {
+    void loadAgentActivities()
+    return api.onAgentActivity((event) => mergeAgentActivity(event))
+  }, [loadAgentActivities, mergeAgentActivity])
 
   // Workspace session persistence: hydrate panes from main on boot.
   useEffect(() => {
@@ -204,12 +214,13 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.code === 'KeyN') {
-        e.preventDefault(); if (selectedProjectId) openResumeBanner()
+        e.preventDefault()
+        if (selectedProjectId) setNotesOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedProjectId, openResumeBanner])
+  }, [selectedProjectId])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -251,6 +262,50 @@ export function App() {
   // Stable identity so ConversationHistoryView's fetch effect doesn't re-fire on every App render.
   const fetchConversationHistory = useCallback((req: ConversationHistoryReq) => api.conversationHistory(req), [])
 
+  useEffect(() => { setPreviewReference(null) }, [selectedProjectId])
+
+  const focusPane = useCallback((pane: AgentPaneIdentity) => {
+    focusAgentPane(pane)
+    setAgent(pane.agent)
+    toggleDock(false)
+    void selectProject(pane.projectId)
+  }, [focusAgentPane, selectProject, toggleDock])
+
+  const openActivityQuestion = useCallback((activity: AgentActivity) => {
+    const question = activity.lastQuestion
+    if (question?.source === 'transcript' && question.sessionId) {
+      void selectProject(activity.pane.projectId)
+      setHistoryFocus({
+        agent: activity.pane.agent,
+        sessionId: question.sessionId,
+        exchangeId: question.exchangeId,
+      })
+      handleMainTab('history')
+      return
+    }
+    focusPane(activity.pane)
+  }, [focusPane, handleMainTab, selectProject])
+
+  const openNestedPreview = useCallback(async (target: string) => {
+    if (!selectedProjectId) return
+    const candidate = parseFileReferences(target)[0]
+    if (!candidate) return
+    const result = await api.fileRefsResolve({
+      projectId: selectedProjectId,
+      activeWorktreePath: activeWorktrees[selectedProjectId] ?? undefined,
+      sessionWorkspacePath: previewReference?.workspaceRoot,
+      candidates: [candidate],
+    })
+    if (result.resolved[0]) setPreviewReference(result.resolved[0])
+  }, [activeWorktrees, previewReference?.workspaceRoot, selectedProjectId])
+
+  const refreshProjectSurfaces = useCallback(() => {
+    if (!selectedProjectId) return
+    void loadResumeCard(selectedProjectId)
+    void selectProject(selectedProjectId)
+    void loadWorkspaceOverview()
+  }, [loadResumeCard, loadWorkspaceOverview, selectProject, selectedProjectId])
+
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
     try {
@@ -265,6 +320,12 @@ export function App() {
     <>
       <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)" aria-label="검색 (Ctrl+K)">🔎</button>
       <button onClick={() => setDiffOpen((value) => !value)} title="변경사항 (Ctrl+Shift+D)" aria-label="변경사항 (Ctrl+Shift+D)">±</button>
+      <button
+        onClick={() => setNotesOpen(true)}
+        title="프로젝트 메모 (Ctrl+Shift+N)"
+        aria-label="프로젝트 메모 (Ctrl+Shift+N)"
+        disabled={!selectedProjectId}
+      >📌</button>
       <GlobalMenu items={[{ label: upd.running ? 'Updating…' : '⭳ Update (git pull + pnpm install)', onClick: runUpdate, disabled: upd.running }]} />
     </>
   )
@@ -289,6 +350,7 @@ export function App() {
             handleMainTab('history')
           }}
           onAddNote={(text) => void addNextNote(text)}
+          onChanged={refreshProjectSurfaces}
         />
       )}
       <aside className={`app-layout__sidebar${sidebarCollapsed ? ' app-layout__sidebar--rail' : ''}`}>
@@ -300,6 +362,7 @@ export function App() {
           onSelect={openProject}
           onAdd={addProject}
           onUpdate={updateProject}
+          onConfirmContext={confirmProjectContext}
           onDelete={deleteProject}
           badges={projectBadges}
         />
@@ -315,20 +378,32 @@ export function App() {
       )}
 
       <main className="app-layout__main">
-        <MainPanel
-          tab={mainTab}
-          onTab={handleMainTab}
-          dashboard={dashboard}
-          projectLoadState={(dashboard ? 'ready' : selectedProjectId ? 'loading' : 'unselected') satisfies ProjectLoadState}
-          actions={toolbarActions}
-          wikiGenRunning={harnessLoading}
-          overview={workspaceOverview}
-          onRefreshWorkspace={() => void loadWorkspaceOverview()}
-          onOpenProject={(pid) => openProject(pid, true)}
-          historyFocus={historyFocus}
-          onHistoryFocusConsumed={() => setHistoryFocus(null)}
-          fetchConversationHistory={fetchConversationHistory}
-        />
+        <div className={`app-layout__main-surface${previewReference ? ' app-layout__main-surface--preview' : ''}`}>
+          <MainPanel
+            tab={mainTab}
+            onTab={handleMainTab}
+            dashboard={dashboard}
+            projectLoadState={(dashboard ? 'ready' : selectedProjectId ? 'loading' : 'unselected') satisfies ProjectLoadState}
+            actions={toolbarActions}
+            wikiGenRunning={harnessLoading}
+            overview={workspaceOverview}
+            onRefreshWorkspace={() => { void loadWorkspaceOverview(); void loadAgentActivities() }}
+            onOpenProject={(pid) => openProject(pid, true)}
+            activities={activities}
+            onOpenActivityPane={focusPane}
+            onOpenActivityQuestion={openActivityQuestion}
+            historyFocus={historyFocus}
+            onHistoryFocusConsumed={() => setHistoryFocus(null)}
+            fetchConversationHistory={fetchConversationHistory}
+            activeWorktreePath={selectedProjectId ? activeWorktrees[selectedProjectId] ?? undefined : undefined}
+            onOpenFileReference={setPreviewReference}
+          />
+          <FilePreviewPanel
+            reference={previewReference}
+            onClose={() => setPreviewReference(null)}
+            onOpenLocalPath={(target) => { void openNestedPreview(target) }}
+          />
+        </div>
       </main>
 
       {/* Agent workspaces — one tab per Git worktree, with user-configurable agent panes. */}
@@ -350,10 +425,21 @@ export function App() {
           collapsed={dockCollapsed}
           onToggleCollapsed={toggleDock}
           onActiveAgentChange={setAgent}
+          activities={activities}
           resumeRequest={agentResumeRequest}
           onResumeHandled={() => setAgentResumeRequest(null)}
         />
       </div>
+
+      {notesOpen && selectedProjectId && (
+        <ProjectNotesDrawer
+          projectId={selectedProjectId}
+          focusInput
+          onClose={() => setNotesOpen(false)}
+          onChanged={refreshProjectSurfaces}
+          onOpenTask={() => { setNotesOpen(false); handleMainTab('home') }}
+        />
+      )}
 
       {upd.open && (
         <div className="add-project-overlay" onClick={() => { if (!upd.running) setUpd((u) => ({ ...u, open: false })) }}>

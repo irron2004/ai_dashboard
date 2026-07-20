@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
+import type { AgentPaneIdentity } from '@apc/shared'
 import '@xterm/xterm/css/xterm.css'
 import './terminal.css'
 import { api } from '../api.js'
@@ -24,6 +25,7 @@ export type AgentTerminalProps = {
   command: string
   args: string[]
   cwd: string
+  paneIdentity?: AgentPaneIdentity
   agent?: 'claude' | 'codex' | 'opencode'
   resumeSessionId?: string | null   // null = resume latest; undefined = no resume (fresh start)
   restartNonce?: number   // bump to force re-spawn (start/restart)
@@ -69,7 +71,7 @@ function probeBrowserFont(family: string, sample: string, fontSize: number): Ter
  * with xterm. Reports lifecycle to onStatus: running → (attention on a permission prompt) → done.
  */
 export function AgentTerminal({
-  sessionId, command, args, cwd, agent, resumeSessionId, restartNonce,
+  sessionId, command, args, cwd, paneIdentity, agent, resumeSessionId, restartNonce,
   onStatus, onActivate, onQuestionCandidate, onRenderingDiagnostic,
 }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -100,6 +102,9 @@ export function AgentTerminal({
     const fit = new FitAddon()
     const unicode11 = new Unicode11Addon()
     const questionBuffer = new TerminalQuestionBuffer()
+    const launchId = paneIdentity
+      ? (globalThis.crypto?.randomUUID?.() ?? `${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`)
+      : undefined
     activateUnicode11(term, unicode11)
     term.loadAddon(fit)
     term.open(host)
@@ -114,7 +119,7 @@ export function AgentTerminal({
     const renderCoordinator = new TerminalRenderCoordinator({
       fit: () => fit.fit(),
       dimensions: () => ({ cols: term.cols, rows: term.rows }),
-      resize: (cols, rows) => { void api.resizePty({ id: sessionId, cols, rows }) },
+      resize: (cols, rows) => { void api.resizePty({ id: sessionId, cols, rows, launchId }) },
       refresh: (start, end) => term.refresh(start, end),
       requestFrame,
       cancelFrame,
@@ -157,21 +162,35 @@ export function AgentTerminal({
     pasteControllerRef.current = pasteController
 
     onStatusRef.current?.('running')
-    const offData = api.onPtyData((id, data) => {
-      if (id !== sessionId) return
+    const onOutput = (data: string) => {
       term.write(data, () => renderCoordinator.schedule())
       if (ATTENTION_RE.test(data)) onStatusRef.current?.('attention')
       if (SECURE_PROMPT_RE.test(data.trimEnd())) questionBuffer.setSecurePrompt(true)
-    })
-    const offExit = api.onPtyExit((id, code) => {
-      if (id !== sessionId) return
+    }
+    const onExit = (code: number) => {
       term.write(`\r\n[process exited: ${code}]\r\n`, () => renderCoordinator.schedule())
       onStatusRef.current?.('done')
-    })
+    }
+    const offData = paneIdentity && launchId
+      ? api.onPtyDataV2((event) => {
+          if (event.id === sessionId && event.launchId === launchId) onOutput(event.data)
+        })
+      : api.onPtyData((id, data) => { if (id === sessionId) onOutput(data) })
+    const offExit = paneIdentity && launchId
+      ? api.onPtyExitV2((event) => {
+          if (event.id === sessionId && event.launchId === launchId) onExit(event.code)
+        })
+      : api.onPtyExit((id, code) => { if (id === sessionId) onExit(code) })
     // Activation (pane grow) is click-only — see onMouseDown on the host below. Typing does NOT activate.
     const inputSub = term.onData((data) => {
-      for (const candidate of questionBuffer.push(data)) onQuestionCandidateRef.current?.(candidate)
-      api.writePty({ id: sessionId, data })
+      const questionCandidates = questionBuffer.push(data)
+      for (const candidate of questionCandidates) onQuestionCandidateRef.current?.(candidate)
+      api.writePty({
+        id: sessionId,
+        data,
+        launchId,
+        ...(questionCandidates.length > 0 ? { questionCandidates } : {}),
+      })
     })
 
     // Copy: auto-copy selected text to the clipboard. Paste: Ctrl+Shift+V.
@@ -181,12 +200,14 @@ export function AgentTerminal({
     })
     term.attachCustomKeyEventHandler((event) => pasteController.handleKey(event, navigator.platform))
 
-    api.startPty({
+    const start = {
       id: sessionId, command, args, cwd,
       resume: agent != null && resumeSessionId !== undefined,
       agent,
       sessionId: resumeSessionId ?? undefined,
-    })
+    }
+    if (paneIdentity && launchId) api.startPty({ ...start, pane: paneIdentity, launchId })
+    else api.startPty(start)
 
     const scheduleRender = () => renderCoordinator.schedule()
     const onVisibilityChange = () => {
@@ -219,12 +240,16 @@ export function AgentTerminal({
       terminalRef.current = null
       offData()
       offExit()
-      api.killPty({ id: sessionId })
+      api.killPty({ id: sessionId, launchId, reason: 'unmount' })
       term.dispose()
     }
     // args is intentionally joined (array identity is unstable across renders)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, command, cwd, args.join(' '), restartNonce])
+  }, [
+    sessionId, command, cwd, args.join(' '), restartNonce,
+    paneIdentity?.paneId, paneIdentity?.projectId, paneIdentity?.worktreePath,
+    paneIdentity?.slotId, paneIdentity?.agent, paneIdentity?.sessionId,
+  ])
 
   return (
     <div
