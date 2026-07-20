@@ -1,7 +1,26 @@
-import { join } from 'node:path'
-import { readdirSync, statSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
-import type { AgentType, RunState, KhProjectDiscoveryReport, KhProjectPolicyProposal, KhApprovedNodes } from '@apc/shared'
-import { KhProjectDiscoveryReportSchema, KhApprovedNodesSchema } from '@apc/shared'
+import { dirname, join } from 'node:path'
+import {
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import type {
+  AgentType,
+  RunState,
+  KhProjectDiscoveryReport,
+  KhProjectPolicyProposal,
+  KhApprovedNodes,
+  WikiProgressSummary,
+  WikiRunEvent,
+} from '@apc/shared'
+import { KhProjectDiscoveryReportSchema, KhApprovedNodesSchema, RunStateSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner, type EngineOptions } from '@apc/llm-wiki'
 import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE, ARTIFACTS,
@@ -23,7 +42,6 @@ import { materializeProjectDocs, type RemoteDocFetcher } from './source-material
 import { materializeConversations } from './conversation-materializer.js'
 import type { WorkspaceVault, WorkspaceExportResult } from './workspace-vault.js'
 import { buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
-import { dirname } from 'node:path'
 import { PythonKernelAdapter, type WikiSubstrate } from '@apc/wiki-substrate'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
@@ -49,10 +67,56 @@ export function buildVenvSubstrate(repoRoot: string): WikiSubstrate | undefined 
 }
 
 /** 엔진 출력 스트리밍 이벤트 — UI live tail용. label = '<STATE>-<agent>'. */
-export type EngineLogEvent = { label: string; stream: 'stdout' | 'stderr'; chunk: string }
+export type EngineLogEvent = { runId: string; label: string; stream: 'stdout' | 'stderr'; chunk: string }
 
 /** 생성 도중 발견된 노드 미리보기 스트림 — Knowledge 탭의 점진적 그래프 표시용. */
 export type HarnessNodesEvent = { runId: string; folder: string; nodes: Array<{ id: string; title: string; type: string; scope: string }> }
+
+/** Durable progress is the live event contract too: a sink only receives an event after append succeeds. */
+export type HarnessActivitySink = (event: WikiRunEvent) => void | Promise<void>
+
+export type HarnessRunProgress = {
+  runId: string
+  projectId: string
+  summary: WikiProgressSummary
+  active: boolean
+}
+
+export type HarnessListRunsResult = { ok: true; runs: HarnessRunProgress[] } | { ok: false; reason: string }
+export type HarnessGetProgressResult = {
+  ok: true
+  summary: WikiProgressSummary
+  events: WikiRunEvent[]
+  active: boolean
+} | { ok: false; reason: string }
+export type HarnessReadLogResult = {
+  ok: true
+  content: string
+  nextOffset: number
+  truncated: boolean
+} | { ok: false; reason: string }
+
+type RunnerOptions = {
+  runId: string
+  projectId: string
+  vaultRoot: string
+  projectCwd?: string
+  onEngineLog?: (event: EngineLogEvent) => void
+  engineOptions?: EngineOptions
+  workerConcurrency?: number
+  onNodes?: (event: HarnessNodesEvent) => void
+  ignoreLedger?: boolean
+  interactive?: boolean
+  domainPack?: DomainPack
+  substrate?: WikiSubstrate
+  projectContext?: ProjectStructureHint
+  onActivity?: HarnessActivitySink
+}
+
+const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const LOG_RESPONSE_DEFAULT = 64 * 1024
+const LOG_RESPONSE_MAX = 256 * 1024
+const LOG_SOURCE_MAX = 1024 * 1024
 
 export type HarnessServiceDeps = {
   runner: AgentRunner
@@ -98,6 +162,7 @@ export class HarnessService {
   private readonly now: () => string
   private readonly preamble: string
   private readonly gatesPath?: string
+  private readonly activeRuns = new Set<string>()
   constructor(private readonly deps: HarnessServiceDeps) {
     this.now = deps.now ?? (() => new Date().toISOString())
     // Defaults are compiled-in (fs-free): a bundled app boots even if no harness/ file is reachable.
@@ -114,7 +179,123 @@ export class HarnessService {
     return FeatureGate.default()
   }
 
-  private stagingDir(runId: string): string { return join(this.deps.runsRoot, runId, 'vault-staging') }
+  /** Run ids are opaque directory names, never relative paths. */
+  private runDir(runId: string): string {
+    if (!RUN_ID_PATTERN.test(runId)) throw new Error(`invalid run id: ${runId}`)
+    return resolveInside(this.deps.runsRoot, runId)
+  }
+
+  private storeFor(runId: string): RunArtifactStore {
+    return new RunArtifactStore(this.runDir(runId))
+  }
+
+  private stagingDir(runId: string): string {
+    return resolveInside(this.runDir(runId), 'vault-staging')
+  }
+
+  private runError(runId: string, error: unknown): HarnessRunResult {
+    return {
+      ok: false,
+      runId,
+      finalState: 'FAILED',
+      reason: error instanceof Error ? error.message : String(error),
+    }
+  }
+
+  private eventDiagnostic(runId: string, onEngineLog: RunnerOptions['onEngineLog'], stage: string, error: unknown): void {
+    const chunk = `progress ${stage} failed: ${error instanceof Error ? error.message : String(error)}\n`
+    try { onEngineLog?.({ runId, label: 'progress', stream: 'stderr', chunk }) }
+    catch { /* a diagnostic callback must never alter a run */ }
+  }
+
+  /** Create the durable run envelope before workspace I/O. The real driver runner is built after pull. */
+  private initializeRun(
+    store: RunArtifactStore,
+    input: { runId: string; projectId: string; engine: AgentType },
+    onActivity?: HarnessActivitySink,
+    onEngineLog?: RunnerOptions['onEngineLog'],
+  ): void {
+    const bootstrap = new HarnessRunner({
+      gates: this.featureGate(),
+      drivers: {},
+      now: this.now,
+      eventSink: onActivity,
+      onEventError: ({ stage, error }) => this.eventDiagnostic(input.runId, onEngineLog, stage, error),
+    })
+    bootstrap.createRun(store, input)
+  }
+
+  /** Persist failures that happen before/around HarnessRunner.advance (materialization, lock, wiring). */
+  private async failRun(
+    store: RunArtifactStore,
+    runId: string,
+    reason: string,
+    onActivity?: HarnessActivitySink,
+    onEngineLog?: RunnerOptions['onEngineLog'],
+  ): Promise<HarnessRunResult> {
+    try {
+      const previous = store.loadRunState()
+      if (previous.state !== 'FAILED') {
+        const at = this.now()
+        const failed = RunStateSchema.parse({
+          ...previous,
+          state: 'FAILED',
+          history: [...previous.history, { state: 'FAILED', at }],
+          awaiting: undefined,
+          error: reason,
+        })
+        store.saveRunState(failed)
+        try {
+          const event = await store.appendProgressEvent({
+            runId,
+            projectId: previous.projectId,
+            at,
+            kind: 'run_failed',
+            message: reason,
+          })
+          try { await onActivity?.(event) }
+          catch (error) { this.eventDiagnostic(runId, onEngineLog, 'sink', error) }
+        } catch (error) {
+          this.eventDiagnostic(runId, onEngineLog, 'journal', error)
+        }
+      }
+    } catch (error) {
+      this.eventDiagnostic(runId, onEngineLog, 'journal', error)
+    }
+    return { ok: false, runId, finalState: 'FAILED', reason }
+  }
+
+  /** Reconcile the user's final selection against discovered nodes before deterministic resume. */
+  private async recordNodeConfirmation(
+    store: RunArtifactStore,
+    runId: string,
+    approved: KhApprovedNodes,
+    onActivity?: HarnessActivitySink,
+  ): Promise<void> {
+    try {
+      const state = store.loadRunState()
+      const nodes = this.progressSummary(store)?.nodes ?? []
+      const accepted = new Set(approved.nodes.flatMap((node) => [node.source_proposal_id, node.id].filter(Boolean)))
+      for (const node of nodes) {
+        const event = await store.appendProgressEvent({
+          runId,
+          projectId: state.projectId,
+          at: this.now(),
+          kind: accepted.has(node.proposalId) ? 'node_accepted' : 'node_dropped',
+          workerId: node.workerId,
+          proposalId: node.proposalId,
+          title: node.title,
+          nodeType: node.nodeType,
+          sourceFolder: node.sourceFolder,
+        })
+        try { await onActivity?.(event) }
+        catch (error) { this.eventDiagnostic(runId, undefined, 'sink', error) }
+      }
+    } catch (error) {
+      // Confirmation itself is authoritative in approved-nodes.json; replay enrichment is diagnostic-only.
+      this.eventDiagnostic(runId, undefined, 'journal', error)
+    }
+  }
 
   /** The wiki vault for a project: its workspace-backed home if a resolver is wired, else a fallback
    *  bound to the single `deps.vaultRoot` with no-op sync (preserves legacy/test behavior). */
@@ -158,19 +339,26 @@ export class HarnessService {
 
   /** Read a run's projectId from its persisted state (for promote/export, which receive only a runId). */
   private projectIdOf(runId: string): string {
-    try { return new RunArtifactStore(join(this.deps.runsRoot, runId)).loadRunState().projectId }
+    try { return this.storeFor(runId).loadRunState().projectId }
     catch { return '' }
   }
 
   /** Build a runner bound to one run dir (drivers close over that run's staging dir + a per-project lock).
    * 모든 엔진 호출은 LoggingAgentRunner를 거쳐 runs/<id>/logs/에 영속되고(성공·실패 불문),
    * onEngineLog가 주어지면 출력 chunk가 도착 즉시 콜백으로도 흐른다. */
-  private runnerFor(runId: string, projectId: string, vaultRoot: string, projectCwd?: string, onEngineLog?: (e: EngineLogEvent) => void, engineOptions?: EngineOptions, workerConcurrency?: number, onNodes?: (e: HarnessNodesEvent) => void, ignoreLedger?: boolean, interactive?: boolean, domainPack?: DomainPack, substrate?: WikiSubstrate, projectContext?: ProjectStructureHint): HarnessRunner {
-    const logging = new LoggingAgentRunner(this.deps.runner, join(this.deps.runsRoot, runId, 'logs'))
+  private runnerFor(options: RunnerOptions): HarnessRunner {
+    const {
+      runId, projectId, vaultRoot, projectCwd, onEngineLog, engineOptions, workerConcurrency,
+      onNodes, ignoreLedger, interactive, domainPack, substrate, projectContext, onActivity,
+    } = options
+    const logging = new LoggingAgentRunner(this.deps.runner, resolveInside(this.runDir(runId), 'logs'))
     const runner: AgentRunner = !onEngineLog ? logging : {
       run: (i) => logging.run({
         ...i,
-        onChunk: (stream, text) => { i.onChunk?.(stream, text); onEngineLog({ label: i.label ?? i.agent, stream, chunk: text }) },
+        onChunk: (stream, text) => {
+          i.onChunk?.(stream, text)
+          onEngineLog({ runId, label: i.label ?? i.agent, stream, chunk: text })
+        },
       }),
     }
     const drivers = makeDrivers({
@@ -193,11 +381,25 @@ export class HarnessService {
       substrate,
     })
     const lock = new RunLock(join(this.deps.runsRoot, '.locks'), projectId)
-    return new HarnessRunner({ gates: this.featureGate(), drivers, now: this.now, lock })
+    return new HarnessRunner({
+      gates: this.featureGate(),
+      drivers,
+      now: this.now,
+      lock,
+      eventSink: onActivity,
+      onEventError: ({ stage, error }) => this.eventDiagnostic(runId, onEngineLog, stage, error),
+    })
   }
 
   /** advance() the run, mapping a thrown lock-contention error to a structured failure result. */
-  private async advanceSafely(runId: string, runner: HarnessRunner, store: RunArtifactStore, onProgress?: (rs: RunState) => void): Promise<HarnessRunResult> {
+  private async advanceSafely(
+    runId: string,
+    runner: HarnessRunner,
+    store: RunArtifactStore,
+    onProgress?: (rs: RunState) => void,
+    onActivity?: HarnessActivitySink,
+    onEngineLog?: RunnerOptions['onEngineLog'],
+  ): Promise<HarnessRunResult> {
     try {
       const rs = await runner.advance(store, onProgress)
       return { ok: rs.state !== 'FAILED', runId, finalState: rs.state, reason: rs.error }
@@ -208,83 +410,136 @@ export class HarnessService {
       if (/already in progress/.test(reason)) {
         reason += ` — if a prior run crashed, delete the stale lock at ${join(this.deps.runsRoot, '.locks')}/<projectId>.lock and retry`
       }
-      return { ok: false, runId, finalState: 'FAILED', reason }
+      return this.failRun(store, runId, reason, onActivity, onEngineLog)
     }
   }
 
-  async run(input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean; domain?: DomainId; projectContext?: ProjectStructureHint }, onProgress?: (rs: RunState) => void, onEngineLog?: (e: EngineLogEvent) => void, onNodes?: (e: HarnessNodesEvent) => void): Promise<HarnessRunResult> {
-    const log = (chunk: string) => onEngineLog?.({ label: 'workspace', stream: 'stdout', chunk })
+  async run(
+    input: { projectId: string; engine: AgentType; materialize?: boolean; repoPaths?: string[]; engineOptions?: EngineOptions; workerConcurrency?: number; fullRegen?: boolean; interactive?: boolean; domain?: DomainId; projectContext?: ProjectStructureHint },
+    onProgress?: (rs: RunState) => void,
+    onEngineLog?: (event: EngineLogEvent) => void,
+    onNodes?: (event: HarnessNodesEvent) => void,
+    onActivity?: HarnessActivitySink,
+  ): Promise<HarnessRunResult> {
+    const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
+    let store: RunArtifactStore
+    try { store = this.storeFor(runId) }
+    catch (error) { return this.runError(runId, error) }
+
+    const log = (chunk: string, stream: EngineLogEvent['stream'] = 'stdout') => {
+      try { onEngineLog?.({ runId, label: 'workspace', stream, chunk }) }
+      catch { /* renderer live-tail failure must not alter the durable run */ }
+    }
     const pack = resolveDomainPack(input.domain)
-    log(`domain: ${pack.id}\n`)
-    // The wiki lives in the project's workspace. Bring the canonical internal state (graph/proposals/
-    // runs/projects) into the local working vault before the run; raw/ is re-materialized below.
-    const wv = this.vaultFor(input.projectId)
-    try { await wv.pull() }
-    catch (e) { onEngineLog?.({ label: 'workspace', stream: 'stderr', chunk: `pull failed: ${String(e)}\n` }) }
-    const vaultRoot = wv.localRoot
-    this.ensureVaultGitignore(vaultRoot)
+    let wv: WorkspaceVault | undefined
 
-    // SSH projects MUST materialize every run: their working vault is wiped and re-pulled, and raw/ is
-    // never synced (re-derived each run), so skipping materialize would leave raw/ empty → the extractor
-    // has nothing real to cite → EvidenceVerifier path_escape. Local projects keep raw/ across runs (the
-    // workspace IS the local fs, pull is a no-op), so "최근 세션" can legitimately skip the doc sweep.
-    const sshRepoPath = input.repoPaths?.find((p) => p.startsWith('ssh://'))
-    const doMaterialize = (input.materialize || !!sshRepoPath) && !!input.repoPaths?.length
-    if (sshRepoPath && !input.materialize) log('ssh project — forcing full materialize (raw/ is not persisted for ssh).\n')
+    // Mark active before createRun: a synchronous run_started subscriber can immediately query `active`.
+    this.activeRuns.add(runId)
+    try {
+      this.initializeRun(store, { runId, projectId: input.projectId, engine: input.engine }, onActivity, onEngineLog)
+    } catch (error) {
+      this.activeRuns.delete(runId)
+      return this.runError(runId, error)
+    }
 
-    if (doMaterialize && input.repoPaths?.length) {
-      // Emit the manifest so an empty/failed source pull (e.g. an ssh fetch that returned nothing) is
-      // VISIBLE in the live log instead of silently producing an empty raw/ that fails downstream.
-      const docs = await materializeProjectDocs(input.repoPaths, vaultRoot, { fetchRemoteDocs: this.deps.fetchRemoteDocs })
-      log(`project-docs: ${docs.files.length} file(s) materialized (scanned ${docs.scanned}).` +
-        (docs.skipped.length ? ` skipped ${docs.skipped.length}: ${docs.skipped.slice(0, 5).join(' | ')}` : '') + '\n')
+    let result: HarnessRunResult
+    try {
+      wv = this.vaultFor(input.projectId)
+      log(`domain: ${pack.id}\n`)
+      // The journal already exists when pull begins, so a crash or early setup failure remains replayable.
+      try { await wv.pull() }
+      catch (error) { log(`pull failed: ${String(error)}\n`, 'stderr') }
+      const vaultRoot = wv.localRoot
+      this.ensureVaultGitignore(vaultRoot)
 
-      // Conversations: for an ssh:// project pull them FROM THE REMOTE host (never read the local
-      // machine — the user works on the remote box; local ~/.claude is the wrong machine). Local
-      // projects use the injected local adapters as before.
-      let convAdapters = this.deps.conversationAdapters ?? []
-      if (sshRepoPath) {
-        convAdapters = []
-        if (this.deps.remoteConversationFetcher) {
-          try { convAdapters = await this.deps.remoteConversationFetcher(sshRepoPath, join(this.deps.runsRoot, '.remote-conv')) }
-          catch (e) { log(`conversations: remote fetch failed: ${String(e)}\n`) }
+      // SSH projects MUST materialize every run: raw/ is derived state and is not synced.
+      const sshRepoPath = input.repoPaths?.find((path) => path.startsWith('ssh://'))
+      const doMaterialize = (input.materialize || !!sshRepoPath) && !!input.repoPaths?.length
+      if (sshRepoPath && !input.materialize) {
+        log('ssh project — forcing full materialize (raw/ is not persisted for ssh).\n')
+      }
+
+      if (doMaterialize && input.repoPaths?.length) {
+        const docs = await materializeProjectDocs(input.repoPaths, vaultRoot, {
+          fetchRemoteDocs: this.deps.fetchRemoteDocs,
+        })
+        log(`project-docs: ${docs.files.length} file(s) materialized (scanned ${docs.scanned}).` +
+          (docs.skipped.length ? ` skipped ${docs.skipped.length}: ${docs.skipped.slice(0, 5).join(' | ')}` : '') + '\n')
+
+        let convAdapters = this.deps.conversationAdapters ?? []
+        if (sshRepoPath) {
+          convAdapters = []
+          if (this.deps.remoteConversationFetcher) {
+            try {
+              convAdapters = await this.deps.remoteConversationFetcher(
+                sshRepoPath,
+                join(this.deps.runsRoot, '.remote-conv'),
+              )
+            } catch (error) {
+              log(`conversations: remote fetch failed: ${String(error)}\n`)
+            }
+          }
+        }
+        if (convAdapters.length) {
+          const conv = await materializeConversations({
+            adapters: convAdapters,
+            repoPaths: input.repoPaths,
+            vaultRoot,
+          })
+          log(`conversations: ${conv.files} Q&A file(s) from ${conv.sessions} session(s).` +
+            (conv.skipped.length ? ` skipped ${conv.skipped.length}` : '') + '\n')
         }
       }
-      if (convAdapters.length) {
-        const conv = await materializeConversations({
-          adapters: convAdapters,
-          repoPaths: input.repoPaths,
-          vaultRoot,
-        })
-        log(`conversations: ${conv.files} Q&A file(s) from ${conv.sessions} session(s).` +
-          (conv.skipped.length ? ` skipped ${conv.skipped.length}` : '') + '\n')
-      }
+
+      // Prefer the selected project's structured-document runtime, then the dashboard's dev runtime.
+      const substrate = buildVenvSubstrate(input.repoPaths?.[0] ?? '') ?? buildVenvSubstrate(process.cwd())
+      const runner = this.runnerFor({
+        runId,
+        projectId: input.projectId,
+        vaultRoot,
+        projectCwd: input.repoPaths?.[0],
+        onEngineLog,
+        engineOptions: input.engineOptions,
+        workerConcurrency: input.workerConcurrency,
+        onNodes,
+        ignoreLedger: input.fullRegen,
+        interactive: input.interactive,
+        domainPack: pack,
+        substrate,
+        projectContext: input.projectContext,
+        onActivity,
+      })
+      result = await this.advanceSafely(runId, runner, store, onProgress, onActivity, onEngineLog)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      result = await this.failRun(store, runId, reason, onActivity, onEngineLog)
     }
-    const runId = `RUN-${this.now().replace(/[:.]/g, '-')}`
-    const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
-    // Prefer the selected project's autosci-core/core.lock so Wiki Gen validates/indexes against the
-    // project's own structured-document runtime. Fall back to the dashboard repo cwd for legacy dev setups.
-    const substrate = buildVenvSubstrate(input.repoPaths?.[0] ?? '') ?? buildVenvSubstrate(process.cwd())
-    const runner = this.runnerFor(runId, input.projectId, vaultRoot, input.repoPaths?.[0], onEngineLog, input.engineOptions, input.workerConcurrency, onNodes, input.fullRegen, input.interactive, pack, substrate, input.projectContext)
-    runner.createRun(store, { runId, projectId: input.projectId, engine: input.engine })
-    const result = await this.advanceSafely(runId, runner, store, onProgress)
-    // Save the agent-pipeline transcript (run dir + workspace runs/) for later study — even on failure,
-    // since failed runs are the most instructive.
-    this.persistTranscript(runId, input.projectId, result.finalState, wv)
-    // Sync to the workspace so it persists across machines. A successful run pushes the full internal
-    // state (which includes the new transcript); a FAILED run leaves the wiki untouched but still pushes
-    // just the transcript so the failure is studyable from any machine.
+
     try {
-      if (result.finalState !== 'FAILED') { await wv.pushInternal(); log('internal state synced to workspace.\n') }
-      else { await wv.pushRuns() }
-    } catch (e) { onEngineLog?.({ label: 'workspace', stream: 'stderr', chunk: `push failed: ${String(e)}\n` }) }
+      // Failed runs are particularly useful for diagnosis, so transcript persistence is best-effort for all outcomes.
+      if (wv) {
+        this.persistTranscript(runId, input.projectId, result.finalState, wv)
+        if (result.finalState !== 'FAILED') {
+          await wv.pushInternal()
+          log('internal state synced to workspace.\n')
+        } else {
+          await wv.pushRuns()
+        }
+      }
+    } catch (error) {
+      log(`push failed: ${String(error)}\n`, 'stderr')
+    } finally {
+      this.activeRuns.delete(runId)
+    }
     return result
   }
 
   /** Resume an existing run from its persisted state — e.g. after a paused gate is reopened. Re-reads
    * the gates file, so a previously-closed gate that is now open lets the walk continue. (Acceptance #6.) */
-  async resume(input: { runId: string }): Promise<HarnessRunResult> {
-    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+  async resume(input: { runId: string }, onActivity?: HarnessActivitySink): Promise<HarnessRunResult> {
+    let store: RunArtifactStore
+    try { store = this.storeFor(input.runId) }
+    catch (error) { return this.runError(input.runId, error) }
     if (!store.exists()) return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `run not found: ${input.runId}` }
     const prev = store.loadRunState()
     // Terminal runs are no-ops at the runtime level — give a clear "nothing to resume" message instead of
@@ -297,22 +552,42 @@ export class HarnessService {
     if (missing.length) {
       return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `cannot resume ${input.runId}: missing artifacts ${missing.join(', ')}` }
     }
-    const wv = this.vaultFor(prev.projectId)
-    try { await wv.pull() } catch { /* best-effort; the local working copy still holds the run's state */ }
-    const runner = this.runnerFor(input.runId, prev.projectId, wv.localRoot)
-    const result = await this.advanceSafely(input.runId, runner, store)
-    this.persistTranscript(input.runId, prev.projectId, result.finalState, wv)
+    this.activeRuns.add(input.runId)
+    let result: HarnessRunResult
     try {
-      if (result.finalState !== 'FAILED') { await wv.pushInternal() }
-      else { await wv.pushRuns() }
-    } catch { /* non-fatal */ }
+      const wv = this.vaultFor(prev.projectId)
+      try { await wv.pull() } catch { /* best-effort; the local working copy still holds the run's state */ }
+      const runner = this.runnerFor({
+        runId: input.runId,
+        projectId: prev.projectId,
+        vaultRoot: wv.localRoot,
+        onActivity,
+      })
+      result = await this.advanceSafely(input.runId, runner, store, undefined, onActivity)
+      this.persistTranscript(input.runId, prev.projectId, result.finalState, wv)
+      try {
+        if (result.finalState !== 'FAILED') { await wv.pushInternal() }
+        else { await wv.pushRuns() }
+      } catch { /* non-fatal */ }
+    } catch (error) {
+      result = await this.failRun(
+        store,
+        input.runId,
+        error instanceof Error ? error.message : String(error),
+        onActivity,
+      )
+    } finally {
+      this.activeRuns.delete(input.runId)
+    }
     return result
   }
 
   /** 사용자가 확정한 노드 목록을 LEAD_MERGED 키 아티팩트로 저장하고(artifactByName이 찾도록 인덱스에도 추가),
    *  run을 재개한다. LEAD_MERGED는 재개 시 재실행되지 않아 인덱스가 안정적이다. */
-  async confirmNodes(input: { runId: string; approvedNodes: KhApprovedNodes }): Promise<HarnessRunResult> {
-    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+  async confirmNodes(input: { runId: string; approvedNodes: KhApprovedNodes }, onActivity?: HarnessActivitySink): Promise<HarnessRunResult> {
+    let store: RunArtifactStore
+    try { store = this.storeFor(input.runId) }
+    catch (error) { return this.runError(input.runId, error) }
     if (!store.exists()) return { ok: false, runId: input.runId, finalState: 'FAILED', reason: `run not found: ${input.runId}` }
     const approved = KhApprovedNodesSchema.parse(input.approvedNodes)
     const rel = store.writeArtifact('LEAD_MERGED', ARTIFACTS.approvedNodes, approved)
@@ -324,11 +599,14 @@ export class HarnessService {
       awaiting: undefined,
       artifacts: { ...rs.artifacts, ['LEAD_MERGED']: lead.includes(rel) ? lead : [...lead, rel] },
     })
-    return this.resume({ runId: input.runId })
+    await this.recordNodeConfirmation(store, input.runId, approved, onActivity)
+    return this.resume({ runId: input.runId }, onActivity)
   }
 
   show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {
-    const store = new RunArtifactStore(join(this.deps.runsRoot, input.runId))
+    let store: RunArtifactStore
+    try { store = this.storeFor(input.runId) }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : String(error) } }
     if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
     const runState = store.loadRunState()
     const artifacts = Object.entries(runState.artifacts).flatMap(([state, paths]) => paths.map((path) => ({
@@ -341,6 +619,131 @@ export class HarnessService {
     return { ok: true, runState, artifacts }
   }
 
+  /** Project-scoped, newest-first replay index. A malformed historic run is skipped, not fatal. */
+  listRuns(input: { projectId: string; limit?: number }): HarnessListRunsResult {
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200)
+    let entries: string[]
+    try { entries = readdirSync(this.deps.runsRoot).filter((entry) => RUN_ID_PATTERN.test(entry)) }
+    catch { return { ok: true, runs: [] } }
+
+    const runs: HarnessRunProgress[] = []
+    for (const runId of entries) {
+      try {
+        const store = this.storeFor(runId)
+        if (!store.exists()) continue
+        const state = store.loadRunState()
+        if (state.projectId !== input.projectId) continue
+        const summary = this.progressSummary(store)
+        if (!summary) continue
+        const active = this.activeRuns.has(runId)
+        runs.push({ runId, projectId: state.projectId, summary: this.visibleSummary(summary, active), active })
+      } catch { /* one corrupt legacy run must not hide the rest of the history */ }
+    }
+    runs.sort((left, right) => {
+      const byStarted = right.summary.startedAt.localeCompare(left.summary.startedAt)
+      return byStarted || right.runId.localeCompare(left.runId)
+    })
+    return { ok: true, runs: runs.slice(0, limit) }
+  }
+
+  /** Returns the persisted snapshot plus journal so renderer replay never depends on localStorage. */
+  getProgress(input: { runId: string }): HarnessGetProgressResult {
+    let store: RunArtifactStore
+    try { store = this.storeFor(input.runId) }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : String(error) } }
+    if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
+    try {
+      const events = store.readProgressEvents()
+      const summary = this.progressSummary(store)
+      if (!summary) return { ok: false, reason: `progress not found: ${input.runId}` }
+      const active = this.activeRuns.has(input.runId)
+      return { ok: true, summary: this.visibleSummary(summary, active), events, active }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /** Lazy, output-only engine log reader. prompt.txt/meta.json are intentionally excluded. */
+  readLog(input: { runId: string; offset?: number; limit?: number }): HarnessReadLogResult {
+    let runDir: string
+    try { runDir = this.runDir(input.runId) }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : String(error) } }
+    if (!existsSync(join(runDir, 'run.json'))) return { ok: false, reason: `run not found: ${input.runId}` }
+
+    const offset = Math.max(0, Math.trunc(input.offset ?? 0))
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? LOG_RESPONSE_DEFAULT), 1), LOG_RESPONSE_MAX)
+    try {
+      const source = this.readOutputLogs(runDir)
+      const content = source.text.slice(offset, offset + limit)
+      const nextOffset = offset + content.length
+      return {
+        ok: true,
+        content,
+        nextOffset,
+        truncated: source.sourceTruncated || nextOffset < source.text.length,
+      }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  private progressSummary(store: RunArtifactStore): WikiProgressSummary | undefined {
+    try { return store.loadProgressSummary() ?? store.rebuildProgressSummary() }
+    catch { return store.rebuildProgressSummary() }
+  }
+
+  private visibleSummary(summary: WikiProgressSummary, active: boolean): WikiProgressSummary {
+    const terminal = summary.status === 'completed' || summary.status === 'failed'
+    return !active && !terminal ? { ...summary, health: 'interrupted' } : summary
+  }
+
+  private readOutputLogs(runDir: string): { text: string; sourceTruncated: boolean } {
+    const logsRoot = resolveInside(runDir, 'logs')
+    if (!existsSync(logsRoot)) return { text: '', sourceTruncated: false }
+
+    const files: Array<{ abs: string; rel: string }> = []
+    const visit = (dir: string, relDir = '') => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const rel = relDir ? join(relDir, entry.name) : entry.name
+        const abs = resolveInside(logsRoot, rel)
+        if (entry.isSymbolicLink()) continue
+        if (entry.isDirectory()) visit(abs, rel)
+        else if (entry.isFile() && /(?:^|[\\/])(stdout|stderr)\.log$/.test(rel)) files.push({ abs, rel })
+      }
+    }
+    visit(logsRoot)
+    files.sort((left, right) => left.rel.localeCompare(right.rel))
+
+    let text = ''
+    let remaining = LOG_SOURCE_MAX
+    let sourceTruncated = false
+    for (const file of files) {
+      const header = `${text ? '\n' : ''}== ${file.rel.replaceAll('\\', '/')} ==\n`
+      if (header.length >= remaining) { sourceTruncated = true; break }
+      text += header
+      remaining -= header.length
+
+      const stat = lstatSync(file.abs)
+      const bytesToRead = Math.min(stat.size, remaining)
+      const buffer = Buffer.alloc(bytesToRead)
+      const fd = openSync(file.abs, 'r')
+      let bytesRead = 0
+      try {
+        while (bytesRead < bytesToRead) {
+          const read = readSync(fd, buffer, bytesRead, bytesToRead - bytesRead, bytesRead)
+          if (read === 0) break
+          bytesRead += read
+        }
+      } finally {
+        closeSync(fd)
+      }
+      text += buffer.subarray(0, bytesRead).toString('utf8')
+      remaining = LOG_SOURCE_MAX - text.length
+      if (stat.size > bytesRead || remaining <= 0) { sourceTruncated = true; break }
+    }
+    return { text, sourceTruncated }
+  }
+
   /** Reuse the most recent run's ProjectDiscoveryReport for this project, if any. Newest-first by
    * runId (timestamped RUN-<iso>, so lexicographic sort == chronological). Returns null if none
    * readable — caller then runs discovery fresh. O(runs): reads run.json per run until a match;
@@ -351,7 +754,7 @@ export class HarnessService {
     catch { return null }
     for (const d of dirs) {
       try {
-        const store = new RunArtifactStore(join(this.deps.runsRoot, d))
+        const store = this.storeFor(d)
         if (!store.exists()) continue
         const rs = store.loadRunState()
         if (rs.projectId !== projectId) continue
@@ -470,7 +873,7 @@ export class HarnessService {
     const ledger = this.deps.sourceLedger
     if (!ledger) return
     try {
-      const store = new RunArtifactStore(join(this.deps.runsRoot, runId))
+      const store = this.storeFor(runId)
       const rs = store.loadRunState()
       const rel = (rs.artifacts['HUMAN_REVIEW_REQUIRED'] ?? []).find((p) => p.endsWith('processed-sources.json'))
       if (!rel) return

@@ -34,8 +34,8 @@ function cannedOutputs(): string[] {
 class FakeWorkspaceVault implements WorkspaceVault {
   readonly calls: string[] = []
   exported = false
-  constructor(readonly localRoot: string) {}
-  async pull(): Promise<void> { this.calls.push('pull') }
+  constructor(readonly localRoot: string, private readonly onPull?: () => void | Promise<void>) {}
+  async pull(): Promise<void> { this.calls.push('pull'); await this.onPull?.() }
   async pushInternal(): Promise<void> { this.calls.push('push') }
   async pushRuns(): Promise<void> { this.calls.push('pushRuns') }
   async exportWiki(): Promise<WorkspaceExportResult> { this.exported = true; return { ok: true, target: this.localRoot, files: 1 } }
@@ -78,6 +78,47 @@ describe('HarnessService — workspace vault lifecycle', () => {
     expect(promoted.ok).toBe(true)
     expect(existsSync(join(localRoot, 'concepts', 'n1.md'))).toBe(true)
     expect(existsSync(join(ws, 'unused-global-vault', 'concepts', 'n1.md'))).toBe(false)
+  })
+
+  test('creates and marks the durable run active before workspace pull starts', async () => {
+    const runId = 'RUN-2026-06-02T00-00-00Z'
+    let svc!: HarnessService
+    vault = new FakeWorkspaceVault(localRoot, () => {
+      expect(existsSync(join(ws, 'runs', runId, 'run.json'))).toBe(true)
+      expect(existsSync(join(ws, 'runs', runId, 'progress.jsonl'))).toBe(true)
+      expect(svc.getProgress({ runId })).toMatchObject({
+        ok: true,
+        active: true,
+        summary: { status: 'generating', health: 'active' },
+      })
+    })
+    svc = service()
+    const result = await svc.run({ projectId: 'p1', engine: 'claude' })
+    expect(result.ok, result.reason).toBe(true)
+  })
+
+  test('journals setup failures that happen after initialization', async () => {
+    const invalidVaultRoot = join(ws, 'workspace-is-a-file')
+    const repo = join(ws, 'repo')
+    writeFileSync(invalidVaultRoot, 'not a directory')
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'README.md'), '# source\n')
+    const brokenVault = new FakeWorkspaceVault(invalidVaultRoot)
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot: join(ws, 'unused-global-vault'),
+      runsRoot: join(ws, 'runs'),
+      workspaceVaultFor: () => brokenVault,
+      gatesPath,
+      preamble: 'RULES',
+      now: () => '2026-06-02T00:00:00Z',
+    })
+    const result = await svc.run({ projectId: 'p1', engine: 'claude', materialize: true, repoPaths: [repo] })
+    expect(result.finalState).toBe('FAILED')
+    const progress = svc.getProgress({ runId: result.runId })
+    expect(progress).toMatchObject({ ok: true, active: false, summary: { status: 'failed' } })
+    if (progress.ok) expect(progress.events.map((event) => event.kind)).toEqual(['run_started', 'run_failed'])
+    expect(brokenVault.calls).toContain('pushRuns')
   })
 
   test('syncWorkspaceForRun pushes the project vault (used after promote so it survives the next pull)', async () => {

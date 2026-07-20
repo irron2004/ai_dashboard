@@ -52,8 +52,10 @@ describe('HarnessService — folder worker fan-out', () => {
     })
 
     const liveNodes: Array<{ runId: string; folder: string; nodes: { id: string; title: string }[] }> = []
+    const activityKinds: string[] = []
     const r = await svc.run({ projectId: 'p1', engine: 'claude' }, undefined, undefined,
-      (e) => liveNodes.push({ runId: e.runId, folder: e.folder, nodes: e.nodes.map((n) => ({ id: n.id, title: n.title })) }))
+      (e) => liveNodes.push({ runId: e.runId, folder: e.folder, nodes: e.nodes.map((n) => ({ id: n.id, title: n.title })) }),
+      (event) => { activityKinds.push(event.kind) })
     expect(r.ok).toBe(true)
     if (!r.ok) return
     expect(r.finalState).toBe('HUMAN_REVIEW_REQUIRED')
@@ -63,6 +65,10 @@ describe('HarnessService — folder worker fan-out', () => {
     expect(liveNodes.every((e) => e.runId === r.runId)).toBe(true)
     expect(liveNodes.map((e) => e.folder).sort()).toEqual(['A', 'B'])
     expect(liveNodes.flatMap((e) => e.nodes.map((n) => n.id)).sort()).toEqual(['n_A1', 'n_B1'])
+    expect(activityKinds).toContain('work_planned')
+    expect(activityKinds.filter((kind) => kind === 'worker_started')).toHaveLength(2)
+    expect(activityKinds.filter((kind) => kind === 'node_discovered')).toHaveLength(2)
+    expect(activityKinds.at(-1)).toBe('run_completed')
 
     const shown = svc.show({ runId: r.runId })
     if (!shown.ok) throw new Error('show failed')
