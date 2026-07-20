@@ -17,3 +17,58 @@ apps/desktop/e2e/artifacts/
 
 # AutoSci reference clone (not part of this repo)
 AutoSci/
+
+# ── 공통 무시 규칙 (일반 관례) ─────────────────────────────
+# OS 생성 파일
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# 에디터 / IDE
+.idea/
+*.iml
+.vscode/
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# 임시 / 백업 / 병합 잔여물
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.pid
+
+# 로그
+*.log
+logs/
+
+# 비밀 / 자격증명
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Node / 프론트엔드
+node_modules/
+.npm
+.eslintcache
+*.tsbuildinfo
+coverage/
+.nyc_output/
+.turbo/
+
+# 공통 규칙 예외 — handoff 로그는 문서의 일부라 추적한다
+!docs/handoffs/logs/
+!docs/handoffs/logs/**
