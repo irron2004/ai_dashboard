@@ -10,8 +10,9 @@ import { KnowledgeView } from './KnowledgeView.js'
 import { WikiGenDashboard } from './WikiGenDashboard.js'
 import { WorkspaceHome } from './WorkspaceHome.js'
 import { ConversationHistoryView, type HistoryFocus } from './ConversationHistoryView.js'
+import { RetroView } from './RetroView.js'
 
-export type MainTab = 'workspace' | 'home' | 'documents' | 'knowledge' | 'wikigen' | 'history'
+export type MainTab = 'workspace' | 'home' | 'documents' | 'knowledge' | 'wikigen' | 'history' | 'retro'
 export type ProjectLoadState = 'unselected' | 'loading' | 'ready'
 
 type Props = {
@@ -38,6 +39,7 @@ const TABS: { id: MainTab; icon: string; label: string }[] = [
   { id: 'knowledge', icon: '📖', label: '지식' },
   { id: 'wikigen', icon: '⚙', label: '위키 생성' },
   { id: 'history', icon: '💬', label: '히스토리' },
+  { id: 'retro', icon: '🧠', label: '회고' },
 ]
 
 export function MainPanel({
@@ -55,7 +57,7 @@ export function MainPanel({
   fetchConversationHistory,
 }: Props) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const projectRequired = tab !== 'workspace' && projectLoadState !== 'ready'
+  const projectRequired = tab !== 'workspace' && tab !== 'retro' && projectLoadState !== 'ready'
   const activeTabId = `main-tab-${tab}`
   const activePanelId = `main-panel-${tab}`
 
@@ -139,6 +141,7 @@ export function MainPanel({
             onOpenProject={onOpenProject ?? (() => {})}
           />
         )}
+        {tab === 'retro' && <RetroView />}
       </div>
     </div>
   )

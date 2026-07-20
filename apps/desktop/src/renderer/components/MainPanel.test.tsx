@@ -12,6 +12,7 @@ vi.mock('./WorkspaceHome.js', () => ({ WorkspaceHome: () => <div>Workspace overv
 vi.mock('./ConversationHistoryView.js', () => ({
   ConversationHistoryView: () => <div>Conversation history view</div>,
 }))
+vi.mock('./RetroView.js', () => ({ RetroView: () => <div>Daily retro view</div> }))
 
 import { MainPanel, type MainTab, type ProjectLoadState } from './MainPanel.js'
 
@@ -54,7 +55,7 @@ describe('MainPanel information architecture', () => {
 
     const tablist = screen.getByRole('tablist', { name: '주 화면 탭' })
     expect(within(tablist).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-      '🌐 전체', '🏠 홈', '📄 문서', '📖 지식', '⚙ 위키 생성', '💬 히스토리',
+      '🌐 전체', '🏠 홈', '📄 문서', '📖 지식', '⚙ 위키 생성', '💬 히스토리', '🧠 회고',
     ])
     expect(screen.getByText('Project documents')).toBeDefined()
     expect(screen.queryByText('PM dashboard')).toBeNull()
@@ -67,6 +68,7 @@ describe('MainPanel information architecture', () => {
     ['wikigen', 'Wiki generation'],
     ['workspace', 'Workspace overview'],
     ['history', 'Conversation history view'],
+    ['retro', 'Daily retro view'],
   ] as const)('renders the %s view', (tab, expected) => {
     renderPanel({ tab })
     expect(screen.getByText(expected)).toBeDefined()
@@ -102,7 +104,7 @@ describe('MainPanel information architecture', () => {
     fireEvent.keyDown(home, { key: 'Home' })
     expect(onTab).toHaveBeenLastCalledWith('workspace')
     fireEvent.keyDown(home, { key: 'End' })
-    expect(onTab).toHaveBeenLastCalledWith('history')
+    expect(onTab).toHaveBeenLastCalledWith('retro')
   })
 
   test('distinguishes an unselected project from a loading project', () => {
@@ -134,6 +136,12 @@ describe('MainPanel information architecture', () => {
     )
     expect(screen.getByRole('status').textContent).toContain('프로젝트를 선택')
     expect(screen.queryByText('Conversation history view')).toBeNull()
+  })
+
+  test('회고 탭은 프로젝트 선택 없이 전체 로컬 repo를 보여준다', () => {
+    renderPanel({ tab: 'retro', projectDashboard: null, projectLoadState: 'unselected' })
+    expect(screen.getByText('Daily retro view')).toBeDefined()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   test('announces an active wiki generation run in the tab name', () => {

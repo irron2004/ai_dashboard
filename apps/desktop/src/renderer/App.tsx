@@ -38,7 +38,7 @@ export function App() {
   const [mainTab, setMainTab] = useState<MainTab>(() => {
     try {
       const saved = localStorage.getItem('apc:mainTab')
-      if (saved === 'workspace' || saved === 'home' || saved === 'documents' || saved === 'knowledge' || saved === 'wikigen' || saved === 'history') return saved
+      if (saved === 'workspace' || saved === 'home' || saved === 'documents' || saved === 'knowledge' || saved === 'wikigen' || saved === 'history' || saved === 'retro') return saved
     } catch { /* ignore */ }
     return 'workspace'
   })

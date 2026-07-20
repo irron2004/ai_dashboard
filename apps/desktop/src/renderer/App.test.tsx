@@ -159,6 +159,15 @@ describe('App project navigation', () => {
     expect(screen.getByTestId('active-main-tab').textContent).toBe('history')
   })
 
+  it('restores the daily retro tab from localStorage', () => {
+    appMocks.listProjects.mockReturnValue(new Promise(() => {}))
+    localStorage.setItem('apc:mainTab', 'retro')
+
+    render(<App />)
+
+    expect(screen.getByTestId('active-main-tab').textContent).toBe('retro')
+  })
+
   it('opens the history tab with the resume card agent focus', () => {
     appMocks.listProjects.mockReturnValue(new Promise(() => {}))
     appMocks.workspaceOverview.mockReturnValue(new Promise(() => {}))

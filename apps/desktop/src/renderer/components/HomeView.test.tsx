@@ -29,6 +29,10 @@ const gitStatus = vi.fn(async () => ({
 }))
 const gitCommit = vi.fn(async () => ({ ok: true, committedSha: 'a'.repeat(40), status: { ok: true, detached: false, ahead: 1, behind: 0, hasChanges: false, files: [], warnings: [] } }))
 const gitPush = vi.fn(async () => ({ ok: true, status: { ok: true, detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] } }))
+const gateStatus = vi.fn(async () => ({
+  ok: true, enabled: true, hookInstalled: false, headSha: 'b'.repeat(40), headCovered: false, reviewedCount: 0,
+}))
+const gateInstall = vi.fn(async () => ({ ok: true }))
 vi.mock('../api.js', () => ({
   api: new Proxy({}, {
     get: (_t, prop) => {
@@ -38,6 +42,8 @@ vi.mock('../api.js', () => ({
       if (prop === 'gitStatus') return (...a: unknown[]) => gitStatus(...a as [])
       if (prop === 'gitCommit') return (...a: unknown[]) => gitCommit(...a as [])
       if (prop === 'gitPush') return (...a: unknown[]) => gitPush(...a as [])
+      if (prop === 'gateStatus') return (...a: unknown[]) => gateStatus(...a as [])
+      if (prop === 'gateInstall') return (...a: unknown[]) => gateInstall(...a as [])
       return vi.fn(async () => ({ ok: true, sources: 0, sessions: 0, documents: 0 }))
     },
   }),
@@ -104,5 +110,14 @@ describe('ProjectDocumentsView', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Commit$/ }))
     await waitFor(() => expect(gitCommit).toHaveBeenCalledWith({ projectId: 'p1', files: ['src/x.ts'], message: 'test: sync selected file', worktreePath: undefined }))
     expect(gitPush).not.toHaveBeenCalled()
+  })
+
+  test('Git sync panel explains an uncovered HEAD and installs terminal push protection explicitly', async () => {
+    render(<ProjectDocumentsView dashboard={dashboard} />)
+    expect(await screen.findByText(/미확인 HEAD/)).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: '터미널 Push도 보호' }))
+    await waitFor(() => expect(gateInstall).toHaveBeenCalledWith({ projectId: 'p1', worktreePath: undefined }))
+    expect(await screen.findByText(/hook 설치 완료/)).toBeDefined()
   })
 })

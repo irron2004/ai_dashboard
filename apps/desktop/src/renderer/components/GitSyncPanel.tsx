@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { GitFileChange, GitSyncStatus } from '@apc/shared'
+import type { GateStatusRes } from '../../shared/ipc-contract.js'
 import { api } from '../api.js'
 import { useStore } from '../store.js'
 
@@ -9,7 +10,7 @@ type Props = {
   onSynced?: () => void
 }
 
-type Busy = 'status' | 'fetch' | 'pull' | 'commit' | 'push' | null
+type Busy = 'status' | 'fetch' | 'pull' | 'commit' | 'push' | 'gate' | null
 
 function shortStatus(file: GitFileChange): string {
   if (file.conflict) return '충돌'
@@ -32,6 +33,7 @@ function summarize(status: GitSyncStatus | null): string {
 export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
   const activeWorktree = useStore((state) => projectId ? state.activeWorktrees[projectId] ?? null : null)
   const [status, setStatus] = useState<GitSyncStatus | null>(null)
+  const [gate, setGate] = useState<GateStatusRes | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState<Busy>(null)
@@ -52,7 +54,17 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
     }
   }, [activeWorktree, projectId])
 
+  const loadGate = useCallback(async () => {
+    if (!projectId) return
+    try {
+      setGate(await api.gateStatus({ projectId, worktreePath: activeWorktree ?? undefined }))
+    } catch {
+      setGate(null)
+    }
+  }, [activeWorktree, projectId])
+
   useEffect(() => { void loadStatus(false) }, [loadStatus])
+  useEffect(() => { void loadGate() }, [loadGate])
 
   const selectableFiles = status?.files.filter((file) => !file.conflict) ?? []
   const allSelected = selectableFiles.length > 0 && selectableFiles.every((file) => selected.includes(file.path))
@@ -91,6 +103,7 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
       setMessage('')
       onSynced?.()
     }
+    void loadGate()
     setBusy(null)
   }
 
@@ -102,7 +115,28 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
     setStatus(result.status ?? status)
     setNotice({ ok: result.ok, text: result.ok ? 'Push 완료' : (result.reason ?? 'Push 실패') })
     if (result.ok) onSynced?.()
+    void loadGate()
     setBusy(null)
+  }
+
+  const installGate = async () => {
+    if (!projectId) return
+    setBusy('gate')
+    setNotice(null)
+    try {
+      const result = await api.gateInstall({ projectId, worktreePath: activeWorktree ?? undefined })
+      setNotice({
+        ok: result.ok,
+        text: result.ok
+          ? 'Learning Gate hook 설치 완료 — 터미널의 git push도 Receipt 없이는 차단됩니다'
+          : (result.reason ?? 'Learning Gate hook 설치 실패'),
+      })
+      await loadGate()
+    } catch (error) {
+      setNotice({ ok: false, text: 'Learning Gate hook 설치 실패: ' + String(error) })
+    } finally {
+      setBusy(null)
+    }
   }
 
   const selectedSummary = useMemo(() => `${selected.length}/${selectableFiles.length} selected`, [selected.length, selectableFiles.length])
@@ -114,6 +148,21 @@ export function GitSyncPanel({ projectId, repoPath, onSynced }: Props) {
           <h2>Git 동기화</h2>
           <p>{activeWorktree ?? repoPath ?? '등록된 repo 경로 없음'}{activeWorktree ? ' (worktree)' : ''}</p>
           <p className="git-sync__summary">{summarize(status)}</p>
+          {gate && (
+            <div className={`git-sync__gate${gate.enabled && !gate.headCovered ? ' git-sync__gate--blocked' : ''}`}>
+              <span>
+                {!gate.ok ? '🧠 Gate 상태를 확인할 수 없음'
+                  : !gate.enabled ? '🧠 Receipt 발급 전 · 현재는 Learning Gate 비활성'
+                    : gate.headCovered ? `🧠 ✅ ${gate.headSha?.slice(0, 7) ?? 'HEAD'} 이해 확인됨 · Push 가능`
+                      : '🧠 ⛔ 미확인 HEAD · 회고 탭에서 Receipt가 필요함'}
+              </span>
+              {gate.ok && !gate.hookInstalled && (
+                <button type="button" disabled={!!busy} onClick={() => void installGate()}>
+                  {busy === 'gate' ? '설치 중…' : '터미널 Push도 보호'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="git-sync__actions">
           <button type="button" disabled={!!busy || !projectId} onClick={() => void loadStatus(false)}>새로고침</button>

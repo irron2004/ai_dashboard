@@ -69,6 +69,11 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
 
   const selectedProject = model.selectedProjectId ? model.dashboards[model.selectedProjectId]?.project : undefined
   const selectedDashboard = model.selectedProjectId ? model.dashboards[model.selectedProjectId] : undefined
+  const fixtureHead = 'f'.repeat(40)
+  const retroAnswers = new Map<string, string>()
+  const retroNotes = new Map<string, { verificationEvidence: string; riskNotes: string }>()
+  const retroReceipts = new Set<string>()
+  let fixtureGateInstalled = false
 
   const invoke = (channel: string, payload?: unknown): Promise<unknown> => {
     calls.push(payload === undefined ? { channel } : { channel, payload })
@@ -179,6 +184,98 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         return Promise.resolve({ ok: true, note: { id: 'fixture-note', projectId: model.selectedProjectId, text: String(request.text ?? ''), createdAt: '2026-07-14T13:00:00.000Z', done: false } })
       case CH.nextNoteToggle:
       case CH.nextNoteDelete:
+        return Promise.resolve({ ok: true })
+      case CH.retroPrepare: {
+        const date = String(request.date ?? '2026-07-20')
+        const targets = Array.isArray(request.targets) ? request.targets as Array<{ projectId?: unknown; worktreePath?: unknown }> : []
+        const projects = targets.flatMap((target) => {
+          const projectId = String(target.projectId ?? '')
+          const project = model.projects.find((item) => item.id === projectId)
+          if (!project) return []
+          const targetId = `fixture-target:${projectId}`
+          const savedNotes = retroNotes.get(targetId)
+          return [{
+            projectId,
+            name: project.name,
+            repoPath: String(target.worktreePath ?? project.repoPaths[0] ?? 'C:\\qa\\workspace'),
+            branch: 'feat/fixture-learning-gate',
+            target: {
+              id: targetId, retroId: `retro:${date}`, projectId,
+              repoPath: String(target.worktreePath ?? project.repoPaths[0] ?? 'C:\\qa\\workspace'),
+              branch: 'feat/fixture-learning-gate', preparedHeadSha: fixtureHead,
+              preparedAt: `${date}T09:00:00.000Z`, ...savedNotes,
+              ...(retroReceipts.has(targetId) ? { receiptId: `fixture-receipt:${projectId}` } : {}),
+            },
+            headCovered: retroReceipts.has(targetId), gateEnabled: true, hookInstalled: fixtureGateInstalled,
+            lastReceiptSha: null,
+            commits: [{ sha: fixtureHead, when: `${date}T10:00:00.000Z`, subject: 'feat: Learning Gate fixture flow' }],
+            workingTreeFiles: 1, changedFiles: 4, additions: 48, deletions: 12, resetByHeadDrift: false,
+          }]
+        })
+        const targetQuestionTexts = [
+          '이번 변경으로 이전 동작이 어떻게 달라졌는가?',
+          '가장 중요한 실행 흐름을 시작점부터 결과까지 설명해보라.',
+          '가장 깨지기 쉬운 지점과 이를 발견할 로그·증상은 무엇인가?',
+          '어떤 테스트나 실행 결과가 결론을 뒷받침하는가?',
+          'agent가 내린 결론 중 직접 확인한 것과 아직 가정인 것은 무엇인가?',
+        ]
+        const targetQuestions = projects.flatMap((project) => targetQuestionTexts.map((text, index) => {
+          const id = `fixture-question:${project.projectId}:${index}`
+          return {
+            id, retroId: `retro:${date}`, targetId: project.target.id, projectId: project.projectId,
+            kind: 'template', critical: true, text, answer: retroAnswers.get(id), skipped: false,
+          }
+        }))
+        const closingQuestions = ['오늘 배운 것 1가지는?', '내일 더 깊게 파 것 1가지는?'].map((text, index) => {
+          const id = `fixture-question:closing:${index}`
+          return { id, retroId: `retro:${date}`, kind: 'closing', critical: false, text, answer: retroAnswers.get(id), skipped: false }
+        })
+        return Promise.resolve({
+          ok: true,
+          retro: { id: `retro:${date}`, date, startedAt: `${date}T09:00:00.000Z` },
+          questions: [...targetQuestions, ...closingQuestions], projects, skips: [], problems: [],
+        })
+      }
+      case CH.retroAnswer:
+        if (typeof request.questionId === 'string') {
+          if (typeof request.answer === 'string' && request.answer.trim()) retroAnswers.set(request.questionId, request.answer.trim())
+          else retroAnswers.delete(request.questionId)
+        }
+        return Promise.resolve({ ok: true })
+      case CH.retroTargetNotes:
+        retroNotes.set(String(request.targetId ?? ''), {
+          verificationEvidence: String(request.verificationEvidence ?? ''),
+          riskNotes: String(request.riskNotes ?? ''),
+        })
+        return Promise.resolve({ ok: true })
+      case CH.receiptIssue: {
+        const targetId = String(request.targetId ?? '')
+        retroReceipts.add(targetId)
+        const projectId = targetId.replace('fixture-target:', '')
+        const repoPath = model.projects.find((item) => item.id === projectId)?.repoPaths[0] ?? 'C:\\qa\\workspace'
+        return Promise.resolve({
+          ok: true,
+          receipt: {
+            id: `fixture-receipt:${projectId}`, projectId, repoPath, branch: 'feat/fixture-learning-gate',
+            reviewedHeadSha: fixtureHead, retroId: String(request.retroId ?? 'retro:fixture'), targetId,
+            answeredQuestionIds: [...retroAnswers.keys()].filter((id) => id.includes(projectId)),
+            evidenceRefs: [retroNotes.get(targetId)?.verificationEvidence ?? 'fixture evidence'],
+            answerSnapshotHash: 'a'.repeat(64), issuedAt: new Date().toISOString(),
+          },
+        })
+      }
+      case CH.retroComplete:
+        return Promise.resolve({ ok: true })
+      case CH.gateStatus: {
+        const projectId = String(request.projectId ?? model.selectedProjectId ?? '')
+        const covered = retroReceipts.has(`fixture-target:${projectId}`)
+        return Promise.resolve({
+          ok: true, enabled: true, hookInstalled: fixtureGateInstalled, headSha: fixtureHead,
+          headCovered: covered, reviewedCount: covered ? 1 : 0,
+        })
+      }
+      case CH.gateInstall:
+        fixtureGateInstalled = true
         return Promise.resolve({ ok: true })
       case CH.ingestAll:
         return Promise.resolve({ sources: 4, sessions: 8, documents: model.documents.length })
