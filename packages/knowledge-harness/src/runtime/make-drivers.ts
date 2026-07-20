@@ -135,6 +135,27 @@ export const ARTIFACTS = {
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
 
+/** Adds factual engine request/activity events while preserving any caller-provided stream listener. */
+export function progressAgentRunner(ctx: RunnerContext, runner: AgentRunner, workerId?: string): AgentRunner {
+  if (!ctx.emitProgress) return runner
+  return {
+    run: async (input) => {
+      await ctx.emitProgress?.({ kind: 'engine_request_started', workerId })
+      try {
+        return await runner.run({
+          ...input,
+          onChunk: (stream, text) => {
+            input.onChunk?.(stream, text)
+            void ctx.emitProgress?.({ kind: 'engine_activity', workerId })
+          },
+        })
+      } finally {
+        await ctx.emitProgress?.({ kind: 'engine_request_finished', workerId })
+      }
+    },
+  }
+}
+
 /**
  * Run `fn` over `items` with at most `limit` concurrent in flight, returning results in INPUT order.
  * `limit <= 1` is plain sequential. A throwing `fn` rejects the whole call — callers needing per-item
@@ -160,6 +181,11 @@ export type FolderFanoutResult = {
   skipped: Array<{ unit: string; reason: string }>
 }
 
+export type FolderWorkerLifecycleEvent =
+  | { kind: 'started'; unit: WorkUnit; attempt: number }
+  | { kind: 'completed'; unit: WorkUnit; attempt: number }
+  | { kind: 'failed'; unit: WorkUnit; attempt: number; error: string }
+
 /**
  * Fan a folder-unit list across at most `concurrency` workers, accumulate proposals in unit order,
  * de-duplicate ids across workers, and build folder provenance aligned to the final ids. A unit with no
@@ -171,20 +197,32 @@ export async function runFolderWorkers(
   unitDocs: (u: WorkUnit) => SourceDoc[],
   concurrency: number,
   extractUnit: (docs: SourceDoc[], u: WorkUnit) => Promise<KhNodeProposal[]>,
-  onUnitProposals?: (proposals: KhNodeProposal[], u: WorkUnit) => void,
+  onUnitProposals?: (proposals: KhNodeProposal[], u: WorkUnit) => unknown | Promise<unknown>,
+  onLifecycle?: (event: FolderWorkerLifecycleEvent) => unknown | Promise<unknown>,
 ): Promise<FolderFanoutResult> {
+  const notify = async (callback: (() => unknown | Promise<unknown>) | undefined): Promise<void> => {
+    if (!callback) return
+    try { await callback() } catch { /* progress listeners are diagnostic-only */ }
+  }
   type UnitResult = { unit: WorkUnit; proposals?: KhNodeProposal[]; error?: string; empty?: true }
   const results = await runPool<WorkUnit, UnitResult>(units, concurrency, async (u) => {
     const docs = unitDocs(u)
     if (!docs.length) return { unit: u, empty: true }
+    const attempt = 1
+    await notify(onLifecycle ? () => onLifecycle({ kind: 'started', unit: u, attempt }) : undefined)
+    let proposals: KhNodeProposal[]
     try {
-      const proposals = await extractUnit(docs, u)
-      // Emit this folder's nodes the moment they land — drives the mid-run incremental graph. A throwing
-      // listener must not corrupt the fan-out, so failures here are swallowed.
-      try { onUnitProposals?.(proposals, u) } catch { /* live stream is best-effort */ }
-      return { unit: u, proposals }
+      proposals = await extractUnit(docs, u)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await notify(onLifecycle ? () => onLifecycle({ kind: 'failed', unit: u, attempt, error: message }) : undefined)
+      return { unit: u, error: message }
     }
-    catch (e) { return { unit: u, error: e instanceof Error ? e.message : String(e) } }
+    // Nodes are emitted before worker_completed, so a live UI never sees a completed worker with a
+    // still-empty proposal batch merely because callbacks raced.
+    await notify(onUnitProposals ? () => onUnitProposals(proposals, u) : undefined)
+    await notify(onLifecycle ? () => onLifecycle({ kind: 'completed', unit: u, attempt }) : undefined)
+    return { unit: u, proposals }
   })
   const tagged: Array<{ p: KhNodeProposal; folder: string }> = []
   const skipped: Array<{ unit: string; reason: string }> = []
@@ -282,13 +320,18 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
   const graph = new GraphIntegrity()
   const mdYaml = new MarkdownYamlValidator()
   const links = new ObsidianLinkValidator()
-  const run = { runner: deps.runner, cwd: deps.projectCwd, timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS, engineOptions: deps.engineOptions }
+  const runFor = (ctx: RunnerContext, workerId?: string) => ({
+    runner: progressAgentRunner(ctx, deps.runner, workerId),
+    cwd: deps.projectCwd,
+    timeoutMs: deps.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS,
+    engineOptions: deps.engineOptions,
+  })
   const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_SOURCE_CHARS
 
   const base: Partial<Record<KhState, Driver>> = {
     PROJECT_SCANNED: async (ctx) => {
       const data = await discovery.run({
-        ...run,
+        ...runFor(ctx),
         engine: engineOf(ctx),
         label: `PROJECT_SCANNED-${discovery.name}`,
         input: { projectId: ctx.projectId, project_context: deps.projectContext ?? {} },
@@ -301,7 +344,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // docs are handled per-folder by the extractor workers, so feeding all docs here is both the wrong
       // scope and a window-overflow risk (the step that previously failed). Workers still get this summary.
       const convSources = freshSources(ctx.projectId).filter((s) => isConversationSource(s.source_path))
-      const data = await reader.run({ ...run, engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
+      const data = await reader.run({ ...runFor(ctx), engine: engineOf(ctx), label: `SOURCES_EXTRACTED-${reader.name}`, input: {
         discovery: artifactByName(ctx, 'PROJECT_SCANNED', ARTIFACTS.projectDiscovery),
         sources: budgetSourcesForPrompt(convSources, maxPromptChars).sources,
       } })
@@ -313,7 +356,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // for visibility now; the NODE_PROPOSALS_CREATED fan-out consumes it next phase.
       const folderPlan = planFolders(freshSources(ctx.projectId), maxPromptChars, deps.projectContext)
       const data = await classifier.run({
-        ...run,
+        ...runFor(ctx),
         engine: engineOf(ctx),
         label: `DOCUMENTS_CLASSIFIED-${classifier.name}`,
         input: {
@@ -342,7 +385,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       // Run one extractor call over a source subset (a folder work unit, or all sources in the single-shot
       // fallback). The budget is the worker's last-resort guard; with folder units it rarely truncates.
       const extractOver = async (sources: SourceDoc[], label: string, unit?: WorkUnit): Promise<KhNodeProposal[]> => {
-        const raw = await extractor.run({ ...run, engine: engineOf(ctx), label, input: {
+        const raw = await extractor.run({ ...runFor(ctx, unit?.id ?? 'single'), engine: engineOf(ctx), label, input: {
           history, intents, sources: budgetSourcesForPrompt(sources, maxPromptChars).sources,
           project_context: plan?.projectContext ?? deps.projectContext ?? {},
           folder: unit ? {
@@ -364,21 +407,79 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         skipped: [] as Array<{ unit: string; reason: string }>,
         provenance: [] as Array<{ proposalId: string; folder: string }>,
       }
+      type NodeOrigin = { workerId: string; proposalId: string; sourceFolder: string }
+      const origins = new Map<string, NodeOrigin>()
+      const rawByWorker = new Map<string, KhNodeProposal[]>()
+      const emitNode = async (
+        kind: 'node_discovered' | 'node_accepted' | 'node_dropped',
+        proposal: KhNodeProposal,
+        origin: NodeOrigin,
+      ): Promise<void> => {
+        await ctx.emitProgress?.({
+          kind,
+          workerId: origin.workerId,
+          proposalId: origin.proposalId,
+          title: String(proposal.node?.title ?? proposal.node?.id ?? proposal.proposal_id),
+          nodeType: String(proposal.node?.type ?? 'ConceptNode'),
+          sourceFolder: origin.sourceFolder,
+        })
+      }
 
       if (units.length === 0) {
-        proposals = dedupeProposalIds(await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
-        try { deps.onNodesDiscovered?.({ folder: 'all', nodes: liveNodesOf(proposals) }) } catch { /* best-effort */ }
+        await ctx.emitProgress?.({ kind: 'work_planned', total: 1 })
+        await ctx.emitProgress?.({ kind: 'worker_started', workerId: 'single', folder: 'all', attempt: 1 })
+        try {
+          proposals = dedupeProposalIds(await extractOver(srcs, `NODE_PROPOSALS_CREATED-${extractor.name}`))
+          try { deps.onNodesDiscovered?.({ folder: 'all', nodes: liveNodesOf(proposals) }) } catch { /* best-effort */ }
+          for (const proposal of proposals) {
+            const origin = { workerId: 'single', proposalId: proposal.proposal_id, sourceFolder: 'all' }
+            origins.set(proposal.proposal_id, origin)
+            await emitNode('node_discovered', proposal, origin)
+          }
+          await ctx.emitProgress?.({ kind: 'worker_completed', workerId: 'single', folder: 'all', attempt: 1 })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          await ctx.emitProgress?.({
+            kind: 'worker_failed', workerId: 'single', folder: 'all', attempt: 1, message,
+          })
+          throw error
+        }
       } else {
         // Out-of-repo context (ancestor CLAUDE.md/AGENTS.md, project memory) is project-wide governance —
         // share it with EVERY worker so any folder can cite it (it belongs to no single folder, and the
         // single-shot fallback that used to surface it no longer runs in fan-out mode).
         const contextSources = srcs.filter((s) => isContextSource(s.source_path))
+        await ctx.emitProgress?.({ kind: 'work_planned', total: units.length })
         const res = await runFolderWorkers(
           units,
           (u) => u.docSourceIds.map((id) => byId.get(id)).filter((s): s is SourceDoc => !!s),
           deps.workerConcurrency ?? 1,
           (docs, u) => extractOver([...docs, ...contextSources], `NODE_PROPOSALS_CREATED-${extractor.name}#${u.id}`, u),
-          (unitProposals, u) => deps.onNodesDiscovered?.({ folder: u.label, nodes: liveNodesOf(unitProposals) }),
+          async (unitProposals, u) => {
+            rawByWorker.set(u.id, unitProposals)
+            try { deps.onNodesDiscovered?.({ folder: u.label, nodes: liveNodesOf(unitProposals) }) } catch { /* best-effort */ }
+            for (const proposal of unitProposals) {
+              await emitNode('node_discovered', proposal, {
+                workerId: u.id, proposalId: proposal.proposal_id, sourceFolder: u.label,
+              })
+            }
+          },
+          async (event) => {
+            if (event.kind === 'started') {
+              await ctx.emitProgress?.({
+                kind: 'worker_started', workerId: event.unit.id, folder: event.unit.label, attempt: event.attempt,
+              })
+            } else if (event.kind === 'completed') {
+              await ctx.emitProgress?.({
+                kind: 'worker_completed', workerId: event.unit.id, folder: event.unit.label, attempt: event.attempt,
+              })
+            } else {
+              await ctx.emitProgress?.({
+                kind: 'worker_failed', workerId: event.unit.id, folder: event.unit.label,
+                attempt: event.attempt, message: event.error,
+              })
+            }
+          },
         )
         if (res.ran === 0) {
           throw new Error(`all ${units.length} folder worker(s) failed: ` +
@@ -386,6 +487,18 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         }
         proposals = res.proposals
         fanout.ran = res.ran; fanout.skipped = res.skipped; fanout.provenance = res.provenance
+        const rawOriginsInUnitOrder = units.flatMap((unit) => (
+          (rawByWorker.get(unit.id) ?? []).map((source) => ({ source, unit }))
+        ))
+        proposals.forEach((proposal, index) => {
+          const provenance = res.provenance[index]
+          const rawOrigin = rawOriginsInUnitOrder[index]
+          origins.set(proposal.proposal_id, {
+            workerId: rawOrigin?.unit.id ?? 'unknown',
+            proposalId: rawOrigin?.source.proposal_id ?? proposal.proposal_id,
+            sourceFolder: provenance?.folder ?? 'unknown',
+          })
+        })
       }
 
       // Agents reason over the project's original paths (remote /home/… for ssh projects, or local
@@ -408,6 +521,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         throw new Error(`PolicyGuard blocked ${report.blocked_proposal_ids.length} proposal(s): ` +
           report.violations.filter(v => v.severity === 'block').map(v => `${v.proposal_id}:${v.rule}`).join(', '))
       }
+      const acceptedIds = new Set(data.proposals.map((proposal) => proposal.proposal_id))
+      for (const proposal of proposals) {
+        const origin = origins.get(proposal.proposal_id) ?? {
+          workerId: 'single', proposalId: proposal.proposal_id, sourceFolder: 'all',
+        }
+        await emitNode(acceptedIds.has(proposal.proposal_id) ? 'node_accepted' : 'node_dropped', proposal, origin)
+      }
       return { artifacts: [
         { name: ARTIFACTS.nodeProposals, data }, { name: ARTIFACTS.policyReport, data: report },
         { name: ARTIFACTS.evidenceVerification, data: evidence }, { name: ARTIFACTS.fanoutReport, data: fanout },
@@ -420,7 +540,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const fan = artifactByName<{ provenance?: Array<{ proposalId: string; folder: string }> }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.fanoutReport)
       const plan = artifactByName<FolderPlan>(ctx, 'DOCUMENTS_CLASSIFIED', ARTIFACTS.folderPlan)
       const proposals = artifactByName<{ proposals: KhNodeProposal[] }>(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals)?.proposals ?? []
-      const out = await lead.run({ ...run, engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: {
+      const out = await lead.run({ ...runFor(ctx), engine: engineOf(ctx), label: `LEAD_MERGED-${lead.name}`, input: {
         proposals: artifactByName(ctx, 'NODE_PROPOSALS_CREATED', ARTIFACTS.nodeProposals),
         folders: plan?.units.map((u) => ({
           label: u.label,

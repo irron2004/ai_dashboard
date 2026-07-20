@@ -79,6 +79,16 @@ describe('makeDrivers (real agents, faked LLM)', () => {
     // top-level run deliverables exist (design §6.2)
     expect(existsSync(join(ws, 'runs', 'RUN-1', 'diff.patch'))).toBe(true)
     expect(existsSync(join(ws, 'runs', 'RUN-1', 'final-report.md'))).toBe(true)
+
+    const events = store.readProgressEvents()
+    const workerCompleted = events.findIndex((event) => event.kind === 'worker_completed')
+    const nodeDiscovered = events.findIndex((event) => event.kind === 'node_discovered')
+    expect(events.find((event) => event.kind === 'work_planned')).toMatchObject({ total: 1 })
+    expect(nodeDiscovered).toBeGreaterThan(-1)
+    expect(nodeDiscovered).toBeLessThan(workerCompleted)
+    expect(events.some((event) => event.kind === 'node_accepted')).toBe(true)
+    expect(events.some((event) => event.kind === 'worker_retrying' || event.kind === 'transport_reconnecting')).toBe(false)
+    expect(events.at(-1)?.kind).toBe('run_completed')
   })
 
   test('passes a default per-step timeout of 600s to the runner (agentic claude-opus needs >180s)', async () => {

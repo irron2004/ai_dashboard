@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunArtifactStore } from './run-artifact-store.js'
+import { HarnessRunner } from './harness-runner.js'
+import { FeatureGate } from './feature-gate.js'
 import { makePaperDrivers } from './paper-drivers.js'
 import { paperPack } from '../domains/paper-pack.js'
 import { ARTIFACTS } from './make-drivers.js'
@@ -35,6 +37,11 @@ const failSubstrate = {
   lint: async () => KhKernelLintReportSchema.parse({ ok: false, issues: ['wiki/papers/p1.md: missing title'] }),
   rebuildIndex: async () => {},
   checkSources: async () => ({ ok: true, output: '' }),
+}
+
+const ALL_OPEN = {
+  enable_conversation_history_reader: true, auto_classify_documents: true,
+  auto_create_node_proposals: true, auto_create_write_plan: true, auto_write_to_staging: true,
 }
 
 function makeDeps(dir: string, runner: unknown, substrate: unknown) {
@@ -87,6 +94,32 @@ describe('makePaperDrivers', () => {
       expect(runner.lastCall.prompt).toContain('"sources"')
       // Also confirm it's not the vacuous empty-object case: the seeded raw/ doc must be present.
       expect(runner.lastCall.prompt).toContain('paper-one.md')
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('single-shot paper flow records total=1, live nodes, and a terminal run event without fake retries', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'paper-drv-progress-'))
+    try {
+      const out = { nodes: [{ type: 'papers', slug: 'p1', fields: { title: 'T', slug: 'p1' } }] }
+      const store = new RunArtifactStore(join(dir, 'run'))
+      const vaultRoot = join(dir, 'vault')
+      seedRawSource(vaultRoot, 'papers/paper-one.md', '# Paper One\nContent.')
+      const drivers = makePaperDrivers(makeDeps(dir, makeFakeRunner(out), okSubstrate))
+      const runner = new HarnessRunner({
+        gates: new FeatureGate(ALL_OPEN), drivers, now: () => '2026-07-20T10:00:00Z',
+      })
+      runner.createRun(store, { runId: 'RUN-PAPER', projectId: 'paper', engine: 'claude' })
+
+      expect((await runner.advance(store)).state).toBe('HUMAN_REVIEW_REQUIRED')
+      const events = store.readProgressEvents()
+      expect(events.find((event) => event.kind === 'work_planned')).toMatchObject({ total: 1 })
+      expect(events.some((event) => event.kind === 'node_discovered')).toBe(true)
+      expect(events.some((event) => event.kind === 'node_accepted')).toBe(true)
+      expect(events.some((event) => event.kind === 'worker_retrying' || event.kind === 'transport_reconnecting')).toBe(false)
+      expect(events.at(-1)?.kind).toBe('run_completed')
+      expect(store.loadProgressSummary()).toMatchObject({
+        status: 'completed', work: { total: 1, completed: 1, failed: 0, retries: 0 },
+      })
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 

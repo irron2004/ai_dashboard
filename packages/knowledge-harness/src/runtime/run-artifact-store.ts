@@ -74,6 +74,11 @@ export class RunArtifactStore {
     return operation
   }
 
+  /** Bootstrap-only synchronous append used by createRun before any queued producer exists. */
+  appendProgressEventSync(input: WikiRunEventInput): WikiRunEvent {
+    return this.appendProgressEventNow(input)
+  }
+
   readProgressEvents(): WikiRunEvent[] {
     const abs = join(this.runDir, PROGRESS_JOURNAL)
     if (!existsSync(abs)) return []

@@ -4,7 +4,7 @@ import type { KhState } from '@apc/shared'
 import { vaultToStagedDocs } from '@apc/wiki-substrate'
 import type { Driver, DriverResult, RunnerContext } from './harness-runner.js'
 import type { DriverDeps } from './make-drivers.js'
-import { ARTIFACTS, artifactByName } from './make-drivers.js'
+import { ARTIFACTS, artifactByName, progressAgentRunner } from './make-drivers.js'
 import { makePaperNodeExtractor } from '../agents/paper-node-extractor.js'
 import type { PaperNode, PaperEdge } from '../agents/paper-node-extractor.js'
 import { SourceReader } from './source-reader.js'
@@ -35,16 +35,49 @@ export function makePaperDrivers(deps: DriverDeps): Partial<Record<KhState, Driv
     WRITE_PLAN_CREATED: async (): Promise<DriverResult> => ({ artifacts: [{ name: ARTIFACTS.writePlan, data: { operations: [] } }] }),
 
     NODE_PROPOSALS_CREATED: async (ctx: RunnerContext): Promise<DriverResult> => {
-      const out = await extractor.run({
-        runner: deps.runner,
-        engine: ctx.engine as never,
-        timeoutMs: deps.stepTimeoutMs,
-        cwd: deps.projectCwd,
-        engineOptions: deps.engineOptions,
-        label: `NODE_PROPOSALS_CREATED-${extractor.name}`,
-        input: { sources: sources.read() },
-      })
-      return { artifacts: [{ name: ARTIFACTS.nodeProposals, data: out }] }
+      const workerId = 'paper-single'
+      await ctx.emitProgress?.({ kind: 'work_planned', total: 1 })
+      await ctx.emitProgress?.({ kind: 'worker_started', workerId, folder: 'paper', attempt: 1 })
+      try {
+        const out = await extractor.run({
+          runner: progressAgentRunner(ctx, deps.runner, workerId),
+          engine: ctx.engine as never,
+          timeoutMs: deps.stepTimeoutMs,
+          cwd: deps.projectCwd,
+          engineOptions: deps.engineOptions,
+          label: `NODE_PROPOSALS_CREATED-${extractor.name}`,
+          input: { sources: sources.read() },
+        })
+        const nodes = out.nodes ?? []
+        try {
+          deps.onNodesDiscovered?.({
+            folder: 'paper',
+            nodes: nodes.map((node) => ({
+              id: `${node.type}:${node.slug}`,
+              title: String(node.fields.title ?? node.slug),
+              type: node.type,
+              scope: 'project',
+            })),
+          })
+        } catch { /* live legacy node stream is best-effort */ }
+        for (const node of nodes) {
+          const progressNode = {
+            workerId,
+            proposalId: `${node.type}:${node.slug}`,
+            title: String(node.fields.title ?? node.slug),
+            nodeType: node.type,
+            sourceFolder: 'paper',
+          }
+          await ctx.emitProgress?.({ kind: 'node_discovered', ...progressNode })
+          await ctx.emitProgress?.({ kind: 'node_accepted', ...progressNode })
+        }
+        await ctx.emitProgress?.({ kind: 'worker_completed', workerId, folder: 'paper', attempt: 1 })
+        return { artifacts: [{ name: ARTIFACTS.nodeProposals, data: out }] }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await ctx.emitProgress?.({ kind: 'worker_failed', workerId, folder: 'paper', attempt: 1, message })
+        throw error
+      }
     },
 
     STAGING_WRITTEN: async (ctx: RunnerContext): Promise<DriverResult> => {
