@@ -44,6 +44,8 @@ export const CH = {
   harnessApprovePolicy: 'c:harnessApprovePolicy',
   harnessGetPolicy: 'c:harnessGetPolicy',
   harnessRevertPolicy: 'c:harnessRevertPolicy',
+  harnessSetReviewDecisions: 'c:harnessSetReviewDecisions',
+  harnessOpenSourceFile: 'c:harnessOpenSourceFile',
   harnessReadStagedDoc: 'c:harnessReadStagedDoc',
   harnessListStagedDocs: 'c:harnessListStagedDocs',
   harnessReadGraphEdges: 'c:harnessReadGraphEdges',
@@ -110,6 +112,7 @@ export const CH = {
   harnessListRuns: 'q:harnessListRuns',
   harnessGetProgress: 'q:harnessGetProgress',
   harnessReadLog: 'q:harnessReadLog',
+  harnessReadSourceExcerpt: 'q:harnessReadSourceExcerpt',
   clipboardReadText: 'q:clipboardReadText',
   terminalGetPreferences: 'q:terminalGetPreferences',
   terminalSetPreferences: 'c:terminalSetPreferences',
@@ -350,11 +353,38 @@ export type HarnessGetRunReq = { runId: string }
 export type HarnessArtifactRes = { state: KhState; name: string; path: string; data: unknown }
 export type HarnessGetRunRes = { ok: boolean; runState?: RunState; artifacts?: HarnessArtifactRes[]; reason?: string }
 export type HarnessPromoteReq = { runId: string; allowSecrets?: boolean; allowInvalid?: boolean }
-export type HarnessPromoteRes = { ok: boolean; promoted?: string[]; proposals?: string[]; refusedCanonical?: string[]; reason?: string }
+export type HarnessPromoteRes = {
+  ok: boolean
+  promoted?: string[]
+  proposals?: string[]
+  refusedCanonical?: string[]
+  skippedByReview?: string[]
+  danglingLinks?: number
+  reason?: string
+}
 export type HarnessPromoteCanonicalReq = { runId: string; proposalRelPath: string; lastReadHash: string; allowSecrets?: boolean; allowInvalid?: boolean }
 export type HarnessPromoteCanonicalRes = { ok: boolean; status?: 'promoted' | 'conflict'; canonicalPath?: string; newHash?: string; conflictPath?: string; reason?: string }
 export type HarnessCanonicalProposalsReq = { runId: string }
 export type HarnessCanonicalProposalsRes = Array<{ proposalRelPath: string; canonicalPath: string; currentHash: string | null }>
+
+// Per-proposal human verdicts plus immutable-source evidence reads used by the review screen.
+export type HarnessReviewDecisionDto = {
+  proposal_id: string
+  verdict: 'approved' | 'excluded'
+  decided_at: string
+}
+export type HarnessSetReviewDecisionsReq = { runId: string; decisions: HarnessReviewDecisionDto[] }
+export type HarnessSetReviewDecisionsRes = { ok: boolean; reason?: string }
+export type HarnessReadSourceExcerptReq = { runId: string; sourcePath: string; quote?: string }
+export type HarnessReadSourceExcerptRes = {
+  ok: boolean
+  matched?: boolean
+  excerpt?: string
+  line?: number
+  reason?: string
+}
+export type HarnessOpenSourceFileReq = { runId: string; sourcePath: string }
+export type HarnessOpenSourceFileRes = { ok: boolean; reason?: string }
 
 export type WikiPolicyRecordDto = {
   status: 'proposed' | 'approved'

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import { exec, execFile } from 'node:child_process'
 import { z } from 'zod'
@@ -117,6 +117,19 @@ function createWindow(): void {
   })
 
   registerIpc(ipcMain, container)
+
+  // Opening evidence is native-shell work, so keep it outside the generic service-only IPC table.
+  // HarnessService resolves and realpaths the file under raw/ before this boundary sees it.
+  ipcMain.handle(CH.harnessOpenSourceFile, async (_event, payload: unknown) => {
+    const req = z.object({
+      runId: z.string().min(1).max(512),
+      sourcePath: z.string().min(1).max(8_192),
+    }).strict().parse(payload)
+    const resolved = container.harness.resolveRawSourceFile(req)
+    if (!resolved.ok) return resolved
+    const reason = await shell.openPath(resolved.absPath)
+    return reason ? { ok: false, reason } : { ok: true }
+  })
 
   // Native folder picker dialog
   ipcMain.handle(CH.selectFolder, async () => {

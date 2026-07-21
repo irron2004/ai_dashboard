@@ -51,6 +51,8 @@ import type {
   GeneratePreflightCategoryId,
   HarnessRunReq, HarnessRunRes, HarnessResumeReq, HarnessConfirmNodesReq, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes, HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  HarnessSetReviewDecisionsReq, HarnessSetReviewDecisionsRes,
+  HarnessReadSourceExcerptReq, HarnessReadSourceExcerptRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes, HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes, HarnessRevertPolicyReq, HarnessRevertPolicyRes,
   HarnessReadStagedDocReq, HarnessReadStagedDocRes, HarnessListStagedDocsReq, HarnessListStagedDocsRes,
@@ -145,6 +147,8 @@ export type Container = {
   harnessPromote: (req: HarnessPromoteReq) => Promise<HarnessPromoteRes>
   harnessPromoteCanonical: (req: HarnessPromoteCanonicalReq) => Promise<HarnessPromoteCanonicalRes>
   harnessCanonicalProposals: (req: HarnessCanonicalProposalsReq) => HarnessCanonicalProposalsRes
+  harnessSetReviewDecisions: (req: HarnessSetReviewDecisionsReq) => HarnessSetReviewDecisionsRes
+  harnessReadSourceExcerpt: (req: HarnessReadSourceExcerptReq) => HarnessReadSourceExcerptRes
   harnessProposePolicy: (req: HarnessProposePolicyReq) => Promise<HarnessProposePolicyRes>
   harnessApprovePolicy: (req: HarnessApprovePolicyReq) => HarnessApprovePolicyRes
   harnessGetPolicy: (req: HarnessGetPolicyReq) => HarnessGetPolicyRes
@@ -483,6 +487,8 @@ export function buildContainer(opts: {
     return r
   }
   const harnessCanonicalProposals = (req: HarnessCanonicalProposalsReq): HarnessCanonicalProposalsRes => harness.canonicalProposals(req)
+  const harnessSetReviewDecisions = (req: HarnessSetReviewDecisionsReq): HarnessSetReviewDecisionsRes => harness.setReviewDecisions(req)
+  const harnessReadSourceExcerpt = (req: HarnessReadSourceExcerptReq): HarnessReadSourceExcerptRes => harness.readSourceExcerpt(req)
   const harnessProposePolicy = (req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> => harness.proposeWikiPolicy(req)
   const harnessApprovePolicy = (req: HarnessApprovePolicyReq): HarnessApprovePolicyRes => harness.approveWikiPolicy(req)
   const harnessGetPolicy = (req: HarnessGetPolicyReq): HarnessGetPolicyRes => harness.getWikiPolicy(req)
@@ -806,6 +812,7 @@ export function buildContainer(opts: {
     ingest, gitSync, receipts, retroStore, gate, retroService,
     ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,
+    harnessSetReviewDecisions, harnessReadSourceExcerpt,
     harnessProposePolicy, harnessApprovePolicy, harnessGetPolicy, harnessRevertPolicy,
     harnessReadStagedDoc, harnessListStagedDocs, harnessReadGraphEdges, harnessExportWiki,
     harnessListRuns, harnessGetProgress, harnessReadLog,

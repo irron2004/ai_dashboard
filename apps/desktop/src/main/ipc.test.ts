@@ -443,6 +443,37 @@ describe('IPC handlers (no Electron)', () => {
     expect((res as { ok: boolean }).ok).toBe(true)
   })
 
+  test('review decision and source excerpt handlers validate and route their payloads', async () => {
+    const harnessSetReviewDecisions = vi.fn(() => ({ ok: true as const }))
+    const harnessReadSourceExcerpt = vi.fn(() => ({
+      ok: true as const, matched: true, excerpt: 'source context', line: 7,
+    }))
+    const h = handlers({
+      ...container,
+      harnessSetReviewDecisions,
+      harnessReadSourceExcerpt,
+    } as any)
+    const decisionPayload = {
+      runId: 'RUN-1',
+      decisions: [{ proposal_id: 'NP-1', verdict: 'approved', decided_at: '2026-07-21T00:00:00Z' }],
+    }
+    expect(await h[CH.harnessSetReviewDecisions](decisionPayload)).toEqual({ ok: true })
+    expect(harnessSetReviewDecisions).toHaveBeenCalledWith(decisionPayload)
+
+    const excerptPayload = { runId: 'RUN-1', sourcePath: 'raw/a.md', quote: 'claim' }
+    expect(await h[CH.harnessReadSourceExcerpt](excerptPayload))
+      .toMatchObject({ ok: true, matched: true, line: 7 })
+    expect(harnessReadSourceExcerpt).toHaveBeenCalledWith(excerptPayload)
+
+    await expect(h[CH.harnessSetReviewDecisions]({
+      runId: 'RUN-1',
+      decisions: [{ proposal_id: 'NP-1', verdict: 'pending', decided_at: 'now' }],
+    })).rejects.toThrow()
+    await expect(h[CH.harnessReadSourceExcerpt]({
+      runId: 'RUN-1', sourcePath: 'raw/a.md', extra: true,
+    })).rejects.toThrow()
+  })
+
   test('q:workspaceOverview aggregates active count + running runs across projects', async () => {
     const h = handlers(container)
     const res = await h[CH.workspaceOverview]({}) as import('@apc/dashboard-api').WorkspaceOverview

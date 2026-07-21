@@ -5,6 +5,9 @@ import type {
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessConfirmNodesReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
+  HarnessSetReviewDecisionsReq, HarnessSetReviewDecisionsRes,
+  HarnessReadSourceExcerptReq, HarnessReadSourceExcerptRes,
+  HarnessOpenSourceFileReq, HarnessOpenSourceFileRes,
   HarnessProposePolicyReq, HarnessProposePolicyRes,
   HarnessApprovePolicyReq, HarnessApprovePolicyRes,
   HarnessGetPolicyReq, HarnessGetPolicyRes,
@@ -232,6 +235,15 @@ export const api = {
   },
   harnessCanonicalProposals(req: HarnessCanonicalProposalsReq): Promise<HarnessCanonicalProposalsRes> {
     return window.apc.invoke(CH.harnessCanonicalProposals, req) as Promise<HarnessCanonicalProposalsRes>
+  },
+  harnessSetReviewDecisions(req: HarnessSetReviewDecisionsReq): Promise<HarnessSetReviewDecisionsRes> {
+    return window.apc.invoke(CH.harnessSetReviewDecisions, req) as Promise<HarnessSetReviewDecisionsRes>
+  },
+  harnessReadSourceExcerpt(req: HarnessReadSourceExcerptReq): Promise<HarnessReadSourceExcerptRes> {
+    return window.apc.invoke(CH.harnessReadSourceExcerpt, req) as Promise<HarnessReadSourceExcerptRes>
+  },
+  harnessOpenSourceFile(req: HarnessOpenSourceFileReq): Promise<HarnessOpenSourceFileRes> {
+    return window.apc.invoke(CH.harnessOpenSourceFile, req) as Promise<HarnessOpenSourceFileRes>
   },
   harnessProposePolicy(req: HarnessProposePolicyReq): Promise<HarnessProposePolicyRes> {
     return window.apc.invoke(CH.harnessProposePolicy, req) as Promise<HarnessProposePolicyRes>

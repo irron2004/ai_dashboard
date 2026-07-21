@@ -7,6 +7,7 @@ import type {
   TaskCreateReq, TaskUpdateReq, TaskDeleteReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
+  HarnessSetReviewDecisionsReq, HarnessReadSourceExcerptReq,
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
   ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
@@ -244,6 +245,19 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessCanonicalProposals(req)
     },
 
+    [CH.harnessSetReviewDecisions]: async (payload: unknown) => {
+      const decision = z.object({
+        proposal_id: z.string().min(1),
+        verdict: z.enum(['approved', 'excluded']),
+        decided_at: z.string().min(1),
+      }).strict()
+      const req = z.object({
+        runId: z.string().min(1).max(512),
+        decisions: z.array(decision),
+      }).strict().parse(payload) as HarnessSetReviewDecisionsReq
+      return container.harnessSetReviewDecisions(req)
+    },
+
     [CH.harnessProposePolicy]: async (payload: unknown) => {
       // strict parse: engine + repoPaths flow into the LLM runner, so validate at the boundary
       const req = z.object({ projectId: z.string(), engine: AgentKind, repoPaths: z.array(z.string()).optional() }).strict().parse(payload)
@@ -478,6 +492,14 @@ export function handlers(container: Container): Record<string, (payload: unknown
         limit: z.number().int().min(1).max(256 * 1024).optional(),
       }).strict().parse(payload) as HarnessReadLogReq
       return container.harnessReadLog(req)
+    },
+    [CH.harnessReadSourceExcerpt]: async (payload: unknown) => {
+      const req = z.object({
+        runId: z.string().min(1).max(512),
+        sourcePath: z.string().min(1).max(8_192),
+        quote: z.string().max(100_000).optional(),
+      }).strict().parse(payload) as HarnessReadSourceExcerptReq
+      return container.harnessReadSourceExcerpt(req)
     },
 
     [CH.fileRefsResolve]: async (payload: unknown) => {
