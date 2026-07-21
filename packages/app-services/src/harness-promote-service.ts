@@ -5,7 +5,14 @@ import { ConflictManager } from '@apc/core'
 import { RunArtifactStore, isCanonical, resolveInside } from '@apc/knowledge-harness'
 
 export type HarnessPromoteResult =
-  | { ok: true; promoted: string[]; proposals: string[]; refusedCanonical: string[] }
+  | {
+      ok: true
+      promoted: string[]
+      proposals: string[]
+      refusedCanonical: string[]
+      skippedByReview: string[]
+      danglingLinks: number
+    }
   | { ok: false; reason: string }
 
 /** Hash-gated promotion of one canonical proposal (`<x>.proposal.md` → `<x>.md`), acceptance #7. */
@@ -86,6 +93,12 @@ export class HarnessPromoteService {
     if (!rel) return { ok: false, reason: 'no applied-write-report in run' }
     const report = store.readArtifact<{ applied: string[]; proposals: string[] }>(rel)
 
+    // A decisions artifact switches the run to explicit review semantics. Its absence is the only
+    // legacy escape hatch: old/headless runs created before review decisions existed still promote all.
+    const review = this.reviewFilter(store, rs, report.applied)
+    if (!review.ok) return review
+    const { toPromote, skippedByReview, skippedNodeIds } = review
+
     const staging = this.stagingDir(input.runId)
     const copy = (relPath: string): boolean => {
       const from = resolveInside(staging, relPath)          // source must be inside staging
@@ -97,10 +110,100 @@ export class HarnessPromoteService {
     }
 
     // Belt: a canonical path must never be copied into the real vault, even if it leaked into applied[].
-    const refusedCanonical = report.applied.filter(isCanonical)
-    const promoted = report.applied.filter(p => !isCanonical(p)).filter(copy)
+    const refusedCanonical = toPromote.filter(isCanonical)
+    const promoted = toPromote.filter(p => !isCanonical(p)).filter(copy)
     const proposals = report.proposals.filter(copy)  // .proposal.md siblings — never overwrite canonical
-    return { ok: true, promoted, proposals, refusedCanonical }
+
+    // Broken wiki links are useful review feedback, but valid Obsidian markdown may intentionally
+    // contain them. Count each approved-document → excluded-node reference and report without blocking.
+    let danglingLinks = 0
+    for (const relPath of promoted) {
+      if (!/\.md$/i.test(relPath)) continue
+      const abs = resolveInside(staging, relPath)
+      if (!existsSync(abs)) continue
+      const body = readFileSync(abs, 'utf8')
+      for (const nodeId of skippedNodeIds) {
+        const escaped = nodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const link = new RegExp(`\\[\\[${escaped}(?:[|#][^\\]]*)?\\]\\]`)
+        if (link.test(body)) danglingLinks += 1
+      }
+    }
+    return { ok: true, promoted, proposals, refusedCanonical, skippedByReview, danglingLinks }
+  }
+
+  /**
+   * Resolve ownership from the lead write plan first, then from the deterministic node-doc path.
+   * Files with no proposal owner (indexes and other shared output) remain promotable.
+   */
+  private reviewFilter(store: RunArtifactStore, rs: RunState, applied: string[]):
+    | { ok: true; toPromote: string[]; skippedByReview: string[]; skippedNodeIds: string[] }
+    | { ok: false; reason: string } {
+    const norm = (path: string) => path.replace(/\\/g, '/')
+    const decisionsRel = (rs.artifacts['HUMAN_REVIEW_REQUIRED'] ?? [])
+      .find(path => path.endsWith('review-decisions.json'))
+    if (!decisionsRel) {
+      return { ok: true, toPromote: applied, skippedByReview: [], skippedNodeIds: [] }
+    }
+
+    const decisions = store.readArtifact<{
+      decisions: Array<{ proposal_id: string; verdict: string }>
+    }>(decisionsRel)
+    const approved = new Set(
+      decisions.decisions.filter(decision => decision.verdict === 'approved')
+        .map(decision => decision.proposal_id),
+    )
+    if (approved.size === 0) {
+      return { ok: false, reason: '승인된 항목이 없습니다 — 검수 탭에서 항목을 승인한 뒤 반영하세요' }
+    }
+
+    const proposalsRel = (rs.artifacts['NODE_PROPOSALS_CREATED'] ?? [])
+      .find(path => path.endsWith('node-proposals.json'))
+    const proposals = proposalsRel
+      ? store.readArtifact<{
+          proposals?: Array<{ proposal_id: string; node: { id: string } }>
+        }>(proposalsRel).proposals ?? []
+      : []
+    const planRel = (rs.artifacts['WRITE_PLAN_CREATED'] ?? [])
+      .find(path => path.endsWith('write-plan.json'))
+    const operations = planRel
+      ? store.readArtifact<{
+          operations?: Array<{ path: string; source_proposal?: string }>
+        }>(planRel).operations ?? []
+      : []
+
+    const ownerByPath = new Map(
+      operations
+        .filter((operation): operation is { path: string; source_proposal: string } =>
+          typeof operation.source_proposal === 'string' && operation.source_proposal.length > 0)
+        .map(operation => [norm(operation.path), operation.source_proposal]),
+    )
+    const proposalByNodeId = new Map(
+      proposals.map(proposal => [proposal.node.id, proposal.proposal_id]),
+    )
+    const owner = (relPath: string): string | undefined => {
+      const normalized = norm(relPath)
+      const planOwner = ownerByPath.get(normalized)
+      if (planOwner) return planOwner
+      const match = /(?:^|\/)nodes\/(.+)\.md$/i.exec(normalized)
+      return match ? proposalByNodeId.get(match[1]) : undefined
+    }
+
+    const skippedByReview = applied.filter(relPath => {
+      const proposalId = owner(relPath)
+      // Missing decisions are pending and therefore excluded at promotion time.
+      return proposalId !== undefined && !approved.has(proposalId)
+    })
+    const skippedSet = new Set(skippedByReview)
+    const skippedNodeIds = skippedByReview
+      .map(relPath => /(?:^|\/)nodes\/(.+)\.md$/i.exec(norm(relPath))?.[1])
+      .filter((nodeId): nodeId is string => Boolean(nodeId))
+
+    return {
+      ok: true,
+      toPromote: applied.filter(relPath => !skippedSet.has(relPath)),
+      skippedByReview,
+      skippedNodeIds,
+    }
   }
 
   /**

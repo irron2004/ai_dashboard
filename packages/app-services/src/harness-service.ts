@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 import {
   closeSync,
   existsSync,
@@ -7,6 +7,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  realpathSync,
   readdirSync,
   statSync,
   writeFileSync,
@@ -17,10 +18,11 @@ import type {
   KhProjectDiscoveryReport,
   KhProjectPolicyProposal,
   KhApprovedNodes,
+  KhReviewDecision,
   WikiProgressSummary,
   WikiRunEvent,
 } from '@apc/shared'
-import { KhProjectDiscoveryReportSchema, KhApprovedNodesSchema, RunStateSchema } from '@apc/shared'
+import { KhProjectDiscoveryReportSchema, KhApprovedNodesSchema, KhReviewDecisionsSchema, RunStateSchema } from '@apc/shared'
 import { LoggingAgentRunner, type AgentRunner, type EngineOptions } from '@apc/llm-wiki'
 import {
   RunArtifactStore, FeatureGate, HarnessRunner, RunLock, makeDrivers, DEFAULT_PREAMBLE, ARTIFACTS,
@@ -42,6 +44,7 @@ import { materializeProjectDocs, type RemoteDocFetcher } from './source-material
 import { materializeConversations } from './conversation-materializer.js'
 import type { WorkspaceVault, WorkspaceExportResult } from './workspace-vault.js'
 import { buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
+import { extractSourceExcerpt } from './source-excerpt.js'
 import { PythonKernelAdapter, type WikiSubstrate } from '@apc/wiki-substrate'
 
 /** A run always produces a runId + finalState (even FAILED); `ok` is just `finalState !== FAILED`.
@@ -618,6 +621,46 @@ export class HarnessService {
     return this.resume({ runId: input.runId }, onActivity, onProgress, onEngineLog, onNodes)
   }
 
+  /** 검수 탭의 항목별 승인/제외 판단을 전체 덮어쓰기 방식의 run artifact로 저장한다. */
+  setReviewDecisions(input: { runId: string; decisions: KhReviewDecision[] }): { ok: true } | { ok: false; reason: string } {
+    let store: RunArtifactStore
+    try { store = this.storeFor(input.runId) }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : String(error) } }
+    if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
+    const rs = store.loadRunState()
+    if (rs.state !== 'HUMAN_REVIEW_REQUIRED') {
+      return { ok: false, reason: `run is ${rs.state}, expected HUMAN_REVIEW_REQUIRED` }
+    }
+
+    let parsed
+    try { parsed = KhReviewDecisionsSchema.parse({ decisions: input.decisions }) }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : String(error) } }
+
+    const proposalsRel = (rs.artifacts['NODE_PROPOSALS_CREATED'] ?? [])
+      .find((p) => p.endsWith('node-proposals.json'))
+    const known = new Set(
+      (proposalsRel
+        ? store.readArtifact<{ proposals?: Array<{ proposal_id: string }> }>(proposalsRel).proposals ?? []
+        : [])
+        .map((p) => p.proposal_id),
+    )
+    const unknown = parsed.decisions.filter((d) => !known.has(d.proposal_id))
+    if (unknown.length) {
+      return { ok: false, reason: `unknown proposal_id: ${unknown.map((d) => d.proposal_id).join(', ')}` }
+    }
+
+    const rel = store.writeArtifact('HUMAN_REVIEW_REQUIRED', ARTIFACTS.reviewDecisions, parsed)
+    const current = rs.artifacts['HUMAN_REVIEW_REQUIRED'] ?? []
+    store.saveRunState({
+      ...rs,
+      artifacts: {
+        ...rs.artifacts,
+        HUMAN_REVIEW_REQUIRED: current.includes(rel) ? current : [...current, rel],
+      },
+    })
+    return { ok: true }
+  }
+
   show(input: { runId: string }): { ok: true; runState: RunState; artifacts: Array<{ state: RunState['state']; name: string; path: string; data: unknown }> } | { ok: false; reason: string } {
     let store: RunArtifactStore
     try { store = this.storeFor(input.runId) }
@@ -845,6 +888,58 @@ export class HarnessService {
     } catch { return { ok: false, reason: '원문 없음 (staging)' } }
   }
 
+  /** Evidence가 가리키는 raw 원본에서 인용 주변 문맥을 읽는다. */
+  readSourceExcerpt(input: { runId: string; sourcePath: string; quote?: string }):
+    { ok: true; matched: boolean; excerpt: string; line?: number } | { ok: false; reason: string } {
+    const resolved = this.resolveRawSourceFile(input)
+    if (!resolved.ok) return resolved
+    try {
+      return { ok: true, ...extractSourceExcerpt(readFileSync(resolved.absPath, 'utf8'), input.quote) }
+    } catch {
+      return { ok: false, reason: '원본 파일을 읽을 수 없습니다' }
+    }
+  }
+
+  /** raw/ 원본의 절대 경로를 검증한다. Electron shell.openPath는 이 결과만 사용한다. */
+  resolveRawSourceFile(input: { runId: string; sourcePath: string }):
+    { ok: true; absPath: string } | { ok: false; reason: string } {
+    let store: RunArtifactStore
+    try { store = this.storeFor(input.runId) }
+    catch (error) { return { ok: false, reason: error instanceof Error ? error.message : String(error) } }
+    if (!store.exists()) return { ok: false, reason: `run not found: ${input.runId}` }
+    const sourcePath = input.sourcePath.replace(/\\/g, '/')
+    if (!sourcePath.startsWith('raw/') || sourcePath.includes('\0')) {
+      return { ok: false, reason: 'raw/ 밖의 경로는 열 수 없습니다' }
+    }
+
+    const vaultRoot = this.vaultFor(store.loadRunState().projectId).localRoot
+    let rawRoot: string
+    let abs: string
+    try {
+      rawRoot = resolveInside(vaultRoot, 'raw')
+      abs = resolveInside(rawRoot, sourcePath.slice('raw/'.length))
+    }
+    catch { return { ok: false, reason: '허용되지 않는 경로' } }
+    const st = statSync(abs, { throwIfNoEntry: false })
+    if (!st?.isFile()) return { ok: false, reason: '원본 파일 없음' }
+    if (st.size > 512 * 1024) {
+      return { ok: false, reason: `파일 크기 초과 (${Math.round(st.size / 1024)}KB > 512KB)` }
+    }
+    // resolveInside is lexical. Resolve symlinks too before handing a path to Electron shell.openPath,
+    // otherwise raw/link -> /outside could bypass the raw-only boundary.
+    try {
+      const realRawRoot = realpathSync(rawRoot)
+      const realAbs = realpathSync(abs)
+      const fromRaw = relative(realRawRoot, realAbs)
+      if (fromRaw === '..' || fromRaw.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(fromRaw)) {
+        return { ok: false, reason: '허용되지 않는 경로' }
+      }
+      return { ok: true, absPath: realAbs }
+    } catch {
+      return { ok: false, reason: '원본 파일을 확인할 수 없습니다' }
+    }
+  }
+
   /** List staged markdown docs from disk so the renderer can show only real rendered nodes. */
   listStagedDocs(input: { runId: string }): { docs: StagedDocEntry[] } {
     return { docs: collectStagedDocs(this.deps.runsRoot, input.runId) }
@@ -883,7 +978,8 @@ export class HarnessService {
   }
 
   /** Record a promoted run's consumed sources in the idempotency ledger (best-effort; promotion already
-   * succeeded). Reads the processed-sources artifact the HUMAN_REVIEW step recorded. */
+   * succeeded). With review decisions present, only sources cited by approved proposals are consumed;
+   * excluded/pending-only sources remain eligible for a future run. */
   private markRunSourcesProcessed(runId: string): void {
     const ledger = this.deps.sourceLedger
     if (!ledger) return
@@ -893,7 +989,35 @@ export class HarnessService {
       const rel = (rs.artifacts['HUMAN_REVIEW_REQUIRED'] ?? []).find((p) => p.endsWith('processed-sources.json'))
       if (!rel) return
       const data = store.readArtifact<{ sources: { sourceId: string; sourceHash: string }[] }>(rel)
-      ledger.markProcessed(rs.projectId, runId, data.sources ?? [], this.now())
+      let sources = data.sources ?? []
+      const decisionsRel = (rs.artifacts['HUMAN_REVIEW_REQUIRED'] ?? [])
+        .find((path) => path.endsWith('review-decisions.json'))
+      if (decisionsRel) {
+        const decisions = store.readArtifact<{
+          decisions: Array<{ proposal_id: string; verdict: string }>
+        }>(decisionsRel)
+        const approved = new Set(
+          decisions.decisions.filter((decision) => decision.verdict === 'approved')
+            .map((decision) => decision.proposal_id),
+        )
+        const proposalsRel = (rs.artifacts['NODE_PROPOSALS_CREATED'] ?? [])
+          .find((path) => path.endsWith('node-proposals.json'))
+        const proposals = proposalsRel
+          ? store.readArtifact<{
+              proposals?: Array<{
+                proposal_id: string
+                evidence: Array<{ source_path: string }>
+              }>
+            }>(proposalsRel).proposals ?? []
+          : []
+        const citedByApproved = new Set(
+          proposals
+            .filter((proposal) => approved.has(proposal.proposal_id))
+            .flatMap((proposal) => proposal.evidence.map((evidence) => evidence.source_path)),
+        )
+        sources = sources.filter((source) => citedByApproved.has(source.sourceId))
+      }
+      ledger.markProcessed(rs.projectId, runId, sources, this.now())
     } catch { /* ledger is an optimization; never fail a successful promote over it */ }
   }
 

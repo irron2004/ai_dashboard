@@ -131,6 +131,7 @@ export const ARTIFACTS = {
   finalReport: 'final-report',
   processedSources: 'processed-sources',
   approvedNodes: 'approved-nodes',
+  reviewDecisions: 'review-decisions',
 } as const
 
 const engineOf = (ctx: RunnerContext) => ctx.engine as AgentType
