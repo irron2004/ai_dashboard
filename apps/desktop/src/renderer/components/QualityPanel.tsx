@@ -30,7 +30,6 @@ export function QualityPanel({ data }: Props) {
     ] },
     { title: '유용성', rows: [
       { key: 'current_update_proposals', label: 'current 업데이트 제안', value: us.current_update_proposals },
-      { key: 'next_task_candidates', label: '다음 task 후보', value: us.next_task_candidates },
       { key: 'shared_promotion_candidates', label: 'shared 승격 후보', value: us.shared_promotion_candidates },
     ] },
   ]

@@ -11,6 +11,8 @@ export type EvalInputs = {
   policy?: KhPolicyReport
   graph?: KhGraphValidationReport
   applied?: { applied: string[]; proposals: string[]; skipped: string[] }
+  /** Lead-produced shared-promotion plan; this is the metric's actual data source. */
+  sharedPromotion?: { candidates: unknown[] }
   /** count of findings from the VALIDATED body-content secret scan (PolicyGuard only sees evidence text). */
   secretScanFindings?: number
 }
@@ -59,8 +61,9 @@ export function buildEvalReport(inputs: EvalInputs): KhEvalReport {
     },
     usefulness: {
       current_update_proposals: inputs.applied?.proposals.length ?? 0,
-      next_task_candidates: 0,
-      shared_promotion_candidates: 0,
+      // No trustworthy next-task source exists yet. The schema preserves its compatibility default (0),
+      // while the UI intentionally does not present it as if it had been measured.
+      shared_promotion_candidates: inputs.sharedPromotion?.candidates.length ?? 0,
     },
   })
 }

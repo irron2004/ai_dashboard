@@ -16,6 +16,7 @@ describe('QualityPanel', () => {
     render(<QualityPanel data={data} />)
     expect(screen.getByTestId('q-node_proposals_total').textContent).toContain('5')
     expect(screen.getByTestId('q-broken_links').textContent).toContain('1')
+    expect(screen.queryByTestId('q-next_task_candidates')).toBeNull()
   })
 
   test('flags problem metrics with the warn class', () => {

@@ -685,6 +685,13 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
         graph: graphReport as never,
         applied,
         secretScanFindings: secretReport?.findings.length ?? 0,
+        sharedPromotion: {
+          candidates: artifactByName<{ candidates?: unknown[] }>(
+            ctx,
+            'LEAD_MERGED',
+            ARTIFACTS.sharedPromotionPlan,
+          )?.candidates ?? [],
+        },
       })
       // Generation reached human review → this run's sources are "processed". Record them so a
       // re-requested/resumed run skips them (and re-does only changed ones). Mark BEFORE building
