@@ -138,6 +138,23 @@ describe('ReviewPanel', () => {
     expect(screen.getByText('⚠ AI 요약일 수 있음')).toBeDefined()
   })
 
+  test('scopes verification badges to the selected proposal when evidence ids collide across proposals', () => {
+    const first = proposal('a', 'Alpha', 'raw/a')
+    const second = proposal('b', 'Beta', 'raw/b')
+    // fanout 워커는 각자 EV-1부터 번호를 매기므로 evidence_id는 proposal 간에 충돌할 수 있다.
+    first.evidence[0].evidence_id = 'EV-1'
+    first.claims[0].evidence_ids = ['EV-1']
+    second.evidence[0].evidence_id = 'EV-1'
+    second.claims[0].evidence_ids = ['EV-1']
+    renderPanel({
+      proposals: [first, second],
+      warnings: [{ proposal_id: 'NP-a', evidence_id: 'EV-1', source_path: 'raw/a', reason: 'quote_not_found' }],
+    })
+    expect(screen.getByText('⚠ AI 요약일 수 있음')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: /Beta/ }))
+    expect(screen.queryByText('⚠ AI 요약일 수 있음')).toBeNull()
+  })
+
   test('shows an explicit failure badge when the cited original is unverifiable', () => {
     renderPanel({
       unverifiable: [{

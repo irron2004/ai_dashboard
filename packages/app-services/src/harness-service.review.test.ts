@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner } from '@apc/llm-wiki'
 import type { KhReviewDecision } from '@apc/shared'
-import type { SourceLedger } from '@apc/knowledge-harness'
+import { RunArtifactStore, type SourceLedger } from '@apc/knowledge-harness'
 import { HarnessService } from './harness-service.js'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
@@ -140,6 +140,29 @@ describe('HarnessService review decisions and source evidence', () => {
       runId,
       decisions: [decision('NP-1', 'approved'), decision('NP-1', 'excluded')],
     })).toMatchObject({ ok: false, reason: expect.stringContaining('duplicate decision') })
+  })
+
+  test('rejects an unknown run and a run that is not awaiting human review', async () => {
+    const svc = service()
+    expect(svc.setReviewDecisions({ runId: 'NOPE', decisions: [] }))
+      .toEqual({ ok: false, reason: 'run not found: NOPE' })
+
+    const staleStore = new RunArtifactStore(join(ws, 'runs', 'RUN-stale'))
+    staleStore.saveRunState({
+      runId: 'RUN-stale', projectId: 'p1', engine: 'claude', state: 'VALIDATED', history: [], artifacts: {},
+    })
+    expect(svc.setReviewDecisions({ runId: 'RUN-stale', decisions: [] }))
+      .toEqual({ ok: false, reason: 'run is VALIDATED, expected HUMAN_REVIEW_REQUIRED' })
+  })
+
+  const posixTest = process.platform === 'win32' ? test.skip : test
+  posixTest('rejects a raw/ symlink whose real target escapes the raw tree', async () => {
+    const svc = service()
+    const runId = await completedRun(svc)
+    writeFileSync(join(ws, 'outside-secret.txt'), 'secret\n')
+    symlinkSync(join(ws, 'outside-secret.txt'), join(ws, 'vault', 'raw', 'link'))
+    expect(svc.resolveRawSourceFile({ runId, sourcePath: 'raw/link' }).ok).toBe(false)
+    expect(svc.readSourceExcerpt({ runId, sourcePath: 'raw/link' }).ok).toBe(false)
   })
 
   test('returns an actual raw-source excerpt and original line number with whitespace-tolerant matching', async () => {

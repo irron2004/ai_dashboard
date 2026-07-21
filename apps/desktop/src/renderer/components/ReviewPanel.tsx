@@ -220,11 +220,12 @@ export function ReviewPanel({
     return <div className="wikigen__placeholder">검수할 노드 제안이 없습니다.</div>
   }
 
-  const evidenceBadge = (evidenceId: string, excerpt: Excerpt | null | undefined) => {
-    if (unverifiable.some((finding) => finding.evidence_id === evidenceId)) {
+  // evidence_id는 proposal 내부에서만 유일하다(fanout 워커가 각자 EV-1부터 매김) — 반드시 proposal 범위로 조회.
+  const evidenceBadge = (proposalId: string, evidenceId: string, excerpt: Excerpt | null | undefined) => {
+    if ((grouped.unverifiable.get(proposalId) ?? []).some((finding) => finding.evidence_id === evidenceId)) {
       return <span className="review__flag review__flag--err">⛔ 원본 확인 불가</span>
     }
-    if (warnings.some((finding) => finding.evidence_id === evidenceId)) {
+    if ((grouped.warnings.get(proposalId) ?? []).some((finding) => finding.evidence_id === evidenceId)) {
       return <span className="review__flag review__flag--warn">⚠ AI 요약일 수 있음</span>
     }
     if (excerpt === undefined) return <span className="review__flag">원문 확인 중</span>
@@ -327,7 +328,7 @@ export function ReviewPanel({
                     >
                       {evidence.source_path}
                     </button>
-                    {evidenceBadge(evidence.evidence_id, excerpt)}
+                    {evidenceBadge(selected.proposal_id, evidence.evidence_id, excerpt)}
                     {excerpt?.line !== undefined && <small>{excerpt.line}행 부근</small>}
                   </div>
                   {excerpt === undefined && <p className="review__loading">원문 문맥을 불러오는 중…</p>}
