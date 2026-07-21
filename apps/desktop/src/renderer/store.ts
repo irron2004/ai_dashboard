@@ -20,10 +20,12 @@ import {
   saveHarnessRuns,
   saveHarnessSelectedRun,
   modelSettingsToEngineOptions,
+  readReviewDecisions,
   type HarnessAgentPromptKey,
   type HarnessConfig,
   type HarnessFeatureGateKey,
   type HarnessRunBundle,
+  type ReviewDecisionMap,
 } from './harness-utils.js'
 
 export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
@@ -90,6 +92,8 @@ type ApcStore = {
   /** Same, but for a CANONICAL proposal promote — tracks which proposal was blocked so the per-doc
    * force button can retry exactly that one with allowInvalid. */
   harnessCanonicalBlock: { proposalRelPath: string; lastReadHash: string; reason: string } | null
+  /** Human verdicts for the selected run. Pending is represented by a missing proposal id. */
+  harnessReviewDecisions: ReviewDecisionMap
 
   wikiPolicy: WikiPolicyRecordDto | null
   wikiPolicyPreview: string | null
@@ -132,6 +136,7 @@ type ApcStore = {
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   confirmNodes(runId: string, approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }): Promise<void>
+  setReviewVerdict(proposalIds: string[], verdict: 'approved' | 'excluded' | null): Promise<void>
   promoteHarnessRun(runId?: string, allowInvalid?: boolean): Promise<void>
   exportWiki(projectId?: string): Promise<void>
   loadCanonicalProposals(runId?: string): Promise<void>
@@ -161,6 +166,37 @@ function upsertRun(runs: HarnessRunBundle[], bundle: HarnessRunBundle): HarnessR
     const aAt = a.runState.history.at(-1)?.at ?? a.runState.history[0]?.at ?? ''
     const bAt = b.runState.history.at(-1)?.at ?? b.runState.history[0]?.at ?? ''
     return bAt.localeCompare(aAt)
+  })
+}
+
+const REVIEW_DECISIONS_PATH = 'artifacts/HUMAN_REVIEW_REQUIRED/review-decisions.json'
+const reviewDecisionWrites = new Map<string, Promise<void>>()
+
+function attachReviewDecisions(
+  runs: HarnessRunBundle[],
+  runId: string,
+  decisions: Array<{ proposal_id: string; verdict: 'approved' | 'excluded'; decided_at: string }>,
+): HarnessRunBundle[] {
+  return runs.map((bundle) => {
+    if (bundle.runState.runId !== runId) return bundle
+    const existing = bundle.artifacts.find((artifact) => artifact.name === 'review-decisions')
+    const path = existing?.path ?? REVIEW_DECISIONS_PATH
+    const artifacts = [
+      ...bundle.artifacts.filter((artifact) => artifact.name !== 'review-decisions'),
+      { state: 'HUMAN_REVIEW_REQUIRED' as const, name: 'review-decisions', path, data: { decisions } },
+    ]
+    const humanReview = bundle.runState.artifacts.HUMAN_REVIEW_REQUIRED ?? []
+    const indexed = humanReview.some((entry) => entry.replace(/\\/g, '/').endsWith('review-decisions.json'))
+      ? humanReview
+      : [...humanReview, path]
+    return {
+      ...bundle,
+      runState: {
+        ...bundle.runState,
+        artifacts: { ...bundle.runState.artifacts, HUMAN_REVIEW_REQUIRED: indexed },
+      },
+      artifacts,
+    }
   })
 }
 
@@ -282,6 +318,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessLiveNodesRunId: null,
   harnessPromoteBlockedReason: null,
   harnessCanonicalBlock: null,
+  harnessReviewDecisions: {},
   harnessConfigs: {},
 
   wikiPolicy: null,
@@ -437,7 +474,7 @@ export const useStore = create<ApcStore>((set, get) => ({
         set({
           selectedProjectId: null, dashboard: null, resumeCard: null, resumeBannerOpen: false,
           profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null,
-          harnessCanonicalProposals: [],
+          harnessCanonicalProposals: [], harnessReviewDecisions: {},
         })
       }
       await get().refreshProjectSurfaces({ includeProjects: true })
@@ -522,6 +559,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const runs = loadHarnessRuns(projectId)
     const config = loadHarnessConfig(projectId) ?? createDefaultHarnessConfig()
     const selectedHarnessRunId = loadHarnessSelectedRun(projectId) ?? runs[0]?.runState.runId ?? null
+    const selectedBundle = runs.find((bundle) => bundle.runState.runId === selectedHarnessRunId)
     set((state) => ({
       ...updateHarnessConfig(state, projectId, config),
       harnessRuns: runs,
@@ -530,14 +568,22 @@ export const useStore = create<ApcStore>((set, get) => ({
       harnessCanonicalProposals: [],  // hashes are run-specific; clear until the next refresh re-captures
       harnessPromoteBlockedReason: null,
       harnessCanonicalBlock: null,
+      harnessReviewDecisions: readReviewDecisions(selectedBundle?.artifacts ?? []),
     }))
   },
 
   selectHarnessRun(runId: string) {
     const projectId = get().selectedProjectId
     if (!projectId) return
+    const bundle = get().harnessRuns.find((item) => item.runState.runId === runId)
     // canonical hashes belong to the previously-selected run — clear so we never promote against the wrong run
-    set({ selectedHarnessRunId: runId, harnessCanonicalProposals: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+    set({
+      selectedHarnessRunId: runId,
+      harnessCanonicalProposals: [],
+      harnessPromoteBlockedReason: null,
+      harnessCanonicalBlock: null,
+      harnessReviewDecisions: readReviewDecisions(bundle?.artifacts ?? []),
+    })
     saveHarnessSelectedRun(projectId, runId)
   },
 
@@ -549,7 +595,7 @@ export const useStore = create<ApcStore>((set, get) => ({
       ...storedConfig,
       model: { ...storedConfig.model, engine: WIKI_GENERATION_ENGINE, permissionMode: undefined },
     }
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null, harnessReviewDecisions: {} })
     try {
       const started = await api.harnessRun({
         projectId,
@@ -570,6 +616,7 @@ export const useStore = create<ApcStore>((set, get) => ({
           ...updateHarnessConfig(state, projectId, config),
           harnessRuns: runs,
           selectedHarnessRunId: bundle.runState.runId,
+          harnessReviewDecisions: readReviewDecisions(bundle.artifacts),
           harnessMessage: `${started.runId} → ${started.finalState ?? bundle.runState.state}`,
         }))
         persistProjectRuns(projectId, runs, bundle.runState.runId)
@@ -596,7 +643,14 @@ export const useStore = create<ApcStore>((set, get) => ({
       if (!shown.ok || !shown.runState) throw new Error(shown.reason ?? 'Run not found')
       const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
       const runs = upsertRun(get().harnessRuns, bundle)
-      set({ harnessRuns: runs, selectedHarnessRunId: targetRunId, harnessMessage: `Refreshed ${targetRunId}`, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+      set({
+        harnessRuns: runs,
+        selectedHarnessRunId: targetRunId,
+        harnessReviewDecisions: readReviewDecisions(bundle.artifacts),
+        harnessMessage: `Refreshed ${targetRunId}`,
+        harnessPromoteBlockedReason: null,
+        harnessCanonicalBlock: null,
+      })
       persistProjectRuns(projectId, runs, targetRunId)
       await get().loadCanonicalProposals(targetRunId)  // capture canonical hashes as of this view
     } catch (e) {
@@ -643,6 +697,65 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
+  async setReviewVerdict(proposalIds, verdict) {
+    const runId = get().selectedHarnessRunId
+    const projectId = get().selectedProjectId
+    if (!runId || !projectId) return
+    const ids = [...new Set(proposalIds.filter(Boolean))]
+    if (!ids.length) return
+
+    const previous = get().harnessReviewDecisions
+    const next: ReviewDecisionMap = { ...previous }
+    for (const proposalId of ids) {
+      if (verdict === null) delete next[proposalId]
+      else next[proposalId] = verdict
+    }
+    set({ harnessReviewDecisions: next })
+
+    const decided_at = new Date().toISOString()
+    const decisions = Object.entries(next).map(([proposal_id, decisionVerdict]) => ({
+      proposal_id,
+      verdict: decisionVerdict,
+      decided_at,
+    }))
+    // The IPC operation replaces the whole artifact. Serialize writes per run so rapid approve/exclude
+    // clicks cannot arrive out of order and let an older snapshot overwrite the newest one.
+    const prior = reviewDecisionWrites.get(runId) ?? Promise.resolve()
+    const write = prior.catch(() => undefined).then(async () => {
+      try {
+        const response = await api.harnessSetReviewDecisions({ runId, decisions })
+        if (!response.ok) throw new Error(response.reason ?? 'unknown')
+
+        const current = get()
+        if (current.selectedProjectId === projectId) {
+          const runs = attachReviewDecisions(current.harnessRuns, runId, decisions)
+          set({ harnessRuns: runs })
+          persistProjectRuns(projectId, runs, current.selectedHarnessRunId)
+        } else {
+          // The user changed projects while the write was in flight. Keep that project's cache truthful
+          // without touching the newly selected project's in-memory run list.
+          saveHarnessRuns(projectId, attachReviewDecisions(loadHarnessRuns(projectId), runId, decisions))
+        }
+      } catch (error) {
+        // Roll back only if this exact optimistic snapshot is still visible. A newer click or run switch
+        // owns the state now and must never be overwritten by this older response.
+        if (
+          get().selectedProjectId === projectId
+          && get().selectedHarnessRunId === runId
+          && get().harnessReviewDecisions === next
+        ) {
+          set({
+            harnessReviewDecisions: previous,
+            harnessMessage: `판단 저장 실패: ${error instanceof Error ? error.message : String(error)}`,
+          })
+        }
+      }
+    })
+    reviewDecisionWrites.set(runId, write)
+    await write
+    if (reviewDecisionWrites.get(runId) === write) reviewDecisionWrites.delete(runId)
+  },
+
   async promoteHarnessRun(runId?: string, allowInvalid = false) {
     const targetRunId = runId ?? get().selectedHarnessRunId
     if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
@@ -657,7 +770,14 @@ export const useStore = create<ApcStore>((set, get) => ({
         return
       }
       await get().refreshHarnessRun(targetRunId)  // clears harnessPromoteBlockedReason on its success path
-      set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)${allowInvalid ? ' (검증 무시)' : ''}`, harnessPromoteBlockedReason: null })
+      const extra = [
+        promoted.skippedByReview?.length ? `검수 제외 ${promoted.skippedByReview.length}건 반영 안 함` : null,
+        promoted.danglingLinks ? `미해결 링크 ${promoted.danglingLinks}건` : null,
+      ].filter(Boolean).join(' · ')
+      set({
+        harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)${extra ? ` — ${extra}` : ''}${allowInvalid ? ' (검증 무시)' : ''}`,
+        harnessPromoteBlockedReason: null,
+      })
     } catch (e) {
       set({ error: `Harness promote failed: ${e}` })
     }

@@ -220,6 +220,21 @@ export type FanoutSummary = {
   folders: { label: string; members: string; role?: string }[]
 }
 
+export type ReviewDecisionMap = Record<string, 'approved' | 'excluded'>
+
+/** Read the selected run's human verdicts. Older and not-yet-reviewed runs have no artifact. */
+export function readReviewDecisions(artifacts: HarnessRunArtifact[]): ReviewDecisionMap {
+  const data = artifacts.find((artifact) => artifact.name === 'review-decisions')?.data as
+    { decisions?: Array<{ proposal_id: string; verdict: 'approved' | 'excluded' }> } | undefined
+  const decisions: ReviewDecisionMap = {}
+  for (const decision of data?.decisions ?? []) {
+    if (decision.proposal_id && (decision.verdict === 'approved' || decision.verdict === 'excluded')) {
+      decisions[decision.proposal_id] = decision.verdict
+    }
+  }
+  return decisions
+}
+
 /** Extract the folder-worker summary from a run's artifacts, or null if the run wasn't folder-fanned-out
  *  (e.g. legacy single-shot, or a run before this feature). Pure — unit-tested. */
 export function readFanoutSummary(artifacts: HarnessRunArtifact[]): FanoutSummary | null {

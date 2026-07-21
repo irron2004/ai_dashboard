@@ -1,8 +1,19 @@
 import { describe, expect, test } from 'vitest'
-import { appendTailLines, createDefaultHarnessConfig, isRunResumable, modelSettingsToEngineOptions, normalizeHarnessConfigForWiki, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, buildHarnessGraphData, buildPaperGraphData, resolveStagedRel } from './harness-utils.js'
-import type { HarnessRunArtifact, HarnessRunBundle } from './harness-utils.js'
+import { appendTailLines, createDefaultHarnessConfig, isRunResumable, modelSettingsToEngineOptions, normalizeHarnessConfigForWiki, runModeLabel, stageForState, STRUCTURE_STAGES, pickNodeArtifact, readFanoutSummary, readReviewDecisions, buildHarnessGraphData, buildPaperGraphData, resolveStagedRel, type HarnessRunArtifact, type HarnessRunBundle } from './harness-utils.js'
 
 const artifact = (name: string, data: unknown): HarnessRunArtifact => ({ state: 'NODE_PROPOSALS_CREATED', name, path: name, data })
+
+describe('readReviewDecisions', () => {
+  test('maps persisted verdicts and treats a missing artifact as all pending', () => {
+    expect(readReviewDecisions([])).toEqual({})
+    expect(readReviewDecisions([artifact('review-decisions', {
+      decisions: [
+        { proposal_id: 'NP-1', verdict: 'approved' },
+        { proposal_id: 'NP-2', verdict: 'excluded' },
+      ],
+    })])).toEqual({ 'NP-1': 'approved', 'NP-2': 'excluded' })
+  })
+})
 
 describe('codex-only wiki configuration', () => {
   test('defaults to codex and drops claude-only permission options', () => {
