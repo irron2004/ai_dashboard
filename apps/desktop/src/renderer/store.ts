@@ -759,8 +759,59 @@ export const useStore = create<ApcStore>((set, get) => ({
   async promoteHarnessRun(runId?: string, allowInvalid = false) {
     const targetRunId = runId ?? get().selectedHarnessRunId
     if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
+
+    const selectedState = get()
+    const targetBundle = selectedState.harnessRuns.find((bundle) => bundle.runState.runId === targetRunId)
+    const proposalIds = new Set(
+      ((targetBundle?.artifacts.find((artifact) => artifact.name === 'node-proposals')?.data as
+        { proposals?: Array<{ proposal_id?: unknown }> } | undefined)?.proposals ?? [])
+        .map((proposal) => proposal.proposal_id)
+        .filter((proposalId): proposalId is string => typeof proposalId === 'string' && proposalId.length > 0),
+    )
+    const reviewGated = proposalIds.size > 0
+    const decisionSnapshot = targetRunId === selectedState.selectedHarnessRunId
+      ? selectedState.harnessReviewDecisions
+      : readReviewDecisions(targetBundle?.artifacts ?? [])
+    const decidedAt = new Date().toISOString()
+    const decisions = Object.entries(decisionSnapshot)
+      .filter(([proposalId]) => proposalIds.has(proposalId))
+      .map(([proposal_id, verdict]) => ({ proposal_id, verdict, decided_at: decidedAt }))
+
+    if (reviewGated && !decisions.some((decision) => decision.verdict === 'approved')) {
+      set({
+        harnessMessage: 'Promote failed: 승인된 항목이 없습니다 — 검수 탭에서 항목을 승인한 뒤 반영하세요',
+        harnessPromoteBlockedReason: null,
+      })
+      return
+    }
+
     try {
-      const promoted = await api.harnessPromote(allowInvalid ? { runId: targetRunId, allowInvalid: true } : { runId: targetRunId })
+      let promoted
+      const promote = async () => api.harnessPromote(
+        allowInvalid ? { runId: targetRunId, allowInvalid: true } : { runId: targetRunId },
+      )
+
+      if (reviewGated) {
+        // The verdict buttons update optimistically. Put one final full-artifact write on the same
+        // per-run queue and promote only after it succeeds, so a fast approve -> promote click can
+        // never fall through to the service's legacy "artifact absent = promote everything" path.
+        const prior = reviewDecisionWrites.get(targetRunId) ?? Promise.resolve()
+        const barrier = prior.catch(() => undefined).then(async () => {
+          const saved = await api.harnessSetReviewDecisions({ runId: targetRunId, decisions })
+          if (!saved.ok) throw new Error(`판단 저장 실패: ${saved.reason ?? 'unknown'}`)
+          promoted = await promote()
+        })
+        reviewDecisionWrites.set(targetRunId, barrier)
+        try {
+          await barrier
+        } finally {
+          if (reviewDecisionWrites.get(targetRunId) === barrier) reviewDecisionWrites.delete(targetRunId)
+        }
+      } else {
+        promoted = await promote()
+      }
+
+      if (!promoted) throw new Error('promote response missing')
       if (!promoted.ok) {
         const reason = promoted.reason ?? 'unknown reason'
         // Surface a force-override affordance only for gates allowInvalid can lift (graph/markdown/link),
@@ -779,7 +830,7 @@ export const useStore = create<ApcStore>((set, get) => ({
         harnessPromoteBlockedReason: null,
       })
     } catch (e) {
-      set({ error: `Harness promote failed: ${e}` })
+      set({ harnessMessage: `Promote failed: ${e instanceof Error ? e.message : String(e)}`, harnessPromoteBlockedReason: null })
     }
   },
 

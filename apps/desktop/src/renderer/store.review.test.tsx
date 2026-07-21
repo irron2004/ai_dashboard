@@ -4,6 +4,7 @@ import { saveHarnessRuns, saveHarnessSelectedRun } from './harness-utils.js'
 
 const mocks = vi.hoisted(() => ({
   harnessSetReviewDecisions: vi.fn(),
+  harnessPromote: vi.fn(),
 }))
 
 vi.mock('./api.js', () => ({ api: mocks }))
@@ -31,6 +32,21 @@ function bundle(
   }
 }
 
+function withProposals(run: HarnessRunBundle, proposalIds: string[]): HarnessRunBundle {
+  return {
+    ...run,
+    artifacts: [
+      ...run.artifacts,
+      {
+        state: 'NODE_PROPOSALS_CREATED',
+        name: 'node-proposals',
+        path: 'artifacts/NODE_PROPOSALS_CREATED/node-proposals.json',
+        data: { proposals: proposalIds.map((proposal_id) => ({ proposal_id })) },
+      },
+    ],
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((done) => { resolve = done })
@@ -41,6 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
   mocks.harnessSetReviewDecisions.mockResolvedValue({ ok: true })
+  mocks.harnessPromote.mockResolvedValue({ ok: false, reason: 'expected test stop' })
   useStore.setState({
     selectedProjectId: 'p1',
     harnessRuns: [],
@@ -119,5 +136,44 @@ describe('review verdict store', () => {
     await saveSecond
     expect(useStore.getState().harnessReviewDecisions)
       .toEqual({ 'NP-1': 'approved', 'NP-2': 'excluded' })
+  })
+
+  test('persists the selected decision snapshot before promoting a proposal-bearing run', async () => {
+    const order: string[] = []
+    mocks.harnessSetReviewDecisions.mockImplementation(async () => {
+      order.push('decisions')
+      return { ok: true }
+    })
+    mocks.harnessPromote.mockImplementation(async () => {
+      order.push('promote')
+      return { ok: false, reason: 'expected test stop' }
+    })
+    useStore.setState({
+      harnessRuns: [withProposals(bundle('RUN-1'), ['NP-1', 'NP-2'])],
+      selectedHarnessRunId: 'RUN-1',
+      harnessReviewDecisions: { 'NP-1': 'approved' },
+    })
+
+    await useStore.getState().promoteHarnessRun()
+
+    expect(order).toEqual(['decisions', 'promote'])
+    expect(mocks.harnessSetReviewDecisions).toHaveBeenCalledWith({
+      runId: 'RUN-1',
+      decisions: [{ proposal_id: 'NP-1', verdict: 'approved', decided_at: expect.any(String) }],
+    })
+  })
+
+  test('does not promote when the final decision artifact write fails', async () => {
+    mocks.harnessSetReviewDecisions.mockResolvedValue({ ok: false, reason: 'disk full' })
+    useStore.setState({
+      harnessRuns: [withProposals(bundle('RUN-1'), ['NP-1'])],
+      selectedHarnessRunId: 'RUN-1',
+      harnessReviewDecisions: { 'NP-1': 'approved' },
+    })
+
+    await useStore.getState().promoteHarnessRun()
+
+    expect(mocks.harnessPromote).not.toHaveBeenCalled()
+    expect(useStore.getState().harnessMessage).toContain('판단 저장 실패: disk full')
   })
 })

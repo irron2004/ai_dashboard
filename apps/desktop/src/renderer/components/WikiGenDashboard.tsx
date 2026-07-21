@@ -14,20 +14,20 @@ import {
 import { HarnessRunList } from './HarnessRunList.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 import { WikiProgress } from './WikiProgress.js'
-import { CoverageMatrix } from './CoverageMatrix.js'
-import { QualityPanel } from './QualityPanel.js'
-import { ProposalsPanel } from './ProposalsPanel.js'
-import { ReviewPanel, type EvidenceFinding, type PolicyViolation } from './ReviewPanel.js'
+import { OverviewPanel } from './OverviewPanel.js'
+import { ReviewPanel, type EvidenceFinding, type PolicyViolation, type ReviewFilter } from './ReviewPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
 import { NodeConfirmPanel } from './NodeConfirmPanel.js'
 import { ProjectStructureView } from './ProjectStructureView.js'
 import { WikiGenerationSetup } from './WikiGenerationSetup.js'
 
-type ReviewTab = 'summary' | 'structure' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
+type ReviewTab = 'overview' | 'review' | 'structure' | 'flow'
 
 const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
-  { id: 'summary', label: '요약' }, { id: 'structure', label: '구조' }, { id: 'review', label: '🔎 검수' }, { id: 'coverage', label: 'Coverage' },
-  { id: 'quality', label: 'Quality' }, { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
+  { id: 'overview', label: '개요' },
+  { id: 'review', label: '🔎 검수' },
+  { id: 'structure', label: '구조' },
+  { id: 'flow', label: '진행' },
 ]
 
 export function WikiGenDashboard() {
@@ -43,7 +43,8 @@ export function WikiGenDashboard() {
     confirmNodes, setReviewVerdict,
   } = useStore()
 
-  const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
+  const [reviewTab, setReviewTab] = useState<ReviewTab>('overview')
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [interactiveMode, setInteractiveMode] = useState(false)
   const [pendingRun, setPendingRun] = useState<{ materialize: boolean; fullRegen?: boolean } | null>(null)
@@ -155,6 +156,22 @@ export function WikiGenDashboard() {
   const evidenceUnverifiable = evidenceReport?.unverifiable ?? []
   const policyViolations = (currentRun?.artifacts.find((a) => a.name === 'policy-report')?.data as { violations?: PolicyViolation[] } | undefined)?.violations ?? []
   const diffPatch = (currentRun?.artifacts.find((a) => a.name === 'git-diff-report')?.data as { patch?: string } | undefined)?.patch ?? null
+  const approvedCount = proposalsData?.filter((proposal) => harnessReviewDecisions[proposal.proposal_id] === 'approved').length ?? 0
+  const excludedCount = proposalsData?.filter((proposal) => harnessReviewDecisions[proposal.proposal_id] === 'excluded').length ?? 0
+  const pendingCount = Math.max(0, (proposalsData?.length ?? 0) - approvedCount - excludedCount)
+  const warningCount = proposalsData?.filter((proposal) => proposal.evidence.length === 0
+    || evidenceWarnings.some((warning) => warning.proposal_id === proposal.proposal_id)
+    || evidenceUnverifiable.some((finding) => finding.proposal_id === proposal.proposal_id)
+    || policyViolations.some((violation) => violation.proposal_id === proposal.proposal_id)).length ?? 0
+  // Only proposal-bearing runs use verdict gating. Older/headless runs retain the service's legacy path.
+  const reviewGated = Boolean(proposalsData?.length)
+  const goToReview = (filter: ReviewFilter) => {
+    setReviewFilter(filter)
+    setReviewTab('review')
+  }
+  const openSource = (sourcePath: string) => {
+    if (currentRun) void api.harnessOpenSourceFile({ runId: currentRun.runState.runId, sourcePath })
+  }
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
   const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
   const awaiting = currentRun?.runState.awaiting
@@ -256,8 +273,19 @@ export function WikiGenDashboard() {
               </nav>
 
               <div className="wikigen__content">
-                {reviewTab === 'summary' && (
-                  <div className="wikigen__summary">
+                {reviewTab === 'overview' && (
+                  <OverviewPanel
+                    run={currentRun}
+                    coverage={coverageData}
+                    quality={evalData}
+                    proposalsCount={proposalsData?.length ?? 0}
+                    approvedCount={approvedCount}
+                    excludedCount={excludedCount}
+                    warningCount={warningCount}
+                    fanout={fanout}
+                    onGoToReview={goToReview}
+                    onOpenSource={openSource}
+                  >
                     {progressForCurrentRun && wikiProgress && (
                       <WikiProgress
                         progress={wikiProgress}
@@ -266,35 +294,8 @@ export function WikiGenDashboard() {
                         onReadLog={readProgressLog}
                       />
                     )}
-                    {currentRun.runState.state === 'FAILED' && (
-                      <p className="wikigen__error">❌ 실패: {currentRun.runState.error ?? '원인 미상'} — 실행 이력에서 ↻ 이어하기</p>
-                    )}
-                    <p>
-                      아티팩트 {currentRun.artifacts.length}개
-                      {coverageData ? ` · 커버리지 리포트 있음` : ''}
-                      {evalData ? ` · 품질 리포트 있음` : ''}
-                      {proposalsData ? ` · 노드 제안 ${proposalsData.length}개` : ''}
-                    </p>
-                    <p className="wikigen__hint">생성된 위키 문서는 📖 Knowledge 탭에서 읽습니다.</p>
-                    {fanout && (
-                      <div className="wikigen__folders">
-                        <h4>📁 폴더 워커 (orchestrator-workers)</h4>
-                        <p>{fanout.units}개 폴더 단위 · {fanout.ran}개 실행{fanout.skipped.length ? ` · ${fanout.skipped.length}개 스킵` : ''}</p>
-                        <ul className="wikigen__folder-list">
-                          {fanout.folders.map((f) => (
-                            <li key={f.label}>📁 {f.label}{f.role ? <em className="wikigen__folder-role"> {f.role}</em> : null}{f.members && f.members !== f.label ? <small> — {f.members}</small> : null}</li>
-                          ))}
-                        </ul>
-                        {fanout.skipped.length > 0 && (
-                          <ul className="wikigen__folder-skipped">
-                            {fanout.skipped.map((s) => <li key={s.unit} title={s.reason}>⚠ {s.unit} 스킵</li>)}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  </OverviewPanel>
                 )}
-                {reviewTab === 'structure' && <ProjectStructureView artifacts={currentRun.artifacts} />}
                 {reviewTab === 'review' && (proposalsData && proposalsData.length > 0
                   ? <ReviewPanel
                       runId={currentRun.runState.runId}
@@ -306,17 +307,10 @@ export function WikiGenDashboard() {
                       diffPatch={diffPatch}
                       decisions={harnessReviewDecisions}
                       onVerdict={(proposalIds, verdict) => void setReviewVerdict(proposalIds, verdict)}
+                      initialFilter={reviewFilter}
                     />
                   : <div className="wikigen__placeholder">검수할 노드 제안이 없습니다 — 전체 문서 모드로 실행하세요.</div>)}
-                {reviewTab === 'coverage' && (coverageData
-                  ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
-                  : <div className="wikigen__placeholder">커버리지 데이터 없음 — 전체 문서 모드로 실행하세요.</div>)}
-                {reviewTab === 'quality' && (evalData
-                  ? <QualityPanel data={evalData} />
-                  : <div className="wikigen__placeholder">품질 데이터 없음.</div>)}
-                {reviewTab === 'proposals' && (proposalsData
-                  ? <ProposalsPanel proposals={proposalsData} />
-                  : <div className="wikigen__placeholder">노드 제안 없음.</div>)}
+                {reviewTab === 'structure' && <ProjectStructureView artifacts={currentRun.artifacts} />}
                 {reviewTab === 'flow' && <TaskFlowView run={currentRun} />}
               </div>
 
@@ -324,14 +318,25 @@ export function WikiGenDashboard() {
                 <div className="wikigen__promote-run">
                   <button
                     type="button"
-                    disabled={harnessLoading || !canPromote}
-                    title={canPromote ? 'staging 결과를 vault로 반영' : '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 promote할 수 있습니다'}
-                    onClick={() => void promoteHarnessRun()}
+                    disabled={harnessLoading || !canPromote || (reviewGated && approvedCount === 0)}
+                    title={!canPromote
+                      ? '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 반영할 수 있습니다'
+                      : reviewGated && approvedCount === 0
+                        ? '검수 탭에서 항목을 승인해야 반영할 수 있습니다'
+                        : '승인한 항목만 vault로 반영'}
+                    onClick={() => {
+                      if (
+                        reviewGated
+                        && pendingCount > 0
+                        && !window.confirm(`미결 ${pendingCount}건은 반영되지 않습니다. 승인 ${approvedCount}건만 반영할까요?`)
+                      ) return
+                      void promoteHarnessRun()
+                    }}
                   >
-                    Promote run
+                    {reviewGated ? `승인 ${approvedCount}건 반영` : 'Promote run'}
                   </button>
                   {harnessPromoteBlockedReason && (
-                    <button type="button" className="wikigen__force" disabled={harnessLoading} title={harnessPromoteBlockedReason} onClick={() => void promoteHarnessRun(undefined, true)}>
+                    <button type="button" className="wikigen__force" disabled={harnessLoading || (reviewGated && approvedCount === 0)} title={harnessPromoteBlockedReason} onClick={() => void promoteHarnessRun(undefined, true)}>
                       ⚠ 검증 무시
                     </button>
                   )}
