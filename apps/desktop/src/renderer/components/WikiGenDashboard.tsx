@@ -35,11 +35,12 @@ export function WikiGenDashboard() {
     selectedProjectId, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
     harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
     harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
+    harnessReviewDecisions,
     wikiPolicy, wikiPolicyPreview, wikiPolicyBusy,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
     promoteHarnessRun, promoteCanonicalDoc, exportWiki, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
     proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
-    confirmNodes,
+    confirmNodes, setReviewVerdict,
   } = useStore()
 
   const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
@@ -148,8 +149,12 @@ export function WikiGenDashboard() {
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
   const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
   // The verifier + policy agents' per-proposal findings — surfaced alongside each node in the 검수 tab.
-  const evidenceWarnings = (currentRun?.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as { warnings?: EvidenceFinding[] } | undefined)?.warnings ?? []
+  const evidenceReport = currentRun?.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as
+    { warnings?: EvidenceFinding[]; unverifiable?: EvidenceFinding[] } | undefined
+  const evidenceWarnings = evidenceReport?.warnings ?? []
+  const evidenceUnverifiable = evidenceReport?.unverifiable ?? []
   const policyViolations = (currentRun?.artifacts.find((a) => a.name === 'policy-report')?.data as { violations?: PolicyViolation[] } | undefined)?.violations ?? []
+  const diffPatch = (currentRun?.artifacts.find((a) => a.name === 'git-diff-report')?.data as { patch?: string } | undefined)?.patch ?? null
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
   const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
   const awaiting = currentRun?.runState.awaiting
@@ -291,7 +296,17 @@ export function WikiGenDashboard() {
                 )}
                 {reviewTab === 'structure' && <ProjectStructureView artifacts={currentRun.artifacts} />}
                 {reviewTab === 'review' && (proposalsData && proposalsData.length > 0
-                  ? <ReviewPanel runId={currentRun.runState.runId} projectId={selectedProjectId} proposals={proposalsData} warnings={evidenceWarnings} violations={policyViolations} />
+                  ? <ReviewPanel
+                      runId={currentRun.runState.runId}
+                      projectId={selectedProjectId}
+                      proposals={proposalsData}
+                      warnings={evidenceWarnings}
+                      unverifiable={evidenceUnverifiable}
+                      violations={policyViolations}
+                      diffPatch={diffPatch}
+                      decisions={harnessReviewDecisions}
+                      onVerdict={(proposalIds, verdict) => void setReviewVerdict(proposalIds, verdict)}
+                    />
                   : <div className="wikigen__placeholder">검수할 노드 제안이 없습니다 — 전체 문서 모드로 실행하세요.</div>)}
                 {reviewTab === 'coverage' && (coverageData
                   ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
