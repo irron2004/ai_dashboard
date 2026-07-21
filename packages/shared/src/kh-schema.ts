@@ -98,6 +98,38 @@ export const KhApprovedNodesSchema = z.object({
 })
 export type KhApprovedNodes = z.infer<typeof KhApprovedNodesSchema>
 
+// 검수 탭의 항목별 사람 판단. 미결(pending)은 레코드 부재로 표현한다 — verdict enum에 넣지 않는다.
+// HUMAN_REVIEW_REQUIRED 상태 키 아래 'review-decisions' run artifact로 저장되며,
+// promote가 승인분만 반영하는 근거가 된다.
+export const KhReviewVerdict = z.enum(['approved', 'excluded'])
+export type KhReviewVerdict = z.infer<typeof KhReviewVerdict>
+
+export const KhReviewDecisionSchema = z.object({
+  proposal_id: z.string().min(1),
+  verdict: KhReviewVerdict,
+  decided_at: z.string().min(1),
+})
+export type KhReviewDecision = z.infer<typeof KhReviewDecisionSchema>
+
+export const KhReviewDecisionsSchema = z.object({
+  decisions: z.array(KhReviewDecisionSchema).default([]),
+})
+  // 같은 proposal에 상반된 판단이 공존하면 promote 필터가 비결정적이 된다.
+  .superRefine((r, ctx) => {
+    const seen = new Set<string>()
+    r.decisions.forEach((d, i) => {
+      if (seen.has(d.proposal_id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['decisions', i, 'proposal_id'],
+          message: `duplicate decision for proposal "${d.proposal_id}"`,
+        })
+      }
+      seen.add(d.proposal_id)
+    })
+  })
+export type KhReviewDecisions = z.infer<typeof KhReviewDecisionsSchema>
+
 // Recognized write verbs. delete_file is recognized-but-forbidden: it parses so PolicyGuard can block it
 // with a clean message; an unknown/typo'd verb fails at parse instead of being silently dropped.
 export const KhWriteOpKind = z.enum(['create_file', 'update_frontmatter', 'add_backlink', 'append_section', 'delete_file'])
