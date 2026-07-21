@@ -2,7 +2,7 @@
 
 - 날짜: 2026-07-21
 - 상태: 사용자 승인 완료 (구현 전)
-- 브랜치: `feat/wikigen-review-redesign` (base: `main`)
+- 브랜치: `feat/wikigen-review-redesign` (base: **`feat/resume-recall-surface`** — 사용자가 쓰는 7탭 화면·구조 탭이 이 미병합 브랜치에만 있어 스택 PR로 진행. main 기반이면 대형 충돌 발생. 계획 단계에서 사용자 승인으로 변경됨)
 
 ## 1. 배경 — 진단 요약
 
@@ -98,7 +98,7 @@ CLAUDE.md 규칙대로 4곳 배선: `ipc-contract.ts` → `preload/index.ts` →
 | `harness:setReviewDecisions` | `{ runId, decisions }` | `{ ok }` | run이 `HUMAN_REVIEW_REQUIRED`일 때만 허용, proposal_id 유효성 검증 |
 | `harness:readSourceExcerpt` | `{ runId, sourcePath, quote }` | `{ matched, excerpt, line? }` | EvidenceVerifier의 공백정규화 매칭 재사용, ±5줄 반환 |
 | `harness:openSourceFile` | `{ runId, sourcePath }` | `{ ok }` | `shell.openPath`. workspace vault `raw/` 내부 경로만 허용 |
-| `harness:readNodeDiff` | `{ runId, relPath }` | `{ diff: string \| null }` | `diff.patch`를 `diff --git` 경계로 분리해 해당 파일 섹션 반환 |
+| ~~`harness:readNodeDiff`~~ | — | — | **불필요로 판명(계획 단계)**: `git-diff-report` artifact가 전체 patch를 이미 run bundle에 싣고 오고, renderer의 `parseUnifiedDiff`(harness-utils)가 파일별 분리를 제공 — 검수 탭은 이를 재사용한다 |
 
 `Container`/`HarnessService`에 대응 메서드 추가.
 
