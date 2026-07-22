@@ -57,6 +57,7 @@ export async function extractTasks(
     return [TaskSchema.parse({
       id, projectId, title: t.content, status: t.status,
       assigneeType: 'agent', assignee: agent, parentTaskId: reqId, contextPackage: sid,
+      source: 'conversation', sourceRef: `${sid}:${slug(t.content)}`,
     })]
   })
 
@@ -71,6 +72,7 @@ export async function extractTasks(
     id: reqId, projectId, title: title.trim(), status: hasOpen ? 'in_progress' : 'done',
     assigneeType: 'agent', assignee: agent, contextPackage: sid,
     linkedWikiPages: session.filesTouched,
+    source: 'conversation', sourceRef: sid,
   })
   return { request, todos }
 }
@@ -80,6 +82,7 @@ export type TaskSink = {
   get(id: string): Task | undefined
   listByProject(projectId: string): Task[]
   delete(id: string): void
+  removeMissingDerived?(id: string): boolean
 }
 
 /** Carry over a non-empty blockedBy from a previously stored task onto a freshly extracted one. */
@@ -97,6 +100,9 @@ export function reconcileSessionTasks(
   const keep = new Set(todos.map((t) => t.id))
   const prefix = `todo:${projectId}:${sessionId}:`
   for (const existing of store.listByProject(projectId)) {
-    if (existing.id.startsWith(prefix) && !keep.has(existing.id)) store.delete(existing.id)
+    if (existing.id.startsWith(prefix) && !keep.has(existing.id)) {
+      if (store.removeMissingDerived) store.removeMissingDerived(existing.id)
+      else store.delete(existing.id)
+    }
   }
 }

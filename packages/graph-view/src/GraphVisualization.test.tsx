@@ -61,7 +61,7 @@ const cyInstance = {
 const cyFactory = vi.fn((_opts: unknown) => cyInstance)
 vi.mock('cytoscape', () => ({ default: (opts: unknown) => cyFactory(opts) }))
 
-import { GraphVisualization } from './GraphVisualization.js'
+import { FOCUSED_EDGE_NODE_THRESHOLD, GraphVisualization } from './GraphVisualization.js'
 
 const data: GraphData = {
   nodes: [
@@ -75,8 +75,23 @@ describe('GraphVisualization (cytoscape)', () => {
   test('initializes cytoscape with one element per node and link', () => {
     render(<GraphVisualization data={data} onNodeClick={() => {}} />)
     expect(cyFactory).toHaveBeenCalledTimes(1)
-    const opts = (cyFactory.mock.calls as unknown as [{ elements: unknown[] }][])[0][0]
+    const calls = cyFactory.mock.calls as unknown as [{ elements: unknown[] }][]
+    const opts = calls[calls.length - 1][0]
     expect(opts.elements).toHaveLength(3) // 2 nodes + 1 edge
+  })
+
+  test('large graphs initialize node-first without materializing every edge', () => {
+    const nodes: GraphData['nodes'] = Array.from({ length: FOCUSED_EDGE_NODE_THRESHOLD }, (_, i) => ({
+      id: `document:${i}`, label: `Document ${i}`, type: 'document', shape: 'circle', color: '#000',
+    }))
+    const links: GraphData['links'] = nodes.slice(1).map((node, i) => ({
+      id: `edge:${i}`, source: nodes[0].id, target: node.id, kind: 'rel',
+    }))
+    render(<GraphVisualization data={{ nodes, links }} onNodeClick={() => {}} />)
+    const calls = cyFactory.mock.calls as unknown as [{ elements: unknown[] }][]
+    const opts = calls[calls.length - 1][0]
+
+    expect(opts.elements).toHaveLength(nodes.length)
   })
 
   test('renders the sidebar with entity and edge filter sections', () => {

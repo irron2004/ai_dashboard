@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { useStore } from '../store.js'
 import { GeneratePreflightModal } from './GeneratePreflightModal.js'
@@ -22,9 +22,16 @@ describe('GeneratePreflightModal', () => {
   })
 
   test('open renders categories and Proceed', () => {
+    const generate = vi.fn(async () => undefined)
+    useStore.setState({ generate })
     render(<GeneratePreflightModal open onClose={vi.fn()} />)
     expect(screen.getByText('Generate preflight')).toBeDefined()
     expect(screen.getByText('LLM CLI conversations')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Proceed' })).toBeDefined()
+    const engine = screen.getByLabelText('Engine') as HTMLInputElement
+    expect(engine.value).toBe('codex')
+    expect(engine.disabled).toBe(true)
+    expect(screen.queryByText('claude')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Proceed' }))
+    expect(generate).toHaveBeenCalledWith(['agent-conversations'])
   })
 })

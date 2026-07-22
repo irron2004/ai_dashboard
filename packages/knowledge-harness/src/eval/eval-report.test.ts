@@ -71,4 +71,11 @@ describe('buildEvalReport', () => {
     const r = buildEvalReport({ policy, secretScanFindings: 2 })
     expect(r.safety.secret_warnings).toBe(3)  // 1 evidence-text + 2 body-content
   })
+
+  test('counts shared promotion candidates from the lead plan', () => {
+    const r = buildEvalReport({
+      sharedPromotion: { candidates: [{ node_id: 'n1' }, { node_id: 'n2' }] },
+    })
+    expect(r.usefulness.shared_promotion_candidates).toBe(2)
+  })
 })

@@ -4,9 +4,22 @@ import { dirname, join } from 'node:path'
 import { AgentSourceSchema, NormalizedSessionSchema, SourceMetaSchema, type AgentSource, type NormalizedSession, type NormalizedTurn, type SourceCursor } from '@apc/shared'
 import { redact } from './redact.js'
 import type { AgentIngestAdapter } from './types.js'
-import { folderPathFor, walkFiles } from './source-discovery.js'
+import { folderPathFor, readFilePrefix, walkFiles } from './source-discovery.js'
 
 const FILE_EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+function discoverRepoPath(locator: string): string | undefined {
+  for (const line of readFilePrefix(locator).split('\n')) {
+    if (!line.trim()) continue
+    try {
+      const item = JSON.parse(line) as { cwd?: unknown }
+      if (typeof item.cwd === 'string') return item.cwd
+    } catch {
+      // The final prefix row may be partial; keep looking only while complete JSONL rows parse.
+    }
+  }
+  return undefined
+}
 
 /** Parse Claude `.jsonl` transcript content (string) into a NormalizedSession. Reused for
  *  local files (ClaudeAdapter) and remote transcripts read over SSH. */
@@ -100,6 +113,7 @@ export class ClaudeAdapter implements AgentIngestAdapter {
         kind: 'jsonl-file',
         locator,
         sourceDirPath: folderPathFor(locator),
+        repoPath: discoverRepoPath(locator),
         discoveredAt,
         mtimeMs: Math.floor(st.mtimeMs),
         sizeBytes: st.size,

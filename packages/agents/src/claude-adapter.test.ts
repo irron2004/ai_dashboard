@@ -60,6 +60,7 @@ describe('ClaudeAdapter', () => {
     expect(sources).toHaveLength(1)
     expect(sources[0].agentKind).toBe('claude')
     expect(sources[0].kind).toBe('jsonl-file')
+    expect(sources[0].repoPath).toBe('/mnt/c/work/apc')
     expect(sources[0].sourceDirPath).toContain('session-a')
   })
 

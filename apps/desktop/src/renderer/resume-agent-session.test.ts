@@ -30,4 +30,11 @@ describe('resumeAgentSession', () => {
     useStore.getState().resumeAgentSession('p1:claude', 'sess-123')
     expect(useStore.getState().stoppingKeys['p1:claude']).toBeUndefined()
   })
+
+  test('accepts an explicit agent for a dynamic worktree slot key', () => {
+    const key = 'p1:worktree-hash:codex-2'
+    useStore.getState().resumeAgentSession(key, 'sess-dynamic', 'codex')
+    expect(useStore.getState().openPanes[key]).toEqual({ agent: 'codex', sessionId: 'sess-dynamic' })
+    expect(useStore.getState().restartNonce[key]).toBe(1)
+  })
 })

@@ -71,6 +71,58 @@ describe('TaskStore', () => {
     expect(t.blockedBy).toEqual(['TASK-009'])
     expect(t.priority).toBe('low') // other columns untouched
   })
+
+  test('round-trips provenance and assigns timestamps to legacy producer input', () => {
+    const fixed = new TaskStore(db, () => '2026-07-20T10:00:00.000Z')
+    fixed.create({ ...base, id: 'req:p1:s1', source: 'conversation', sourceRef: 's1' })
+    expect(fixed.get('req:p1:s1')).toMatchObject({
+      source: 'conversation', sourceRef: 's1',
+      createdAt: '2026-07-20T10:00:00.000Z', updatedAt: '2026-07-20T10:00:00.000Z',
+    })
+  })
+
+  test('derived re-ingest preserves user-owned fields after an edit', () => {
+    const fixed = new TaskStore(db, () => '2026-07-20T10:00:00.000Z')
+    fixed.create({
+      ...base, id: 'todo:p1:s1:fix', title: 'Extracted title', source: 'conversation', sourceRef: 's1:fix',
+    })
+    fixed.updateUserFields('p1', 'todo:p1:s1:fix', {
+      title: 'User title', status: 'in_progress', priority: 'low', dueDate: '2026-08-01',
+    })
+    fixed.create({
+      ...base, id: 'todo:p1:s1:fix', title: 'New extracted title', status: 'done',
+      priority: 'high', source: 'conversation', sourceRef: 's1:fix',
+    })
+    expect(fixed.get('todo:p1:s1:fix')).toMatchObject({
+      title: 'User title', status: 'in_progress', priority: 'low', dueDate: '2026-08-01',
+      userEditedAt: '2026-07-20T10:00:00.000Z', source: 'conversation',
+    })
+  })
+
+  test('a user tombstone prevents derived tasks from being recreated', () => {
+    const fixed = new TaskStore(db, () => '2026-07-20T10:00:00.000Z')
+    const extracted = { ...base, id: 'todo:p1:s1:fix', source: 'conversation' as const, sourceRef: 's1:fix' }
+    fixed.create(extracted)
+    fixed.softDeleteUser('p1', extracted.id)
+    fixed.create({ ...extracted, title: 'Re-ingested' })
+    expect(fixed.get(extracted.id)).toBeUndefined()
+    expect(fixed.getIncludingDeleted(extracted.id)).toMatchObject({ title: 'first', deletedAt: expect.any(String) })
+    expect(fixed.listByProject('p1', { includeDeleted: true }).map((task) => task.id)).toContain(extracted.id)
+  })
+
+  test('removes only unedited derived tasks that disappear from their source', () => {
+    const fixed = new TaskStore(db, () => '2026-07-20T10:00:00.000Z')
+    fixed.create({ ...base, id: 'auto', source: 'conversation' })
+    fixed.create({ ...base, id: 'edited', source: 'conversation' })
+    fixed.updateUserFields('p1', 'edited', { title: 'edited', status: 'todo', priority: 'medium' })
+    fixed.create({ ...base, id: 'manual', source: 'manual' })
+    expect(fixed.removeMissingDerived('auto')).toBe(true)
+    expect(fixed.removeMissingDerived('edited')).toBe(false)
+    expect(fixed.removeMissingDerived('manual')).toBe(false)
+    expect(fixed.get('auto')).toBeUndefined()
+    expect(fixed.get('edited')).toBeDefined()
+    expect(fixed.get('manual')).toBeDefined()
+  })
 })
 
 describe('validateBlockedBy', () => {

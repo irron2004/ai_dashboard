@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { redact } from './redact.js'
+import { redact, redactWithResult } from './redact.js'
 
 describe('redact', () => {
   test('masks an OpenAI-style key', () => {
@@ -12,5 +12,10 @@ describe('redact', () => {
   })
   test('leaves ordinary text untouched', () => {
     expect(redact('just normal text 42')).toBe('just normal text 42')
+  })
+  test('reports whether redaction happened and covers common credential assignments', () => {
+    expect(redactWithResult('password=hunter2')).toEqual({ text: '[REDACTED]', changed: true })
+    expect(redactWithResult('api_key: abcdef123456')).toEqual({ text: '[REDACTED]', changed: true })
+    expect(redactWithResult('ordinary question')).toEqual({ text: 'ordinary question', changed: false })
   })
 })

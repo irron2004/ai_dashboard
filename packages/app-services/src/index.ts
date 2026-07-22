@@ -14,7 +14,16 @@ export {
   walkVaultFiles, internalStateFiles, runTranscriptFiles, isPublishable, publishableWikiFiles, INTERNAL_EXCLUDE_TOP,
 } from './workspace-vault.js'
 export { type PipelineStep, buildPipelineTranscript, transcriptToJsonl } from './pipeline-transcript.js'
+export * from './source-excerpt.js'
 export * from './knowledge-indexer.js'
 export * from './task-extractor.js'
 export * from './session-summarizer.js'
 export { composeContextPackage, type ComposeContextInput, type WikiExcerpt } from './context-composer.js'
+export { GitSyncService, parseGitStatusPorcelainV2, runGit, type BeforePushCheck, type GitRun } from './git-sync-service.js'
+export { GateService, type GateStatus } from './gate-service.js'
+export {
+  RetroService,
+  TARGET_QUESTIONS,
+  CLOSING_QUESTIONS,
+  type RetroProjectEvidence,
+} from './retro-service.js'

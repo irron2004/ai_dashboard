@@ -1,0 +1,40 @@
+# conventions.yaml — project-docs 프로파일.
+# edge_engine 미선언 = graphgate(도메인 중립 엔진). rwlib은 A1.5 중립화 전까지 사용 금지.
+# index_format 미선언 = generic(위키링크 인덱스).
+
+slug_rule: "^[a-z0-9]+(-[a-z0-9]+)*$"
+path_pattern: "wiki/{kind}/{slug}.md"
+wikilink_syntax: "[[slug]]"
+date_format: "YYYY-MM-DD"
+edge_storage: { default: wiki/graph/edges.jsonl }
+derived:
+  dir: graph
+  open_questions:
+    file: open_questions.md
+    title: Project Gaps
+    # Sections MUST match a heading the kind's template actually emits, or the
+    # Gap Map is silently empty. topics→"Open items", overview→"Gaps" are the
+    # gap-bearing sections seeded by templates/{topics,overview}.md.tmpl.
+    sources:
+      - { kind: topics, section: "Open items", label: topic }
+      - { kind: overview, section: "Gaps", label: overview }
+  projected_edges: { file: projected_edges.jsonl }
+context_profiles:
+  general:
+    output: context_brief.md
+    title: Project Context
+    sections:
+      # Every field must be declared on its kind (see entities.yaml) or the
+      # column silently never renders.
+      - { type: entities, kind: tasks, heading: Tasks, limit: 10,
+          fields: [title, status], budget: 800 }
+      - { type: entities, kind: decisions, heading: Decisions, limit: 10,
+          fields: [title, status], budget: 800 }
+      - { type: entities, kind: docs, heading: Documents, limit: 10,
+          fields: [title, topic], budget: 800 }
+      - { type: entities, kind: topics, heading: Topics, limit: 10,
+          fields: [title, tasks], budget: 800 }
+      - { type: entities, kind: overview, heading: Overview, limit: 1,
+          fields: [title, purpose], budget: 400 }
+      - { type: edges, heading: "Recent Relationships ({count} total)",
+          limit: 25, budget: 1000 }

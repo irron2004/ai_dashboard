@@ -79,4 +79,37 @@ describe('runFolderWorkers', () => {
     )
     expect(res.proposals.map((p) => p.proposal_id)).toEqual(['A', 'B', 'C'])
   })
+
+  test('parallel workers emit actual out-of-order lifecycle with nodes before completion and no invented retries', async () => {
+    const seen: string[] = []
+    const res = await runFolderWorkers(
+      [unit('a', 'A'), unit('b', 'B')],
+      oneDoc,
+      2,
+      async (_docs, u) => new Promise((resolve) => {
+        setTimeout(() => resolve([prop(u.label)]), u.id === 'a' ? 20 : 1)
+      }),
+      async (proposals, u) => { seen.push(`nodes:${u.id}:${proposals[0].proposal_id}`) },
+      async (event) => { seen.push(`${event.kind}:${event.unit.id}`) },
+    )
+
+    expect(res.proposals.map((proposal) => proposal.proposal_id)).toEqual(['A', 'B'])
+    expect(seen.indexOf('nodes:b:B')).toBeLessThan(seen.indexOf('completed:b'))
+    expect(seen.indexOf('completed:b')).toBeLessThan(seen.indexOf('nodes:a:A'))
+    expect(seen.indexOf('nodes:a:A')).toBeLessThan(seen.indexOf('completed:a'))
+    expect(seen.some((item) => /retry|reconnect/i.test(item))).toBe(false)
+  })
+
+  test('emits worker_failed for a throwing unit while successful siblings still complete', async () => {
+    const seen: string[] = []
+    const res = await runFolderWorkers(
+      [unit('a', 'A'), unit('b', 'B')], oneDoc, 2,
+      async (_docs, u) => { if (u.id === 'a') throw new Error('boom'); return [prop('B')] },
+      undefined,
+      (event) => seen.push(`${event.kind}:${event.unit.id}${event.kind === 'failed' ? `:${event.error}` : ''}`),
+    )
+    expect(res.ran).toBe(1)
+    expect(seen).toContain('failed:a:boom')
+    expect(seen).toContain('completed:b')
+  })
 })

@@ -1,6 +1,7 @@
-import type { AgentType, KhState, RunState, FeatureGateKey, EngineOptions, ReasoningEffort } from '@apc/shared'
+import type { KhState, RunState, FeatureGateKey, EngineOptions, ReasoningEffort } from '@apc/shared'
 import { workflowFor, directionFor, entityColor, addNode, addLink, colorForNode, labelFromPath, buildWikiGraphData } from '@apc/graph-view'
 import type { GraphNode, GraphLink, GraphData, GraphNodeType, GraphShape, PaperGraphEdge } from '@apc/graph-view'
+import { WIKI_GENERATION_ENGINE } from '../shared/ipc-contract.js'
 
 export { buildWikiGraphData } from '@apc/graph-view'
 export type { PaperGraphEdge } from '@apc/graph-view'
@@ -120,7 +121,7 @@ export const HARNESS_AGENT_PROMPTS = [
 export type HarnessAgentPromptKey = typeof HARNESS_AGENT_PROMPTS[number]['key']
 
 export type HarnessModelSettings = {
-  engine: AgentType
+  engine: typeof WIKI_GENERATION_ENGINE
   temperature: number
   maxTokens: number
   /** Engine CLI tuning (per harness) — empty/undefined means "use the engine default". */
@@ -141,14 +142,12 @@ export function modelSettingsToEngineOptions(m: HarnessModelSettings): EngineOpt
     reasoningEffort: m.reasoningEffort,
     sandbox: m.sandbox,
     approval: m.approval,
-    permissionMode: m.permissionMode,
   }
 }
 
 export const REASONING_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high', 'xhigh']
 export const CODEX_SANDBOXES: NonNullable<EngineOptions['sandbox']>[] = ['read-only', 'workspace-write', 'danger-full-access']
 export const CODEX_APPROVALS: NonNullable<EngineOptions['approval']>[] = ['untrusted', 'on-failure', 'on-request', 'never']
-export const CLAUDE_PERMISSION_MODES: NonNullable<EngineOptions['permissionMode']>[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 
 export type HarnessSafetySettings = {
   secretScanSensitivity: 'low' | 'medium' | 'high'
@@ -221,6 +220,21 @@ export type FanoutSummary = {
   folders: { label: string; members: string; role?: string }[]
 }
 
+export type ReviewDecisionMap = Record<string, 'approved' | 'excluded'>
+
+/** Read the selected run's human verdicts. Older and not-yet-reviewed runs have no artifact. */
+export function readReviewDecisions(artifacts: HarnessRunArtifact[]): ReviewDecisionMap {
+  const data = artifacts.find((artifact) => artifact.name === 'review-decisions')?.data as
+    { decisions?: Array<{ proposal_id: string; verdict: 'approved' | 'excluded' }> } | undefined
+  const decisions: ReviewDecisionMap = {}
+  for (const decision of data?.decisions ?? []) {
+    if (decision.proposal_id && (decision.verdict === 'approved' || decision.verdict === 'excluded')) {
+      decisions[decision.proposal_id] = decision.verdict
+    }
+  }
+  return decisions
+}
+
 /** Extract the folder-worker summary from a run's artifacts, or null if the run wasn't folder-fanned-out
  *  (e.g. legacy single-shot, or a run before this feature). Pure — unit-tested. */
 export function readFanoutSummary(artifacts: HarnessRunArtifact[]): FanoutSummary | null {
@@ -238,7 +252,7 @@ export function readFanoutSummary(artifacts: HarnessRunArtifact[]): FanoutSummar
 
 export function createDefaultHarnessConfig(): HarnessConfig {
   return {
-    model: { engine: 'claude', temperature: 0.2, maxTokens: 8192 },
+    model: { engine: WIKI_GENERATION_ENGINE, temperature: 0.2, maxTokens: 8192 },
     featureGates: {
       auto_classify_documents: true,
       auto_create_node_proposals: true,
@@ -304,12 +318,20 @@ export function harnessSelectedRunKey(projectId: string): string {
   return `${HARNESS_CONFIG_STORAGE_PREFIX}:selected:${projectId}`
 }
 
+export function normalizeHarnessConfigForWiki(config: HarnessConfig): HarnessConfig {
+  return {
+    ...config,
+    model: { ...config.model, engine: WIKI_GENERATION_ENGINE, permissionMode: undefined },
+  }
+}
+
 export function loadHarnessConfig(projectId: string): HarnessConfig {
-  return readJson(harnessConfigKey(projectId), createDefaultHarnessConfig())
+  const config = readJson(harnessConfigKey(projectId), createDefaultHarnessConfig())
+  return normalizeHarnessConfigForWiki(config)
 }
 
 export function saveHarnessConfig(projectId: string, config: HarnessConfig): void {
-  writeJson(harnessConfigKey(projectId), config)
+  writeJson(harnessConfigKey(projectId), normalizeHarnessConfigForWiki(config))
 }
 
 export function loadHarnessRuns(projectId: string): HarnessRunBundle[] {

@@ -28,6 +28,32 @@ describe('QuestionLogStore', () => {
     expect(rows[0]).toMatchObject({ sessionId: 's1', agent: 'claude', projectId: 'p1' })
   })
 
+  test('record skips internal machine prompts', () => {
+    store.record(session({
+      turns: [
+        { role: 'user', text: '진짜 질문', timestamp: '2026-07-07T10:00:00Z', toolCalls: [] },
+        {
+          role: 'user',
+          text: '# Knowledge Harness Rules\n\n## Role: wiki-graph-lead\n\n## Input\n{}\n\n## Output\nRespond with ONLY a single JSON object',
+          timestamp: '2026-07-07T10:01:00Z',
+          toolCalls: [],
+        },
+      ],
+    }))
+    expect(store.listRecent({ projectId: 'p1' }).map((r) => r.text)).toEqual(['진짜 질문'])
+  })
+
+  test('listRecent hides previously recorded internal prompts', () => {
+    db.prepare('INSERT INTO question_log (session_id, project_id, ts, agent, text) VALUES (?, ?, ?, ?, ?)').run(
+      'old', 'p1', '2026-07-07T10:02:00Z', 'claude',
+      '# Knowledge Harness Rules\n\n## Role: knowledge-node-extractor\n\n## Input\n{}\n\n## Output',
+    )
+    db.prepare('INSERT INTO question_log (session_id, project_id, ts, agent, text) VALUES (?, ?, ?, ?, ?)').run(
+      'real', 'p1', '2026-07-07T10:01:00Z', 'claude', '사람 질문',
+    )
+    expect(store.listRecent({ projectId: 'p1' }).map((r) => r.text)).toEqual(['사람 질문'])
+  })
+
   test('record is idempotent per session (re-record → no duplicates)', () => {
     store.record(session())
     store.record(session())
@@ -60,5 +86,26 @@ describe('QuestionLogStore', () => {
     const second = store.listRecent({ projectId: 'p1' })
     expect(first.map((r) => r.text)).toEqual(['나중에 기록된 질문', '먼저 기록된 질문'])
     expect(second.map((r) => r.text)).toEqual(first.map((r) => r.text)) // stable across repeated calls
+  })
+
+  test('returns the latest confirmed human question for a session and project', () => {
+    store.record(session({ id: 's1', projectId: 'p1' }))
+    store.record(session({
+      id: 's2', projectId: 'p1',
+      turns: [{ role: 'user', text: '프로젝트 최신 질문', timestamp: '2026-07-07T11:00:00Z', toolCalls: [] }],
+    }))
+    expect(store.latestForSession('s1')?.text).toBe('둘째 질문')
+    expect(store.latestByProject('p1')).toMatchObject({ sessionId: 's2', text: '프로젝트 최신 질문' })
+    expect(store.latestForSession('missing')).toBeUndefined()
+  })
+
+  test('latest queries skip a previously persisted internal prompt', () => {
+    store.record(session())
+    db.prepare('INSERT INTO question_log (session_id, project_id, ts, agent, text) VALUES (?, ?, ?, ?, ?)').run(
+      's1', 'p1', '2026-07-07T12:00:00Z', 'claude',
+      '# Knowledge Harness Rules\n\n## Role: wiki-graph-lead\n\n## Input\n{}\n\n## Output\nRespond with ONLY a single JSON object',
+    )
+    expect(store.latestForSession('s1')?.text).toBe('둘째 질문')
+    expect(store.latestByProject('p1')?.text).toBe('둘째 질문')
   })
 })

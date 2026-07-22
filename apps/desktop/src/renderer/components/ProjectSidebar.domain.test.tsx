@@ -1,18 +1,21 @@
 import { describe, expect, test, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { Project } from '@apc/shared'
 import { ProjectSidebar } from './ProjectSidebar.js'
 
 describe('ProjectSidebar domain', () => {
-  test('passes the chosen domain to onAdd', () => {
+  test('passes the chosen domain to onAdd', async () => {
     const onAdd = vi.fn()
     render(<ProjectSidebar projects={[]} selectedProjectId={null} collapsed={false} onToggleCollapse={() => {}} onSelect={() => {}} onAdd={onAdd} onUpdate={() => {}} onDelete={() => {}} />)
-    fireEvent.click(screen.getByText('+ Add Project'))                // real trigger text (line 197)
+    fireEvent.click(screen.getByText('+ 프로젝트 추가'))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Papers' } })
     fireEvent.change(screen.getByLabelText('Domain'), { target: { value: 'paper' } })
     fireEvent.change(screen.getByLabelText('Repository path'), { target: { value: '/tmp/p' } })
     fireEvent.click(screen.getByText('Create'))                        // new-project submit is "Create"
-    expect(onAdd).toHaveBeenCalledWith('Papers', 'git', '/tmp/p', 'paper')
+    expect(onAdd).toHaveBeenCalledWith('Papers', 'git', '/tmp/p', 'paper', {
+      goal: '', currentFocus: '',
+    })
+    await waitFor(() => expect(screen.queryByText('New Project')).toBeNull())
   })
 })
 
@@ -23,7 +26,7 @@ const sshProject = (path: string): Project => ({
 
 function openEditMenu() {
   fireEvent.contextMenu(screen.getByText('Remote'))
-  fireEvent.click(screen.getByText('✎ 연결 편집'))
+  fireEvent.click(screen.getByText('✎ 프로젝트 편집'))
 }
 
 describe('ProjectSidebar edit-connection save validation', () => {
@@ -39,7 +42,7 @@ describe('ProjectSidebar edit-connection save validation', () => {
     expect(screen.getByText(/모두 입력하세요/)).toBeTruthy()   // tells the user what's missing
   })
 
-  test('filling the missing username enables Save and submits the full ssh path', () => {
+  test('filling the missing username enables Save and submits the full ssh path', async () => {
     const onUpdate = vi.fn()
     render(<ProjectSidebar projects={[sshProject('ssh://a6000:22/home/me/proj')]} selectedProjectId={null} collapsed={false} onToggleCollapse={() => {}} onSelect={() => {}} onAdd={() => {}} onUpdate={onUpdate} onDelete={() => {}} />)
     openEditMenu()
@@ -47,6 +50,9 @@ describe('ProjectSidebar edit-connection save validation', () => {
     const save = screen.getByText('Save') as HTMLButtonElement
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
-    expect(onUpdate).toHaveBeenCalledWith('p1', 'Remote', 'git', 'ssh://me@a6000:22/home/me/proj', 'paper')
+    expect(onUpdate).toHaveBeenCalledWith('p1', 'Remote', 'git', 'ssh://me@a6000:22/home/me/proj', 'paper', {
+      goal: '', currentFocus: '',
+    })
+    await waitFor(() => expect(screen.queryByText('Edit Project')).toBeNull())
   })
 })

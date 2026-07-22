@@ -1,32 +1,106 @@
 import { z } from 'zod'
 import { join } from 'node:path'
-import { CH } from '../shared/ipc-contract.js'
+import { CH, WIKI_GENERATION_ENGINE } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq, TasksListReq,
+  ProjectContextConfirmReq,
+  TaskCreateReq, TaskUpdateReq, TaskDeleteReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
+  HarnessSetReviewDecisionsReq, HarnessReadSourceExcerptReq,
   DevHarnessRunReq, DevHarnessCancelReq,
   ConfigEditReq, ConfigRollbackReq,
-  ResumeCardReq, QuestionLogReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
+  ResumeCardReq, QuestionLogReq, ConversationHistoryReq, NextNoteAddReq, NextNoteToggleReq, NextNoteDeleteReq,
+  NextNotesListReq, NextNoteUpdateReq, NextNoteSetPinnedReq, NextNoteSetLifecycleReq, NextNoteConvertToTaskReq,
+  AgentActivitySnapshotReq, AgentQuestionReconcileReq,
+  HarnessListRunsReq, HarnessGetProgressReq, HarnessReadLogReq,
+  FileRefsResolveReq, FilePreviewReadReq, TerminalSetPreferencesReq, TerminalDiagnosticsReq,
+  GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitReq, GitPushReq,
+  RetroPrepareReq, RetroAnswerReq, RetroTargetNotesReq, RetroCompleteReq, ReceiptIssueReq,
+  GateQueryReq, GateInstallReq,
+  ProjectImportReq, ProjectImportKind,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
-import { AgentKind } from '@apc/shared'
+import {
+  AgentKind,
+  FilePreviewReadReqSchema,
+  FileRefsResolveReqSchema,
+  ProjectDomain,
+  ProjectType,
+  TaskStatus,
+} from '@apc/shared'
 import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
 import { diffProjectFile, listProjectChanges } from './project-changes.js'
+import { listGitWorktrees } from './git-worktrees.js'
+import { importProjectSources } from './project-import.js'
 
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
 }
 
-export function handlers(container: Container): Record<string, (payload: unknown) => Promise<unknown>> {
+export type ProjectImportPicker = (request: {
+  kind: ProjectImportKind
+  projectName: string
+  destination: string
+}) => Promise<readonly string[] | null>
+
+export type IpcHandlerOptions = {
+  pickProjectImportSources?: ProjectImportPicker
+}
+
+const ProjectContextFields = {
+  goal: z.string().max(20_000).optional(),
+  currentFocus: z.string().max(4_000).optional(),
+}
+const TaskPriority = z.enum(['low', 'medium', 'high'])
+
+function blockLegacyWikiContinuation(container: Container, runId: string) {
+  const shown = container.harnessGetRun({ runId })
+  if (!shown.ok || !shown.runState || shown.runState.engine === WIKI_GENERATION_ENGINE) return null
+  return {
+    ok: false,
+    runId,
+    finalState: shown.runState.state,
+    reason: `이 run은 ${shown.runState.engine}로 생성되어 이어갈 수 없습니다. 새 Codex 위키 run을 시작하세요.`,
+  }
+}
+
+/** A renderer-supplied cwd is accepted only if Git reports it as a worktree of the registered root. */
+export async function resolveGitRepoPath(
+  container: Container,
+  projectId: string,
+  worktreePath?: string,
+): Promise<{ ok: true; repoPath: string } | { ok: false; reason: string }> {
+  const project = container.registry.get(projectId)
+  if (!project) return { ok: false, reason: 'project not found' }
+  const base = project.repoPaths[0]
+  if (!base) return { ok: false, reason: '등록된 repo 경로가 없습니다' }
+  if (!worktreePath || worktreePath === base) return { ok: true, repoPath: base }
+  const listed = await listGitWorktrees(base)
+  const matched = listed.worktrees.find((worktree) => worktree.path === worktreePath)
+  return matched
+    ? { ok: true, repoPath: matched.path }
+    : { ok: false, reason: `등록되지 않은 worktree 경로입니다: ${worktreePath}` }
+}
+
+export function handlers(
+  container: Container,
+  options: IpcHandlerOptions = {},
+): Record<string, (payload: unknown) => Promise<unknown>> {
   return {
     [CH.listProjects]: async (_payload: unknown) => {
       return container.registry.list()
     },
 
     [CH.registerProject]: async (payload: unknown) => {
-      const req = payload as RegisterProjectReq
+      const req = z.object({
+        name: z.string().trim().min(1).max(500),
+        projectType: ProjectType,
+        repoPath: z.string().max(8_192),
+        domain: ProjectDomain.optional(),
+        ...ProjectContextFields,
+      }).strict().parse(payload) as RegisterProjectReq
       const id = `proj-${Date.now()}`
       container.registry.register({
         id,
@@ -37,12 +111,22 @@ export function handlers(container: Container): Record<string, (payload: unknown
         vaultPaths: [],
         sourcePaths: [],
         domain: (req.domain ?? 'project-docs') as 'project-docs' | 'paper',
+        goal: req.goal?.trim() || undefined,
+        currentFocus: req.currentFocus?.trim() || undefined,
       })
+      container.invalidateResumeCards(id)
       return container.registry.get(id)
     },
 
     [CH.updateProject]: async (payload: unknown) => {
-      const req = payload as UpdateProjectReq
+      const req = z.object({
+        id: z.string().min(1),
+        name: z.string().trim().min(1).max(500),
+        projectType: ProjectType,
+        repoPath: z.string().max(8_192),
+        domain: ProjectDomain.optional(),
+        ...ProjectContextFields,
+      }).strict().parse(payload) as UpdateProjectReq
       const existing = container.registry.get(req.id)
       if (!existing) throw new Error(`Project not found: ${req.id}`)
       container.registry.update({
@@ -52,12 +136,28 @@ export function handlers(container: Container): Record<string, (payload: unknown
         repoPaths: req.repoPath ? [req.repoPath] : [],
         domain: (req.domain ?? existing.domain) as 'project-docs' | 'paper',
       })
+      const patch: { goal?: string | null; currentFocus?: string | null } = {}
+      if (Object.prototype.hasOwnProperty.call(req, 'goal')) patch.goal = req.goal ?? null
+      if (Object.prototype.hasOwnProperty.call(req, 'currentFocus')) patch.currentFocus = req.currentFocus ?? null
+      if (Object.keys(patch).length > 0) container.registry.updateUserContext(req.id, patch)
+      container.invalidateResumeCards(req.id)
       return container.registry.get(req.id)
     },
 
+    [CH.projectContextConfirm]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        field: z.enum(['goal', 'currentFocus']),
+      }).strict().parse(payload) as ProjectContextConfirmReq
+      const result = container.registry.confirmContext(req.projectId, req.field)
+      if (result.ok) container.invalidateResumeCards(req.projectId)
+      return result
+    },
+
     [CH.deleteProject]: async (payload: unknown) => {
-      const req = payload as DeleteProjectReq
+      const req = z.object({ id: z.string().min(1) }).strict().parse(payload) as DeleteProjectReq
       container.registry.remove(req.id)
+      container.invalidateResumeCards(req.id)
       return { ok: true }
     },
 
@@ -117,21 +217,26 @@ export function handlers(container: Container): Record<string, (payload: unknown
 
     [CH.generateProject]: async (payload: unknown) => {
       const req = payload as GenerateProjectReq
-      return container.generateProject(req)
+      return container.generateProject({ ...req, engine: WIKI_GENERATION_ENGINE })
     },
 
     [CH.harnessRun]: async (payload: unknown) => {
-      return container.harnessRun(payload as HarnessRunReq)
+      const req = payload as HarnessRunReq
+      return container.harnessRun({ ...req, engine: WIKI_GENERATION_ENGINE })
     },
 
     [CH.harnessResume]: async (payload: unknown) => {
       const req = z.object({ runId: z.string() }).strict().parse(payload)
+      const blocked = blockLegacyWikiContinuation(container, req.runId)
+      if (blocked) return blocked
       return container.harnessResume(req)
     },
 
     [CH.harnessConfirmNodes]: async (payload: unknown) => {
       const nodeSchema = z.object({ id: z.string().optional(), title: z.string(), type: z.string().optional(), source_proposal_id: z.string().optional() })
       const req = z.object({ runId: z.string(), approvedNodes: z.object({ nodes: z.array(nodeSchema) }) }).strict().parse(payload)
+      const blocked = blockLegacyWikiContinuation(container, req.runId)
+      if (blocked) return blocked
       return container.harnessConfirmNodes(req as HarnessConfirmNodesReq)
     },
 
@@ -155,10 +260,23 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.harnessCanonicalProposals(req)
     },
 
+    [CH.harnessSetReviewDecisions]: async (payload: unknown) => {
+      const decision = z.object({
+        proposal_id: z.string().min(1),
+        verdict: z.enum(['approved', 'excluded']),
+        decided_at: z.string().min(1),
+      }).strict()
+      const req = z.object({
+        runId: z.string().min(1).max(512),
+        decisions: z.array(decision),
+      }).strict().parse(payload) as HarnessSetReviewDecisionsReq
+      return container.harnessSetReviewDecisions(req)
+    },
+
     [CH.harnessProposePolicy]: async (payload: unknown) => {
       // strict parse: engine + repoPaths flow into the LLM runner, so validate at the boundary
       const req = z.object({ projectId: z.string(), engine: AgentKind, repoPaths: z.array(z.string()).optional() }).strict().parse(payload)
-      return container.harnessProposePolicy(req)
+      return container.harnessProposePolicy({ ...req, engine: WIKI_GENERATION_ENGINE })
     },
 
     [CH.harnessApprovePolicy]: async (payload: unknown) => {
@@ -230,7 +348,7 @@ export function handlers(container: Container): Record<string, (payload: unknown
         run,
         session,
         projectId: req.projectId,
-        engine: req.engine,
+        engine: WIKI_GENERATION_ENGINE,
         currentCanonical: req.currentCanonical,
         endedAt: new Date().toISOString(),
       })
@@ -262,20 +380,170 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return container.taskSetBlockedBy(req)
     },
 
+    [CH.taskCreate]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        title: z.string().max(20_000),
+        status: TaskStatus.optional(),
+        priority: TaskPriority.optional(),
+        dueDate: z.string().max(32).optional(),
+      }).strict().parse(payload) as TaskCreateReq
+      return container.taskCreate(req)
+    },
+    [CH.taskUpdate]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        taskId: z.string().min(1),
+        title: z.string().max(20_000),
+        status: TaskStatus,
+        priority: TaskPriority,
+        dueDate: z.string().max(32).optional(),
+      }).strict().parse(payload) as TaskUpdateReq
+      return container.taskUpdate(req)
+    },
+    [CH.taskDelete]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), taskId: z.string().min(1) })
+        .strict().parse(payload) as TaskDeleteReq
+      return container.taskDelete(req)
+    },
+
     [CH.resumeCard]: async (payload: unknown) => {
       return container.resumeCard(payload as ResumeCardReq)
     },
     [CH.questionLog]: async (payload: unknown) => {
       return container.questionLog(payload as QuestionLogReq)
     },
+    [CH.conversationHistory]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        agent: AgentKind,
+        includeOlder: z.boolean().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      }).strict().parse(payload) as ConversationHistoryReq
+      return container.conversationHistory(req)
+    },
     [CH.nextNoteAdd]: async (payload: unknown) => {
-      return container.nextNoteAdd(payload as NextNoteAddReq)
+      const req = z.object({ projectId: z.string().min(1), text: z.string().max(20_000) })
+        .strict().parse(payload) as NextNoteAddReq
+      return container.nextNoteAdd(req)
     },
     [CH.nextNoteToggle]: async (payload: unknown) => {
-      return container.nextNoteToggle(payload as NextNoteToggleReq)
+      const req = z.object({ projectId: z.string().min(1), id: z.string().min(1), done: z.boolean() })
+        .strict().parse(payload) as NextNoteToggleReq
+      return container.nextNoteToggle(req)
     },
     [CH.nextNoteDelete]: async (payload: unknown) => {
-      return container.nextNoteDelete(payload as NextNoteDeleteReq)
+      const req = z.object({ projectId: z.string().min(1), id: z.string().min(1) })
+        .strict().parse(payload) as NextNoteDeleteReq
+      return container.nextNoteDelete(req)
+    },
+    [CH.nextNotesList]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        includeCompleted: z.boolean().optional(),
+        includeArchived: z.boolean().optional(),
+      }).strict().parse(payload) as NextNotesListReq
+      return container.nextNotesList(req)
+    },
+    [CH.nextNoteUpdate]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), noteId: z.string().min(1), text: z.string().max(20_000) })
+        .strict().parse(payload) as NextNoteUpdateReq
+      return container.nextNoteUpdate(req)
+    },
+    [CH.nextNoteSetPinned]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), noteId: z.string().min(1), pinned: z.boolean() })
+        .strict().parse(payload) as NextNoteSetPinnedReq
+      return container.nextNoteSetPinned(req)
+    },
+    [CH.nextNoteSetLifecycle]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        noteId: z.string().min(1),
+        lifecycle: z.enum(['active', 'completed', 'archived']),
+      }).strict().parse(payload) as NextNoteSetLifecycleReq
+      return container.nextNoteSetLifecycle(req)
+    },
+    [CH.nextNoteConvertToTask]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        noteId: z.string().min(1),
+        title: z.string().max(20_000).optional(),
+        priority: TaskPriority.optional(),
+        dueDate: z.string().max(32).optional(),
+      }).strict().parse(payload) as NextNoteConvertToTaskReq
+      return container.nextNoteConvertToTask(req)
+    },
+
+    [CH.agentActivitySnapshot]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1).optional() })
+        .strict().parse(payload ?? {}) as AgentActivitySnapshotReq
+      return container.agentActivitySnapshot(req)
+    },
+    [CH.agentQuestionReconcile]: async (payload: unknown) => {
+      const req = z.object({
+        paneId: z.string().min(1).max(2_048),
+        launchId: z.string().min(1).max(2_048),
+        sessionId: z.string().min(1).max(8_192).optional(),
+      }).strict().parse(payload) as AgentQuestionReconcileReq
+      return container.agentQuestionReconcile(req)
+    },
+
+    [CH.harnessListRuns]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1).max(2_048),
+        limit: z.number().int().min(1).max(200).optional(),
+      }).strict().parse(payload) as HarnessListRunsReq
+      return container.harnessListRuns(req)
+    },
+    [CH.harnessGetProgress]: async (payload: unknown) => {
+      const req = z.object({ runId: z.string().min(1).max(512) })
+        .strict().parse(payload) as HarnessGetProgressReq
+      return container.harnessGetProgress(req)
+    },
+    [CH.harnessReadLog]: async (payload: unknown) => {
+      const req = z.object({
+        runId: z.string().min(1).max(512),
+        offset: z.number().int().nonnegative().optional(),
+        limit: z.number().int().min(1).max(256 * 1024).optional(),
+      }).strict().parse(payload) as HarnessReadLogReq
+      return container.harnessReadLog(req)
+    },
+    [CH.harnessReadSourceExcerpt]: async (payload: unknown) => {
+      const req = z.object({
+        runId: z.string().min(1).max(512),
+        sourcePath: z.string().min(1).max(8_192),
+        quote: z.string().max(100_000).optional(),
+      }).strict().parse(payload) as HarnessReadSourceExcerptReq
+      return container.harnessReadSourceExcerpt(req)
+    },
+
+    [CH.fileRefsResolve]: async (payload: unknown) => {
+      const req = FileRefsResolveReqSchema.parse(payload) as FileRefsResolveReq
+      return container.fileRefsResolve(req)
+    },
+    [CH.filePreviewRead]: async (payload: unknown) => {
+      const req = FilePreviewReadReqSchema.parse(payload) as FilePreviewReadReq
+      return container.filePreviewRead(req)
+    },
+    [CH.clipboardReadText]: async (payload: unknown) => {
+      z.undefined().parse(payload)
+      return container.clipboardReadText()
+    },
+    [CH.terminalGetPreferences]: async (payload: unknown) => {
+      z.undefined().parse(payload)
+      return container.terminalGetPreferences()
+    },
+    [CH.terminalSetPreferences]: async (payload: unknown) => {
+      const req = z.object({
+        fontFamily: z.string().trim().min(1).max(1_024).optional(),
+        fontSize: z.number().finite().min(8).max(32).optional(),
+      }).strict().parse(payload) as TerminalSetPreferencesReq
+      return container.terminalSetPreferences(req)
+    },
+    [CH.terminalDiagnostics]: async (payload: unknown) => {
+      const req = z.object({ cwd: z.string().min(1).max(8_192) })
+        .strict().parse(payload) as TerminalDiagnosticsReq
+      return container.terminalDiagnostics(req)
     },
 
     [CH.fsReadDoc]: async (payload: unknown) => {
@@ -294,6 +562,36 @@ export function handlers(container: Container): Record<string, (payload: unknown
       // repoPaths only by design: vault-area docs (generated wiki, current.md) are surfaced via run
       // artifacts and the Home tab, not this project-doc listing. fsReadDoc still serves vault paths.
       return { docs: listProjectDocs(project.repoPaths) }
+    },
+
+    [CH.projectImport]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1).max(2_048),
+        kind: z.enum(['files', 'folder']),
+        worktreePath: z.string().min(1).max(8_192).optional(),
+      }).strict().parse(payload) as ProjectImportReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: '프로젝트를 찾을 수 없습니다' }
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      if (resolved.repoPath.startsWith('ssh://')) {
+        return { ok: false, reason: 'SSH 프로젝트로의 파일 가져오기는 아직 지원하지 않습니다' }
+      }
+      if (!options.pickProjectImportSources) {
+        return { ok: false, reason: '파일 선택 기능을 사용할 수 없습니다' }
+      }
+
+      try {
+        const selected = await options.pickProjectImportSources({
+          kind: req.kind,
+          projectName: project.name,
+          destination: resolved.repoPath,
+        })
+        if (!selected || selected.length === 0) return { ok: true, canceled: true, items: [] }
+        return importProjectSources(resolved.repoPath, selected, req.kind)
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      }
     },
 
     [CH.changesList]: async (payload: unknown) => {
@@ -315,11 +613,130 @@ export function handlers(container: Container): Record<string, (payload: unknown
       if (!project) return { ok: false, reason: 'project not found' }
       return diffProjectFile(project.repoPaths, req.relPath)
     },
+
+    [CH.gitStatus]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), fetch: z.boolean().optional(), worktreePath: z.string().optional() }).strict().parse(payload) as GitStatusReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason, detached: false, ahead: 0, behind: 0, hasChanges: false, files: [], warnings: [] }
+      return container.gitSync.status(resolved.repoPath, { fetch: req.fetch })
+    },
+
+    [CH.gitWorktrees]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string() }).strict().parse(payload) as GitWorktreesReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, worktrees: [], reason: 'project not found' }
+      return listGitWorktrees(project.repoPaths[0] ?? '')
+    },
+
+    [CH.gitFetch]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitFetchReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.fetch(resolved.repoPath)
+    },
+
+    [CH.gitPull]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitPullReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.pull(resolved.repoPath)
+    },
+
+    [CH.gitCommit]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), files: z.array(z.string()), message: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitCommitReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.commit(resolved.repoPath, req.files, req.message)
+    },
+
+    [CH.gitPush]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string(), worktreePath: z.string().optional() }).strict().parse(payload) as GitPushReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gitSync.push(resolved.repoPath, {
+        // GitSyncService fetches/rebases first. Checking here binds authorization to the final HEAD,
+        // rather than to the pre-rebase SHA the renderer last displayed.
+        beforePush: async (repoPath) => {
+          const status = await container.gate.status(repoPath)
+          if (!status.ok) return { ok: false, reason: '⛔ Learning Gate 상태를 확인할 수 없어 Push를 중단했습니다' }
+          if (status.enabled && !status.headCovered) {
+            return { ok: false, reason: '⛔ 리뷰되지 않은 커밋이 있습니다 — 회고 탭에서 해당 HEAD의 Receipt를 발급하세요' }
+          }
+          return { ok: true }
+        },
+      })
+    },
+
+    [CH.retroPrepare]: async (payload: unknown) => {
+      const req = z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        targets: z.array(z.object({
+          projectId: z.string().min(1),
+          worktreePath: z.string().min(1).optional(),
+        }).strict()).max(100),
+      }).strict().parse(payload) as RetroPrepareReq
+      const targets: RetroPrepareReq['targets'] = []
+      const seen = new Set<string>()
+      for (const target of req.targets) {
+        const resolved = await resolveGitRepoPath(container, target.projectId, target.worktreePath)
+        if (!resolved.ok) return { ok: false, reason: resolved.reason }
+        const key = target.projectId + '\0' + resolved.repoPath
+        if (seen.has(key)) continue
+        seen.add(key)
+        targets.push({ projectId: target.projectId, worktreePath: resolved.repoPath })
+      }
+      return { ok: true, ...await container.retroService.prepare(req.date, targets) }
+    },
+
+    [CH.retroAnswer]: async (payload: unknown) => {
+      const req = z.object({
+        questionId: z.string().min(1),
+        answer: z.string().max(20_000).optional(),
+        skipped: z.boolean().optional(),
+      }).strict().parse(payload) as RetroAnswerReq
+      const ok = container.retroStore.answer(req.questionId, req.answer ?? null, req.skipped ?? false)
+      return ok ? { ok: true } : { ok: false, reason: '질문을 찾을 수 없거나 이미 Receipt로 확정된 대상입니다' }
+    },
+
+    [CH.retroTargetNotes]: async (payload: unknown) => {
+      const req = z.object({
+        targetId: z.string().min(1),
+        verificationEvidence: z.string().max(20_000),
+        riskNotes: z.string().max(20_000),
+      }).strict().parse(payload) as RetroTargetNotesReq
+      return container.retroService.updateTargetNotes(req.targetId, req.verificationEvidence, req.riskNotes)
+    },
+
+    [CH.retroComplete]: async (payload: unknown) => {
+      const req = z.object({ retroId: z.string().min(1) }).strict().parse(payload) as RetroCompleteReq
+      return container.retroService.complete(req.retroId)
+    },
+
+    [CH.receiptIssue]: async (payload: unknown) => {
+      const req = z.object({ targetId: z.string().min(1) }).strict().parse(payload) as ReceiptIssueReq
+      return container.retroService.issueReceipt(req.targetId)
+    },
+
+    [CH.gateStatus]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), worktreePath: z.string().min(1).optional() }).strict().parse(payload) as GateQueryReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) {
+        return { ok: false, reason: resolved.reason, enabled: false, hookInstalled: false, headSha: null, headCovered: false, reviewedCount: 0 }
+      }
+      return container.gate.status(resolved.repoPath)
+    },
+
+    [CH.gateInstall]: async (payload: unknown) => {
+      const req = z.object({ projectId: z.string().min(1), worktreePath: z.string().min(1).optional() }).strict().parse(payload) as GateInstallReq
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      return container.gate.installHook(resolved.repoPath)
+    },
   }
 }
 
-export function registerIpc(ipcMain: IpcMainLike, container: Container): void {
-  for (const [ch, fn] of Object.entries(handlers(container))) {
+export function registerIpc(ipcMain: IpcMainLike, container: Container, options: IpcHandlerOptions = {}): void {
+  for (const [ch, fn] of Object.entries(handlers(container, options))) {
     ipcMain.handle(ch, (_e, payload) => fn(payload))
   }
 }

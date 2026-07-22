@@ -1,0 +1,158 @@
+.wiki-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(100%, 760px);
+  max-width: 760px;
+  padding: 14px;
+  margin: 0 auto;
+}
+
+/* app.css keeps the one-release legacy stepper rules; this feature sheet owns the new panel sizing. */
+.wikigen .wiki-progress {
+  width: min(100%, 760px);
+  max-width: 760px;
+  padding: 14px;
+}
+
+.wiki-progress__head,
+.wiki-progress__title,
+.wiki-progress__timing,
+.wiki-progress__warning,
+.wiki-progress__group-head,
+.wiki-progress__node,
+.wiki-progress__node > div {
+  display: flex;
+  align-items: center;
+}
+
+.wiki-progress__head,
+.wiki-progress__group-head,
+.wiki-progress__node { justify-content: space-between; }
+.wiki-progress__title { gap: 9px; min-width: 0; }
+.wiki-progress__title > span:not(.wiki-progress__spinner) { font-weight: 680; }
+.wiki-progress__phase {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-progress__badge {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.wiki-progress__badge--quiet { color: #fbbf24; border-color: rgba(251, 191, 36, 0.35); }
+.wiki-progress__badge--stalled,
+.wiki-progress__badge--interrupted { color: var(--danger); border-color: rgba(251, 113, 133, 0.4); }
+.wiki-progress--completed .wiki-progress__badge { color: var(--success); border-color: rgba(74, 222, 128, 0.35); }
+.wiki-progress--failed .wiki-progress__badge { color: var(--danger); border-color: rgba(251, 113, 133, 0.4); }
+
+.wiki-progress__timing {
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.wiki-progress__warning {
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.08);
+  color: #fcd34d;
+  font-size: 0.76rem;
+}
+.wiki-progress__warning--stalled,
+.wiki-progress__warning--interrupted {
+  border-color: rgba(251, 113, 133, 0.35);
+  background: rgba(251, 113, 133, 0.08);
+  color: #fda4af;
+}
+.wiki-progress__warning span { color: var(--muted); }
+.wiki-progress__warning button { margin-left: auto; }
+
+.wiki-progress__counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(72px, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+.wiki-progress__counts > div {
+  display: grid;
+  gap: 3px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+.wiki-progress__counts dt { color: var(--muted); font-size: 0.68rem; }
+.wiki-progress__counts dd { margin: 0; color: var(--text); font-size: 1rem; font-variant-numeric: tabular-nums; }
+
+.wiki-progress__group {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.12);
+}
+.wiki-progress__group-head { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.wiki-progress__group-head h3 { margin: 0; color: var(--text); font-size: 0.8rem; }
+.wiki-progress__group-head span { color: var(--muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+.wiki-progress__workers,
+.wiki-progress__nodes { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.wiki-progress__workers li {
+  display: grid;
+  grid-template-columns: 10px minmax(100px, 1fr) auto;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.035);
+  font-size: 0.75rem;
+}
+.wiki-progress__workers li:first-child,
+.wiki-progress__nodes li:first-child { border-top: 0; }
+.wiki-progress__workers strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wiki-progress__workers li > span:not(.wiki-progress__state-dot) { color: var(--muted); }
+.wiki-progress__workers small { grid-column: 2 / 4; overflow: hidden; color: var(--subtle); text-overflow: ellipsis; white-space: nowrap; }
+.wiki-progress__state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); }
+.wiki-progress__state-dot--running { background: var(--accent); box-shadow: 0 0 0 3px rgba(117, 199, 255, 0.1); }
+.wiki-progress__state-dot--completed { background: var(--success); }
+.wiki-progress__state-dot--failed { background: var(--danger); }
+.wiki-progress__state-dot--retrying { background: #fbbf24; }
+
+.wiki-progress__node {
+  gap: 10px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.035);
+  font-size: 0.74rem;
+}
+.wiki-progress__node > div { min-width: 0; gap: 7px; }
+.wiki-progress__node strong { overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.wiki-progress__node > div span,
+.wiki-progress__node small { color: var(--muted); }
+.wiki-progress__node > span:last-child { min-width: 28px; color: var(--success); text-align: right; }
+.wiki-progress__node--dropped { opacity: 0.55; }
+.wiki-progress__node--dropped > span:last-child { color: var(--muted); }
+
+.wiki-progress__empty { margin: 0; padding: 10px; color: var(--muted); font-size: 0.76rem; }
+.wiki-progress__toggle { align-self: flex-start; }
+.wiki-progress__log-wrap > p { margin: 0; color: var(--muted); font-size: 0.76rem; }
+.wiki-progress__log-wrap [role="alert"] { color: var(--danger); }
+.wiki-progress__log { max-height: 260px; }
+
+@media (max-width: 720px) {
+  .wiki-progress__counts { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
+  .wiki-progress__workers li { grid-template-columns: 10px minmax(80px, 1fr); }
+  .wiki-progress__workers li > span:not(.wiki-progress__state-dot) { grid-column: 2; }
+  .wiki-progress__workers small { grid-column: 2; }
+  .wiki-progress__node { align-items: flex-start; flex-direction: column; }
+}

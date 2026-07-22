@@ -50,10 +50,84 @@ describe('ProjectRegistry', () => {
 
   test('update changes fields in place (same id)', () => {
     registry.register(sample)
+    registry.mapNativeKey('claude', '-mnt-c-work-apc', 'apc')
     registry.update({ ...sample, name: 'Renamed', repoPaths: ['/new/path'] })
     expect(registry.get('apc')?.name).toBe('Renamed')
     expect(registry.findByRepoPath('/new/path')?.id).toBe('apc')
     expect(registry.list()).toHaveLength(1) // updated, not duplicated
+    expect(registry.resolveProjectId('claude', '-mnt-c-work-apc')).toBe('apc') // update is not DELETE+INSERT
+  })
+
+  test('normalizes user context and preserves an unconfirmed agent proposal', () => {
+    const fixedNow = '2026-07-20T12:00:00.000Z'
+    registry = new ProjectRegistry(db, () => fixedNow)
+    registry.register({ ...sample, goal: 'User goal', currentFocus: 'Ship UI' })
+    expect(registry.get('apc')).toMatchObject({
+      goalSource: 'user', goalConfirmedAt: fixedNow,
+      currentFocusSource: 'user', currentFocusConfirmedAt: fixedNow,
+    })
+
+    registry.update({
+      ...sample,
+      goal: 'Agent proposal',
+      goalSource: 'agent',
+    })
+    expect(registry.get('apc')).toMatchObject({ goal: 'Agent proposal', goalSource: 'agent' })
+    expect(registry.get('apc')?.goalConfirmedAt).toBeUndefined()
+  })
+
+  test('round-trips a confirmed agent proposal without losing its origin', () => {
+    registry.register({
+      ...sample,
+      goal: 'Agent proposal',
+      goalSource: 'agent',
+      goalConfirmedAt: '2026-07-20T13:00:00.000Z',
+    })
+    expect(registry.get('apc')).toMatchObject({
+      goalSource: 'agent', goalConfirmedAt: '2026-07-20T13:00:00.000Z',
+    })
+  })
+
+  test('user context edits are confirmed, trimmed, and can clear a field', () => {
+    const fixedNow = '2026-07-20T14:00:00.000Z'
+    registry = new ProjectRegistry(db, () => fixedNow)
+    registry.register(sample)
+    const updated = registry.updateUserContext('apc', { goal: '  Ship context UI  ', currentFocus: ' Tests ' })
+    expect(updated).toMatchObject({
+      goal: 'Ship context UI', goalSource: 'user', goalConfirmedAt: fixedNow,
+      currentFocus: 'Tests', currentFocusSource: 'user', currentFocusConfirmedAt: fixedNow,
+    })
+
+    const cleared = registry.updateUserContext('apc', { currentFocus: '   ' })
+    expect(cleared?.currentFocus).toBeUndefined()
+    expect(cleared?.currentFocusSource).toBeUndefined()
+    expect(cleared?.currentFocusConfirmedAt).toBeUndefined()
+  })
+
+  test('agent proposals cannot overwrite a confirmed value and can be explicitly confirmed', () => {
+    registry = new ProjectRegistry(db, () => '2026-07-20T15:00:00.000Z')
+    registry.register(sample)
+
+    const proposal = registry.proposeContext('apc', 'goal', 'Agent suggestion')
+    expect(proposal).toMatchObject({ ok: true, project: { goalSource: 'agent' } })
+    if (proposal.ok) expect(proposal.project.goalConfirmedAt).toBeUndefined()
+
+    const confirmed = registry.confirmContext('apc', 'goal')
+    expect(confirmed).toMatchObject({
+      ok: true,
+      project: { goal: 'Agent suggestion', goalSource: 'agent', goalConfirmedAt: '2026-07-20T15:00:00.000Z' },
+    })
+    expect(registry.proposeContext('apc', 'goal', 'Overwrite')).toEqual({
+      ok: false, reason: 'confirmed-value-exists',
+    })
+  })
+
+  test('context commands reject missing projects and empty proposals', () => {
+    registry.register(sample)
+    expect(registry.updateUserContext('missing', { goal: 'x' })).toBeUndefined()
+    expect(registry.proposeContext('missing', 'goal', 'x')).toEqual({ ok: false, reason: 'project-not-found' })
+    expect(registry.proposeContext('apc', 'goal', ' ')).toEqual({ ok: false, reason: 'empty-value' })
+    expect(registry.confirmContext('apc', 'goal')).toEqual({ ok: false, reason: 'empty-value' })
   })
 
   test('remove deletes the project and cascades its source map', () => {

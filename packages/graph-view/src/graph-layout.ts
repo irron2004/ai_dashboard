@@ -8,11 +8,55 @@ export type LayoutResult = {
   sizes: Record<string, { w: number; h: number; radius: number }>
 }
 
+/**
+ * The force solver below is intentionally faithful to AutoSci, but it is O(iterations × nodes²).
+ * Past this point a deterministic degree-ordered spiral is both faster and easier to navigate. The
+ * threshold is exported so the renderer and tests can describe the same large-graph behaviour.
+ */
+export const SCALABLE_LAYOUT_NODE_THRESHOLD = 80
+
+function scalableSpiralLayout(
+  nodesIn: LayoutNodeInput[], edgesIn: LayoutEdgeInput[], width: number, height: number,
+): LayoutResult {
+  const W = width || 1000, H = height || 600
+  const degree = new Map(nodesIn.map((node) => [node.id, 0]))
+  for (const edge of edgesIn) {
+    if (degree.has(edge.source)) degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1)
+    if (degree.has(edge.target)) degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
+  }
+
+  // Put hubs near the centre, then distribute the remaining nodes on a phyllotaxis spiral. This is
+  // O(nodes log nodes + edges), deterministic, and keeps enough space for hit targets at low zoom.
+  const originalOrder = new Map(nodesIn.map((node, index) => [node.id, index]))
+  const ordered = [...nodesIn].sort((a, b) =>
+    (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0)
+      || (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0),
+  )
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5))
+  const spacing = 46
+  const positions: LayoutResult['positions'] = {}
+  const sizes: LayoutResult['sizes'] = {}
+  ordered.forEach((node, index) => {
+    const radiusFromCentre = spacing * Math.sqrt(index)
+    const angle = index * goldenAngle
+    positions[node.id] = {
+      x: W / 2 + Math.cos(angle) * radiusFromCentre,
+      y: H / 2 + Math.sin(angle) * radiusFromCentre,
+    }
+    const radius = Math.min(4 + Math.sqrt(degree.get(node.id) ?? 0) * 4, 20)
+    sizes[node.id] = { w: radius * 2, h: radius * 2, radius }
+  })
+  return { positions, sizes }
+}
+
 export function obsidianForceLayout(
   nodesIn: LayoutNodeInput[], edgesIn: LayoutEdgeInput[], width: number, height: number,
 ): LayoutResult {
   const W = width || 1000, H = height || 600
   const N = nodesIn.length
+  if (N >= SCALABLE_LAYOUT_NODE_THRESHOLD) {
+    return scalableSpiralLayout(nodesIn, edgesIn, W, H)
+  }
   const nodes = nodesIn.map((n, i) => {
     const angle = (i / Math.max(N, 1)) * Math.PI * 2
     const r = 200 + (i % 5) * 25                 // was 200 + random*100

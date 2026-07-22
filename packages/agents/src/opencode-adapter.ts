@@ -27,7 +27,7 @@ type SessionRow = {
 
 type MessagePartRow = {
   message_id: string
-  role: string
+  role: string | null
   message_data: string | null
   part_data: string | null
 }
@@ -188,24 +188,37 @@ export class OpenCodeAdapter implements AgentIngestAdapter {
         .get(sessionId) as SessionRow | undefined
       if (!sessionRow) throw new Error(`OpenCode session not found: ${sessionId}`)
 
+      const messageColumns = new Set(
+        (db.prepare('PRAGMA table_info(message)').all() as Array<{ name: string }>).map((column) => column.name),
+      )
+      const partColumns = new Set(
+        (db.prepare('PRAGMA table_info(part)').all() as Array<{ name: string }>).map((column) => column.name),
+      )
+      const roleExpression = messageColumns.has('role') ? 'message.role' : 'NULL'
+      const messageOrder = messageColumns.has('time_created') ? 'message.time_created' : 'message.id'
+      const partOrder = partColumns.has('time_created') ? 'part.time_created' : 'part.id'
       const rows = db
         .prepare(
-          `SELECT message.id AS message_id, message.role, message.data AS message_data,
+          `SELECT message.id AS message_id, ${roleExpression} AS role, message.data AS message_data,
                   part.data AS part_data
              FROM message
              LEFT JOIN part ON part.message_id = message.id
              WHERE message.session_id = ?
-             ORDER BY message.id, part.id`,
+             ORDER BY ${messageOrder}, ${partOrder}`,
         )
         .all(sessionId) as MessagePartRow[]
 
       const turns = new Map<string, NormalizedTurn>()
       for (const row of rows) {
         const messageData = parseJsonObject(row.message_data)
+        const timeData = objectValue(messageData?.time)
+        const createdAt = numberValue(timeData?.created)
         const timestamp = stringValue(messageData?.timestamp)
+          ?? (createdAt === undefined ? undefined : new Date(createdAt).toISOString())
+        const rawRole = row.role ?? stringValue(messageData?.role)
         const existing = turns.get(row.message_id)
         const turn = existing ?? {
-          role: row.role === 'assistant' || row.role === 'system' || row.role === 'tool' ? row.role : 'user',
+          role: rawRole === 'assistant' || rawRole === 'system' || rawRole === 'tool' ? rawRole : 'user',
           text: '',
           timestamp,
           toolCalls: [],

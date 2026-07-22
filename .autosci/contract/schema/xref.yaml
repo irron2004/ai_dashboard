@@ -1,0 +1,3 @@
+rules:
+  - forward: { kind: tasks, frontmatter_field: topic, target: topics }
+    reverse: { kind: topics, frontmatter_field: tasks, action: append_slug }

@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from 'node:fs'
+import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 function asAbsolute(path: string): string {
@@ -41,6 +41,24 @@ export function walkFiles(roots: string | readonly string[], accept: (path: stri
     else if (st.isFile() && accept(root)) out.push(root)
   }
   return [...new Set(out)].sort()
+}
+
+/** Read only the beginning of a transcript so discovery can expose cwd/repoPath without loading the
+ * whole conversation. Codex and Claude put their session metadata near the first JSONL line. */
+export function readFilePrefix(path: string, maxBytes = 64 * 1024): string {
+  let fd: number | undefined
+  try {
+    fd = openSync(path, 'r')
+    const buffer = Buffer.allocUnsafe(maxBytes)
+    const bytesRead = readSync(fd, buffer, 0, maxBytes, 0)
+    return buffer.toString('utf8', 0, bytesRead)
+  } catch {
+    return ''
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd) } catch { /* best-effort metadata read */ }
+    }
+  }
 }
 
 export function folderPathFor(locator: string): string {

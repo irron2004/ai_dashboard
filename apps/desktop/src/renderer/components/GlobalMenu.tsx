@@ -3,9 +3,25 @@ import { useEffect, useRef, useState } from 'react'
 export type GlobalMenuItem = { label: string; onClick: () => void; disabled?: boolean }
 
 /** Top-right ⋯ overflow menu for rarely-used global actions (app update 등). */
-export function GlobalMenu({ items }: { items: GlobalMenuItem[] }) {
+export function GlobalMenu({
+  items,
+  ariaLabel = '메뉴',
+  trigger = '⋯',
+  title,
+  disabled = false,
+}: {
+  items: GlobalMenuItem[]
+  ariaLabel?: string
+  trigger?: string
+  title?: string
+  disabled?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
 
   useEffect(() => {
     if (!open) return
@@ -25,7 +41,17 @@ export function GlobalMenu({ items }: { items: GlobalMenuItem[] }) {
 
   return (
     <div className="global-menu" ref={ref}>
-      <button type="button" aria-label="메뉴" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>⋯</button>
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={title}
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {trigger}
+      </button>
       {open && (
         <div className="global-menu__list" role="menu">
           {items.map((item) => (

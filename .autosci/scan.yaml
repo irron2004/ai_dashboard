@@ -1,0 +1,63 @@
+source_roots: ["."]
+include:
+  - README.md
+  - CLAUDE.md
+  - docs/**/*.md
+  - docs/**/*.html
+  - harness/**/*.md
+  - packages/**/README.md
+exclude:
+  - .git/**
+  - '**/.git/**'
+  - .autosci/**
+  - '**/.autosci/**'
+  - wiki/**
+  - '**/wiki/**'
+  - .apc-wiki/**
+  - '**/.apc-wiki/**'
+  - .agents/**
+  - '**/.agents/**'
+  - .claude/**
+  - '**/.claude/**'
+  - .codex/**
+  - '**/.codex/**'
+  - .github/**
+  - '**/.github/**'
+  - .playwright-mcp/**
+  - '**/.playwright-mcp/**'
+  - .superpowers/**
+  - '**/.superpowers/**'
+  - .venv/**
+  - '**/.venv/**'
+  - venv/**
+  - '**/venv/**'
+  - .venv-substrate/**
+  - '**/.venv-substrate/**'
+  - node_modules/**
+  - '**/node_modules/**'
+  - AutoSci/**
+  - '**/AutoSci/**'
+  - vendor/**
+  - '**/vendor/**'
+  - apps/**
+  - '**/apps/**'
+  - scripts/**
+  - '**/scripts/**'
+  - dist/**
+  - '**/dist/**'
+  - dist-*/**
+  - '**/dist-*/**'
+  - out/**
+  - '**/out/**'
+  - build/**
+  - '**/build/**'
+  - coverage/**
+  - '**/coverage/**'
+  - __pycache__/**
+  - '**/__pycache__/**'
+  - .pytest_cache/**
+  - '**/.pytest_cache/**'
+max_files: 500
+max_file_bytes: 134217728
+max_total_bytes: 536870912
+max_visited_entries: 100000

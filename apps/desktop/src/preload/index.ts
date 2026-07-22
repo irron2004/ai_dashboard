@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { CH } from '../shared/ipc-contract.js'
+import type { PtyDataEvent, PtyExitEvent } from '../shared/ipc-contract.js'
+import type { AgentActivity, WikiRunEvent } from '@apc/shared'
 
 // Exposed as window.apc in the renderer. Queries/commands go through invoke();
 // the PTY stream is event-based.
 contextBridge.exposeInMainWorld('apc', {
   invoke: (channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload),
+  importProjectItems: (req: unknown) => ipcRenderer.invoke(CH.projectImport, req),
 
   startPty: (req: unknown) => ipcRenderer.send(CH.ptyStart, req),
   writePty: (req: unknown) => ipcRenderer.send(CH.ptyInput, req),
@@ -21,6 +24,21 @@ contextBridge.exposeInMainWorld('apc', {
     ipcRenderer.on(CH.ptyExit, handler)
     return () => ipcRenderer.removeListener(CH.ptyExit, handler)
   },
+  onPtyDataV2: (cb: (event: PtyDataEvent) => void) => {
+    const handler = (_e: unknown, event: PtyDataEvent) => cb(event)
+    ipcRenderer.on(CH.ptyDataV2, handler)
+    return () => ipcRenderer.removeListener(CH.ptyDataV2, handler)
+  },
+  onPtyExitV2: (cb: (event: PtyExitEvent) => void) => {
+    const handler = (_e: unknown, event: PtyExitEvent) => cb(event)
+    ipcRenderer.on(CH.ptyExitV2, handler)
+    return () => ipcRenderer.removeListener(CH.ptyExitV2, handler)
+  },
+  onAgentActivity: (cb: (event: AgentActivity) => void) => {
+    const handler = (_e: unknown, event: AgentActivity) => cb(event)
+    ipcRenderer.on(CH.agentActivity, handler)
+    return () => ipcRenderer.removeListener(CH.agentActivity, handler)
+  },
   onHarnessProgress: (cb: (e: { runId: string; state: string }) => void) => {
     const handler = (_e: unknown, ev: { runId: string; state: string }) => cb(ev)
     ipcRenderer.on(CH.harnessProgress, handler)
@@ -35,6 +53,11 @@ contextBridge.exposeInMainWorld('apc', {
     const handler = (_e: unknown, ev: { runId: string; folder: string; nodes: { id: string; title: string; type: string; scope: string }[] }) => cb(ev)
     ipcRenderer.on(CH.harnessNodes, handler)
     return () => ipcRenderer.removeListener(CH.harnessNodes, handler)
+  },
+  onHarnessActivity: (cb: (event: WikiRunEvent) => void) => {
+    const handler = (_e: unknown, event: WikiRunEvent) => cb(event)
+    ipcRenderer.on(CH.harnessActivity, handler)
+    return () => ipcRenderer.removeListener(CH.harnessActivity, handler)
   },
   onDevHarnessLog: (cb: (e: { runId: string; label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void) => {
     const handler = (_e: unknown, ev: { runId: string; label: string; stream: 'stdout' | 'stderr'; chunk: string }) => cb(ev)

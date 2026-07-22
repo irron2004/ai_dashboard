@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI 개선 제안 목업 — 2026-07-14</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css">
+<style>
+  :root {
+    --surface-0: #091017;
+    --surface-1: #0f1722;
+    --surface-2: #141c28;
+    --border: rgba(126, 152, 183, 0.18);
+    --border-strong: rgba(126, 152, 183, 0.32);
+    --border-accent: rgba(117, 199, 255, 0.55);
+    --text-primary: #eaf1fb;
+    --text-secondary: #8ea0b6;
+    --text-muted: #61738c;
+    --text-accent: #75c7ff;
+    --text-danger: #fb7185;
+    --text-success: #4ade80;
+    --text-warning: #fbbf24;
+    --bg-accent: rgba(117, 199, 255, 0.14);
+    --bg-danger: rgba(251, 113, 133, 0.14);
+    --bg-success: rgba(74, 222, 128, 0.14);
+    --bg-warning: rgba(251, 191, 36, 0.14);
+    --bg-neutral: rgba(126, 152, 183, 0.12);
+    --fill-accent: #378add;
+    --fill-danger: #e24b4a;
+    --fill-success: #4ade80;
+    --fill-warning: #fbbf24;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--surface-0);
+    color: var(--text-primary);
+    padding: 32px 16px 64px;
+  }
+  .page { max-width: 720px; margin: 0 auto; }
+  .page > h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .page > .sub { color: var(--text-secondary); font-size: 13px; margin-bottom: 28px; }
+  .caption { font-size: 15px; font-weight: 600; margin: 36px 0 4px; }
+  .caption-sub { color: var(--text-secondary); font-size: 12.5px; margin-bottom: 12px; line-height: 1.6; }
+  button { font: inherit; color: var(--text-primary); background: transparent; border: 0.5px solid var(--border-strong); border-radius: 6px; cursor: default; }
+  select { font: inherit; color: var(--text-primary); background: var(--surface-1); border: 0.5px solid var(--border-strong); border-radius: 6px; padding: 3px 6px; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; line-height: 1.5; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+  .tcard { background: var(--surface-2); border: 0.5px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
+  .colh { font-size: 11px; color: var(--text-muted); letter-spacing: .05em; margin-bottom: 6px; }
+  .sec { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin: 14px 0 6px; display: flex; align-items: center; gap: 6px; }
+  .mini { font-size: 11px; padding: 2px 8px; border-radius: 6px; }
+  .ellip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @keyframes blink { 50% { opacity: .25; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>UI 개선 제안 목업</h1>
+  <p class="sub">2026-07-14 · <a href="../handoffs/2026-07-14-ui-usability-diagnosis.md" style="color:var(--text-accent)">UI 사용성 진단 문서</a>의 개선 1~4번을 화면으로 표현</p>
+
+  <h2 class="caption">① 제안 홈 탭 — PM 대시보드 승격 (D1·D3·D4)</h2>
+  <p class="caption-sub">
+    전체가 첫 탭, 홈은 PM 대시보드가 본문. current.md/변경분은 '문서' 탭으로 분리.
+    "다음 할 일"이 최상단 히어로 + 그 자리에서 조립/Run. 최근 실행은 task 제목·시각·결과·transcript.
+    독 상태색: 완료=파랑, 빨강은 에러 전용.
+  </p>
+  <div style="border:0.5px solid var(--border-strong);border-radius:12px;overflow:hidden;background:var(--surface-0);font-size:12px">
+    <div style="display:flex;align-items:center;gap:4px;padding:8px 10px;background:var(--surface-1);border-bottom:0.5px solid var(--border)">
+      <span class="mini" style="color:var(--text-secondary)">전체</span>
+      <span class="mini" style="background:var(--surface-2);border:0.5px solid var(--border-strong);font-weight:500">홈</span>
+      <span class="mini" style="color:var(--text-secondary)">문서</span>
+      <span class="mini" style="color:var(--text-secondary)">지식</span>
+      <span class="mini" style="color:var(--text-secondary)">위키 생성</span>
+      <span style="margin-left:auto;color:var(--text-muted);display:flex;gap:10px;align-items:center">
+        <i class="ti ti-search" style="font-size:15px"></i>
+        <i class="ti ti-keyboard" style="font-size:15px"></i>
+        <i class="ti ti-menu-2" style="font-size:15px"></i>
+      </span>
+    </div>
+    <div style="display:grid;grid-template-columns:112px minmax(0,1fr)">
+      <aside style="border-right:0.5px solid var(--border);background:var(--surface-1);padding:8px 6px;font-size:11px">
+        <div style="color:var(--text-muted);margin:0 4px 6px">프로젝트</div>
+        <div style="background:var(--surface-2);border:0.5px solid var(--border-strong);border-radius:6px;padding:4px 6px;margin-bottom:4px">
+          <div style="font-weight:500">ai_dashboard</div>
+          <div style="display:flex;gap:4px;margin-top:2px;align-items:center">
+            <span class="dot" style="background:var(--fill-success);width:6px;height:6px"></span>
+            <span style="color:var(--text-muted)">실행 1 · 리뷰 2</span>
+          </div>
+        </div>
+        <div style="padding:4px 6px;color:var(--text-secondary)">autosci-core</div>
+        <div style="padding:4px 6px;color:var(--text-secondary)">coin-pred <span class="dot" style="background:var(--fill-warning);width:6px;height:6px;animation:blink 1s infinite"></span></div>
+      </aside>
+      <main style="padding:10px 12px 12px;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;background:var(--surface-1);border-radius:8px;padding:7px 10px">
+          <i class="ti ti-target" style="font-size:15px;color:var(--text-accent)"></i>
+          <span style="font-weight:500">개인 LLM PM 대시보드 v1</span>
+          <span style="flex:1;height:5px;border-radius:999px;background:var(--surface-2);overflow:hidden"><span style="display:block;width:62%;height:100%;background:var(--fill-accent)"></span></span>
+          <span style="color:var(--text-secondary)">12/18</span>
+          <span class="pill" style="background:var(--bg-warning);color:var(--text-warning)">리뷰 2</span>
+        </div>
+        <div class="sec"><i class="ti ti-player-play" style="font-size:14px"></i>다음 할 일 <span style="font-weight:400;color:var(--text-muted)">— 차단 해제된 작업 우선</span></div>
+        <div class="tcard" style="display:flex;align-items:center;gap:8px">
+          <span class="pill" style="background:var(--bg-danger);color:var(--text-danger)">P1</span>
+          <span class="ellip" style="flex:1;min-width:0">resume 카드 회귀 수정</span>
+          <button class="mini"><i class="ti ti-clipboard-list" style="font-size:13px"></i> 조립</button>
+          <button class="mini"><i class="ti ti-player-play" style="font-size:13px"></i> Run</button>
+        </div>
+        <div class="tcard" style="display:flex;align-items:center;gap:8px">
+          <span class="pill" style="background:var(--bg-warning);color:var(--text-warning)">P2</span>
+          <span class="ellip" style="flex:1;min-width:0">question-log 중복 제거</span>
+          <button class="mini"><i class="ti ti-clipboard-list" style="font-size:13px"></i> 조립</button>
+          <button class="mini"><i class="ti ti-player-play" style="font-size:13px"></i> Run</button>
+        </div>
+        <div class="sec"><i class="ti ti-layout-kanban" style="font-size:14px"></i>태스크 보드
+          <button class="mini" style="margin-left:auto"><i class="ti ti-plus" style="font-size:12px"></i> 작업 추가</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
+          <div><div class="colh">할 일 · 4</div>
+            <div class="tcard"><div class="ellip">웹 대시보드 읽기 API</div><div style="display:flex;gap:4px;margin-top:3px"><span class="pill" style="background:var(--bg-neutral);color:var(--text-secondary)">P3</span><span class="pill" style="background:var(--bg-danger);color:var(--text-danger)"><i class="ti ti-ban" style="font-size:10px"></i> 차단</span></div></div>
+            <div class="tcard"><div class="ellip">stale 노드 감지</div><div style="margin-top:3px"><span class="pill" style="background:var(--bg-neutral);color:var(--text-secondary)">P3</span></div></div>
+          </div>
+          <div><div class="colh">진행중 · 2</div>
+            <div class="tcard" style="border-color:var(--border-accent)"><div class="ellip">resume 카드 회귀 수정</div><div style="display:flex;gap:4px;margin-top:3px"><span class="pill" style="background:var(--bg-danger);color:var(--text-danger)">P1</span><span class="pill" style="background:var(--bg-success);color:var(--text-success)">claude</span></div></div>
+          </div>
+          <div><div class="colh">리뷰 · 2</div>
+            <div class="tcard"><div class="ellip">git sync 패널</div><div style="margin-top:3px"><span class="pill" style="background:var(--bg-warning);color:var(--text-warning)">대기</span></div></div>
+          </div>
+          <div><div class="colh">완료 · 12</div>
+            <div class="tcard" style="opacity:.65"><div class="ellip">S3 dev 하네스</div></div>
+          </div>
+        </div>
+        <div class="sec"><i class="ti ti-history" style="font-size:14px"></i>최근 실행</div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-top:0.5px solid var(--border)">
+          <span class="dot" style="background:var(--fill-success)"></span>
+          <span class="ellip" style="flex:1;min-width:0">resume 카드 회귀 수정</span>
+          <span style="color:var(--text-muted)">harness · 14:02 · 성공</span>
+          <button class="mini"><i class="ti ti-file-text" style="font-size:12px"></i> transcript</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-top:0.5px solid var(--border)">
+          <span class="dot" style="background:var(--fill-danger)"></span>
+          <span class="ellip" style="flex:1;min-width:0">question-log 중복 제거</span>
+          <span style="color:var(--text-muted)">harness · 11:40 · 실패 · exit 1</span>
+          <button class="mini"><i class="ti ti-file-text" style="font-size:12px"></i> transcript</button>
+        </div>
+      </main>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:7px 12px;background:var(--surface-1);border-top:0.5px solid var(--border);font-size:11px">
+      <span style="color:var(--text-muted)"><i class="ti ti-chevron-up" style="font-size:12px"></i> agents</span>
+      <span style="display:flex;align-items:center;gap:5px"><span class="dot" style="background:var(--fill-success)"></span>claude <span style="color:var(--text-muted)">실행중</span></span>
+      <span style="display:flex;align-items:center;gap:5px"><span class="dot" style="background:var(--fill-accent)"></span>opencode <span style="color:var(--text-muted)">완료</span></span>
+      <span style="display:flex;align-items:center;gap:5px"><span class="dot" style="background:var(--fill-warning);animation:blink 1s infinite"></span>codex <span style="color:var(--text-muted)">허가 필요</span></span>
+      <span style="margin-left:auto;color:var(--text-muted)">완료=파랑 · 빨강은 에러 전용</span>
+    </div>
+  </div>
+
+  <h2 class="caption">② 원클릭 핸드오프 — 카드의 '조립' 클릭 시 (D2)</h2>
+  <p class="caption-sub">
+    TaskBoard 카드가 taskId를 들고 컴포저를 직접 연다 (기존 composeContext·writePty·devHarnessRun 재사용, 백엔드 무변경).
+    6단계 → 2단계. 자동 전송 없음 — 주입 후 사용자가 터미널에서 Enter.
+  </p>
+  <div style="background:var(--surface-1);border-radius:12px;padding:16px;font-size:12px">
+    <div style="background:var(--surface-2);border:0.5px solid var(--border-accent);border-radius:6px;padding:7px 10px;display:flex;align-items:center;gap:8px;max-width:420px;margin:0 auto 10px">
+      <span class="pill" style="background:var(--bg-danger);color:var(--text-danger)">P1</span>
+      <span style="flex:1">resume 카드 회귀 수정</span>
+      <button class="mini" style="border-color:var(--border-accent);color:var(--text-accent)"><i class="ti ti-clipboard-list" style="font-size:13px"></i> 조립</button>
+    </div>
+    <div style="text-align:center;color:var(--text-muted);margin-bottom:10px"><i class="ti ti-arrow-down" style="font-size:15px"></i></div>
+    <div style="background:var(--surface-2);border:0.5px solid var(--border-strong);border-radius:12px;max-width:520px;margin:0 auto;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:0.5px solid var(--border)">
+        <i class="ti ti-package" style="font-size:16px;color:var(--text-accent)"></i>
+        <span style="font-weight:500">컨텍스트 패키지 — resume 카드 회귀 수정</span>
+        <button class="mini" style="margin-left:auto;border:none" aria-label="닫기"><i class="ti ti-x" style="font-size:14px"></i></button>
+      </div>
+      <div style="padding:12px 14px">
+        <div style="font-family:var(--font-mono);font-size:11px;line-height:1.6;background:var(--surface-1);border:0.5px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-secondary)">
+          <div style="color:var(--text-primary)">## Task</div>
+          <div>resume 카드 회귀 수정 (P1, req:apc:s-0712)</div>
+          <div style="color:var(--text-primary);margin-top:6px">## 수용 기준</div>
+          <div>- 프로젝트 전환 시 배너 1회만 표시</div>
+          <div>- lastQuestion이 dismiss 후 재출현하지 않음</div>
+          <div style="color:var(--text-primary);margin-top:6px">## Linked wiki 발췌</div>
+          <div>resume-card.md: 카드는 dashboard-api가 조립…</div>
+          <div style="color:var(--text-primary);margin-top:6px">## 직전 세션 요약</div>
+          <div>question-log dedupe까지 완료, 배너 트리거는 미해결…</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <select aria-label="주입 대상 에이전트"><option>claude</option><option>opencode</option><option>codex</option></select>
+          <button class="mini" style="border:2px solid var(--border-accent);color:var(--text-accent)"><i class="ti ti-terminal-2" style="font-size:13px"></i> 터미널에 주입</button>
+          <button class="mini"><i class="ti ti-player-play" style="font-size:13px"></i> Harness로 실행</button>
+          <button class="mini"><i class="ti ti-copy" style="font-size:13px"></i> 복사</button>
+        </div>
+        <div style="margin-top:8px;color:var(--text-muted);font-size:11px;display:flex;gap:6px;align-items:center">
+          <i class="ti ti-info-circle" style="font-size:13px"></i>주입 후 해당 터미널에서 Enter로 전송 — 자동 전송하지 않습니다
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

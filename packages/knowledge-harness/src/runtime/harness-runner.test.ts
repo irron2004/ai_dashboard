@@ -33,6 +33,7 @@ describe('HarnessRunner', () => {
     const runner = new HarnessRunner({ gates: new FeatureGate(ALL_OPEN), drivers: {}, now })
     runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
     expect(store.loadRunState().state).toBe('CREATED')
+    expect(store.readProgressEvents().map((event) => event.kind)).toEqual(['run_started'])
   })
 
   test('advance walks the full pipeline to HUMAN_REVIEW_REQUIRED, persisting each artifact', async () => {
@@ -45,6 +46,12 @@ describe('HarnessRunner', () => {
       'LEAD_MERGED', 'WRITE_PLAN_CREATED', 'STAGING_WRITTEN', 'VALIDATED', 'HUMAN_REVIEW_REQUIRED',
     ])
     expect(store.readArtifact(rs.artifacts['NODE_PROPOSALS_CREATED'][0])).toEqual({ state: 'NODE_PROPOSALS_CREATED' })
+    const events = store.readProgressEvents()
+    expect(events[0].kind).toBe('run_started')
+    expect(events.at(-1)?.kind).toBe('run_completed')
+    expect(events.filter((event) => event.kind === 'phase_started')).toHaveLength(9)
+    expect(events.filter((event) => event.kind === 'phase_completed')).toHaveLength(9)
+    expect(store.loadProgressSummary()?.status).toBe('completed')
   })
 
   test('a closed gate stops the walk at the prior state', async () => {
@@ -73,6 +80,7 @@ describe('HarnessRunner', () => {
     const rs = await runner.advance(store)
     expect(rs.state).toBe('FAILED')
     expect(rs.error).toContain('boom')
+    expect(store.readProgressEvents().slice(-2).map((event) => event.kind)).toEqual(['phase_failed', 'run_failed'])
   })
 
   test('advance is idempotent on terminal states — a FAILED run is not restarted', async () => {
@@ -145,6 +153,10 @@ describe('HarnessRunner', () => {
     expect(rs.state).toBe('PROJECT_SCANNED')        // stayed at the last completed state
     expect(rs.awaiting).toBe('node-confirmation')
     expect(rs.error).toBeUndefined()                 // paused is not a failure
+    const kinds = store.readProgressEvents().map((event) => event.kind)
+    expect(kinds.at(-1)).toBe('phase_paused')
+    expect(kinds).not.toContain('run_completed')
+    expect(kinds).not.toContain('run_failed')
   })
 
   test('resuming a paused run advances once the driver no longer pauses', async () => {
@@ -180,5 +192,29 @@ describe('HarnessRunner', () => {
     const paths = rs.artifacts['SOURCES_EXTRACTED']
     expect(paths).toHaveLength(1)
     expect(store.readArtifact(paths[0])).toEqual({ ok: false, exit_code: 1, issues: ['boom'] })
+  })
+
+  test('writes state before completion/failure events and keeps a throwing live sink diagnostic-only', async () => {
+    const observations: Array<{ kind: string; state: string }> = []
+    const diagnostics: string[] = []
+    const runner = new HarnessRunner({
+      gates: new FeatureGate(ALL_OPEN),
+      drivers: fakeDrivers(),
+      now,
+      eventSink: (event) => {
+        observations.push({ kind: event.kind, state: store.loadRunState().state })
+        throw new Error('live sink unavailable')
+      },
+      onEventError: (diagnostic) => diagnostics.push(`${diagnostic.stage}:${diagnostic.event.kind}`),
+    })
+    runner.createRun(store, { runId: 'RUN-1', projectId: 'p1', engine: 'claude' })
+    const result = await runner.advance(store)
+
+    expect(result.state).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(observations.find((item) => item.kind === 'phase_completed')).toEqual({
+      kind: 'phase_completed', state: 'PROJECT_SCANNED',
+    })
+    expect(diagnostics.every((item) => item.startsWith('sink:'))).toBe(true)
+    expect(store.readProgressEvents().at(-1)?.kind).toBe('run_completed')
   })
 })

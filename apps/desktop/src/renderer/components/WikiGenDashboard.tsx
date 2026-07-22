@@ -1,39 +1,58 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KhCoverageReport, KhEvalReport, KhNodeProposal } from '@apc/shared'
+import type { HarnessRunProgressDto } from '../../shared/ipc-contract.js'
 import { useStore } from '../store.js'
+import { api } from '../api.js'
 import { createDefaultHarnessConfig, runModeLabel, readFanoutSummary, type HarnessRunBundle } from '../harness-utils.js'
+import {
+  appendWikiProgressEvent,
+  createWikiProgressState,
+  mergeWikiProgressReplay,
+  wikiProgressSummary,
+  type WikiProgressState,
+} from '../wiki-progress-state.js'
 import { HarnessRunList } from './HarnessRunList.js'
 import { HarnessStructurePanel } from './HarnessStructurePanel.js'
 import { WikiProgress } from './WikiProgress.js'
-import { CoverageMatrix } from './CoverageMatrix.js'
-import { QualityPanel } from './QualityPanel.js'
-import { ProposalsPanel } from './ProposalsPanel.js'
-import { ReviewPanel, type EvidenceFinding, type PolicyViolation } from './ReviewPanel.js'
+import { OverviewPanel } from './OverviewPanel.js'
+import { ReviewPanel, type EvidenceFinding, type PolicyViolation, type ReviewFilter } from './ReviewPanel.js'
 import { TaskFlowView } from './TaskFlowView.js'
 import { NodeConfirmPanel } from './NodeConfirmPanel.js'
+import { ProjectStructureView } from './ProjectStructureView.js'
+import { WikiGenerationSetup } from './WikiGenerationSetup.js'
 
-type ReviewTab = 'summary' | 'review' | 'coverage' | 'quality' | 'proposals' | 'flow'
+type ReviewTab = 'overview' | 'review' | 'structure' | 'flow'
 
 const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
-  { id: 'summary', label: '요약' }, { id: 'review', label: '🔎 검수' }, { id: 'coverage', label: 'Coverage' },
-  { id: 'quality', label: 'Quality' }, { id: 'proposals', label: 'Proposals' }, { id: 'flow', label: 'Flow' },
+  { id: 'overview', label: '개요' },
+  { id: 'review', label: '🔎 검수' },
+  { id: 'structure', label: '구조' },
+  { id: 'flow', label: '진행' },
 ]
 
 export function WikiGenDashboard() {
   const {
-    selectedProjectId, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
+    selectedProjectId, projectSurfaceRevision, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
     harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
     harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
+    harnessReviewDecisions,
     wikiPolicy, wikiPolicyPreview, wikiPolicyBusy,
     hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
     promoteHarnessRun, promoteCanonicalDoc, exportWiki, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
     proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
-    confirmNodes,
+    confirmNodes, setReviewVerdict,
   } = useStore()
 
-  const [reviewTab, setReviewTab] = useState<ReviewTab>('summary')
+  const [reviewTab, setReviewTab] = useState<ReviewTab>('overview')
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [interactiveMode, setInteractiveMode] = useState(false)
+  const [pendingRun, setPendingRun] = useState<{ materialize: boolean; fullRegen?: boolean } | null>(null)
+  const [projectFolders, setProjectFolders] = useState<string[]>([])
+  const [wikiProgress, setWikiProgress] = useState<WikiProgressState | null>(null)
+  const [wikiProgressRuns, setWikiProgressRuns] = useState<HarnessRunProgressDto[]>([])
+  const listRequest = useRef(0)
+  const replayRequest = useRef(0)
   const [runsCollapsed, setRunsCollapsed] = useState(() => {
     try { return localStorage.getItem('apc:runsCollapsed') === '1' } catch { return false }
   })
@@ -51,6 +70,77 @@ export function WikiGenDashboard() {
     if (selectedProjectId) loadWikiPolicy(selectedProjectId)
   }, [loadWikiPolicy, selectedProjectId])
 
+  useEffect(() => {
+    const request = ++listRequest.current
+    if (!selectedProjectId) {
+      setWikiProgressRuns([])
+      setWikiProgress(null)
+      return
+    }
+    void api.harnessListRuns({ projectId: selectedProjectId, limit: 100 }).then((result) => {
+      if (request !== listRequest.current) return
+      const next = result.ok ? result.runs ?? [] : []
+      setWikiProgressRuns((current) => current.length === next.length
+        && current.every((run, index) => run.runId === next[index]?.runId
+          && run.summary.lastActivityAt === next[index]?.summary.lastActivityAt
+          && run.active === next[index]?.active)
+        ? current
+        : next)
+    }).catch(() => {
+      if (request === listRequest.current) setWikiProgressRuns([])
+    })
+  }, [selectedProjectId])
+
+  useEffect(() => {
+    const targetRunId = selectedHarnessRunId
+    const targetProjectId = selectedProjectId
+    const request = ++replayRequest.current
+    if (!targetRunId || !targetProjectId) {
+      setWikiProgress(null)
+      return
+    }
+    setWikiProgress((current) => current?.runId === targetRunId ? current : null)
+    void api.harnessGetProgress({ runId: targetRunId }).then((result) => {
+      if (request !== replayRequest.current || !result.ok || !result.summary) return
+      setWikiProgress((current) => mergeWikiProgressReplay(current, {
+        snapshot: result.summary!,
+        events: result.events ?? [],
+        active: result.active ?? false,
+      }))
+    }).catch(() => { /* legacy builds may not expose the replay query yet */ })
+  }, [selectedHarnessRunId, selectedProjectId])
+
+  useEffect(() => {
+    const off = api.onHarnessActivity((event) => {
+      if (event.projectId !== selectedProjectId) return
+      setWikiProgress((current) => {
+        const selected = event.runId === selectedHarnessRunId
+        const continuing = current?.runId === event.runId
+        const newlyStarted = harnessLoading && event.kind === 'run_started'
+        return selected || continuing || newlyStarted ? appendWikiProgressEvent(current, event) : current
+      })
+    })
+    return typeof off === 'function' ? off : undefined
+  }, [harnessLoading, selectedHarnessRunId, selectedProjectId])
+
+  useEffect(() => {
+    if (!selectedProjectId) { setProjectFolders([]); return }
+    let stale = false
+    void api.fsListDocs({ projectId: selectedProjectId }).then((result) => {
+      if (stale) return
+      const folders = new Set<string>()
+      for (const doc of result.docs ?? []) {
+        const normalized = doc.relPath.replace(/\\/g, '/')
+        const slash = normalized.indexOf('/')
+        folders.add(slash < 0 ? '(root)' : normalized.slice(0, slash))
+      }
+      const next = [...folders].sort().slice(0, 40)
+      setProjectFolders((current) => current.length === next.length
+        && current.every((folder, index) => folder === next[index]) ? current : next)
+    }).catch(() => { if (!stale) setProjectFolders([]) })
+    return () => { stale = true }
+  }, [projectSurfaceRevision, selectedProjectId])
+
   const currentRun: HarnessRunBundle | null = useMemo(
     () => harnessRuns.find((b) => b.runState.runId === selectedHarnessRunId) ?? harnessRuns[0] ?? null,
     [harnessRuns, selectedHarnessRunId],
@@ -60,8 +150,28 @@ export function WikiGenDashboard() {
   const evalData = currentRun?.artifacts.find((a) => a.name === 'eval-report')?.data as KhEvalReport | undefined
   const proposalsData = (currentRun?.artifacts.find((a) => a.name === 'node-proposals')?.data as { proposals?: KhNodeProposal[] } | undefined)?.proposals
   // The verifier + policy agents' per-proposal findings — surfaced alongside each node in the 검수 tab.
-  const evidenceWarnings = (currentRun?.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as { warnings?: EvidenceFinding[] } | undefined)?.warnings ?? []
+  const evidenceReport = currentRun?.artifacts.find((a) => a.name === 'evidence-verification-report')?.data as
+    { warnings?: EvidenceFinding[]; unverifiable?: EvidenceFinding[] } | undefined
+  const evidenceWarnings = evidenceReport?.warnings ?? []
+  const evidenceUnverifiable = evidenceReport?.unverifiable ?? []
   const policyViolations = (currentRun?.artifacts.find((a) => a.name === 'policy-report')?.data as { violations?: PolicyViolation[] } | undefined)?.violations ?? []
+  const diffPatch = (currentRun?.artifacts.find((a) => a.name === 'git-diff-report')?.data as { patch?: string } | undefined)?.patch ?? null
+  const approvedCount = proposalsData?.filter((proposal) => harnessReviewDecisions[proposal.proposal_id] === 'approved').length ?? 0
+  const excludedCount = proposalsData?.filter((proposal) => harnessReviewDecisions[proposal.proposal_id] === 'excluded').length ?? 0
+  const pendingCount = Math.max(0, (proposalsData?.length ?? 0) - approvedCount - excludedCount)
+  const warningCount = proposalsData?.filter((proposal) => proposal.evidence.length === 0
+    || evidenceWarnings.some((warning) => warning.proposal_id === proposal.proposal_id)
+    || evidenceUnverifiable.some((finding) => finding.proposal_id === proposal.proposal_id)
+    || policyViolations.some((violation) => violation.proposal_id === proposal.proposal_id)).length ?? 0
+  // Only proposal-bearing runs use verdict gating. Older/headless runs retain the service's legacy path.
+  const reviewGated = Boolean(proposalsData?.length)
+  const goToReview = (filter: ReviewFilter) => {
+    setReviewFilter(filter)
+    setReviewTab('review')
+  }
+  const openSource = (sourcePath: string) => {
+    if (currentRun) void api.harnessOpenSourceFile({ runId: currentRun.runState.runId, sourcePath })
+  }
   const canPromote = currentRun?.runState.state === 'HUMAN_REVIEW_REQUIRED'
   const fanout = currentRun ? readFanoutSummary(currentRun.artifacts) : null
   const awaiting = currentRun?.runState.awaiting
@@ -74,6 +184,13 @@ export function WikiGenDashboard() {
       source_proposal_id: p.proposal_id,
     }))
   }, [awaiting, proposalsData])
+  const replaySummary = wikiProgressSummary(wikiProgress)
+  const replayIsNonterminal = replaySummary != null
+    && replaySummary.status !== 'completed'
+    && replaySummary.status !== 'failed'
+  const progressForCurrentRun = wikiProgress?.runId === currentRun?.runState.runId
+  const progressRunId = harnessLoading && wikiProgress?.runId ? wikiProgress.runId : currentRun?.runState.runId
+  const readProgressLog = (runId: string) => api.harnessReadLog({ runId, offset: 0, limit: 256 * 1024 })
 
   return (
     <section className="wikigen">
@@ -86,14 +203,15 @@ export function WikiGenDashboard() {
           onToggleCollapse={toggleRuns}
           onSelectRun={(runId) => selectHarnessRun(runId)}
           onRefresh={() => void refreshHarnessRun()}
-          onStartRun={(materialize, fullRegen) => void startHarnessRun(materialize, fullRegen, interactiveMode)}
+          onStartRun={(materialize, fullRegen) => setPendingRun({ materialize, fullRegen })}
           onResumeRun={(runId) => void resumeHarnessRun(runId)}
+          progressRuns={wikiProgressRuns}
         />
 
         <main className="wikigen__main panel">
           <header className="panel__header wikigen__header">
             <div>
-              <h2>{currentRun ? currentRun.runState.runId : 'Wiki Gen'}</h2>
+              <h2>{progressRunId ?? 'Wiki Gen'}</h2>
               <p>
                 {currentRun ? `${runModeLabel(currentRun.mode) || currentRun.runState.engine} · ${currentRun.runState.state.replace(/_/g, ' ')}` : 'run을 시작하세요'}
                 {harnessMessage ? ` — ${harnessMessage}` : ''}
@@ -114,11 +232,27 @@ export function WikiGenDashboard() {
           </header>
 
           {harnessLoading ? (
-            <WikiProgress state={harnessProgress} liveLabel={harnessLiveLabel} liveTail={harnessLiveTail} />
+            <WikiProgress
+              progress={wikiProgress}
+              legacyState={harnessProgress}
+              liveLabel={harnessLiveLabel}
+              liveTail={harnessLiveTail}
+              onReadLog={readProgressLog}
+              onResume={(runId) => void resumeHarnessRun(runId)}
+            />
           ) : nodeConfirmProposed && currentRun ? (
             <NodeConfirmPanel
               proposed={nodeConfirmProposed}
               onConfirm={(approvedNodes) => void confirmNodes(currentRun.runState.runId, approvedNodes)}
+            />
+          ) : replayIsNonterminal ? (
+            <WikiProgress
+              progress={wikiProgress}
+              legacyState={harnessProgress}
+              liveLabel={harnessLiveLabel}
+              liveTail={harnessLiveTail}
+              onReadLog={readProgressLog}
+              onResume={(runId) => void resumeHarnessRun(runId)}
             />
           ) : !currentRun ? (
             <div className="wikigen__placeholder">아직 run이 없습니다 — ▶ 위키 생성으로 시작하세요.</div>
@@ -139,48 +273,44 @@ export function WikiGenDashboard() {
               </nav>
 
               <div className="wikigen__content">
-                {reviewTab === 'summary' && (
-                  <div className="wikigen__summary">
-                    {currentRun.runState.state === 'FAILED' && (
-                      <p className="wikigen__error">❌ 실패: {currentRun.runState.error ?? '원인 미상'} — 실행 이력에서 ↻ 이어하기</p>
+                {reviewTab === 'overview' && (
+                  <OverviewPanel
+                    run={currentRun}
+                    coverage={coverageData}
+                    quality={evalData}
+                    proposalsCount={proposalsData?.length ?? 0}
+                    approvedCount={approvedCount}
+                    excludedCount={excludedCount}
+                    warningCount={warningCount}
+                    fanout={fanout}
+                    onGoToReview={goToReview}
+                    onOpenSource={openSource}
+                  >
+                    {progressForCurrentRun && wikiProgress && (
+                      <WikiProgress
+                        progress={wikiProgress}
+                        liveLabel={harnessLiveLabel}
+                        liveTail={harnessLiveTail}
+                        onReadLog={readProgressLog}
+                      />
                     )}
-                    <p>
-                      아티팩트 {currentRun.artifacts.length}개
-                      {coverageData ? ` · 커버리지 리포트 있음` : ''}
-                      {evalData ? ` · 품질 리포트 있음` : ''}
-                      {proposalsData ? ` · 노드 제안 ${proposalsData.length}개` : ''}
-                    </p>
-                    <p className="wikigen__hint">생성된 위키 문서는 📖 Knowledge 탭에서 읽습니다.</p>
-                    {fanout && (
-                      <div className="wikigen__folders">
-                        <h4>📁 폴더 워커 (orchestrator-workers)</h4>
-                        <p>{fanout.units}개 폴더 단위 · {fanout.ran}개 실행{fanout.skipped.length ? ` · ${fanout.skipped.length}개 스킵` : ''}</p>
-                        <ul className="wikigen__folder-list">
-                          {fanout.folders.map((f) => (
-                            <li key={f.label}>📁 {f.label}{f.role ? <em className="wikigen__folder-role"> {f.role}</em> : null}{f.members && f.members !== f.label ? <small> — {f.members}</small> : null}</li>
-                          ))}
-                        </ul>
-                        {fanout.skipped.length > 0 && (
-                          <ul className="wikigen__folder-skipped">
-                            {fanout.skipped.map((s) => <li key={s.unit} title={s.reason}>⚠ {s.unit} 스킵</li>)}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  </OverviewPanel>
                 )}
                 {reviewTab === 'review' && (proposalsData && proposalsData.length > 0
-                  ? <ReviewPanel runId={currentRun.runState.runId} projectId={selectedProjectId} proposals={proposalsData} warnings={evidenceWarnings} violations={policyViolations} />
+                  ? <ReviewPanel
+                      runId={currentRun.runState.runId}
+                      projectId={selectedProjectId}
+                      proposals={proposalsData}
+                      warnings={evidenceWarnings}
+                      unverifiable={evidenceUnverifiable}
+                      violations={policyViolations}
+                      diffPatch={diffPatch}
+                      decisions={harnessReviewDecisions}
+                      onVerdict={(proposalIds, verdict) => void setReviewVerdict(proposalIds, verdict)}
+                      initialFilter={reviewFilter}
+                    />
                   : <div className="wikigen__placeholder">검수할 노드 제안이 없습니다 — 전체 문서 모드로 실행하세요.</div>)}
-                {reviewTab === 'coverage' && (coverageData
-                  ? <CoverageMatrix data={coverageData} onOpenSource={(p) => window.alert(p)} />
-                  : <div className="wikigen__placeholder">커버리지 데이터 없음 — 전체 문서 모드로 실행하세요.</div>)}
-                {reviewTab === 'quality' && (evalData
-                  ? <QualityPanel data={evalData} />
-                  : <div className="wikigen__placeholder">품질 데이터 없음.</div>)}
-                {reviewTab === 'proposals' && (proposalsData
-                  ? <ProposalsPanel proposals={proposalsData} />
-                  : <div className="wikigen__placeholder">노드 제안 없음.</div>)}
+                {reviewTab === 'structure' && <ProjectStructureView artifacts={currentRun.artifacts} />}
                 {reviewTab === 'flow' && <TaskFlowView run={currentRun} />}
               </div>
 
@@ -188,14 +318,25 @@ export function WikiGenDashboard() {
                 <div className="wikigen__promote-run">
                   <button
                     type="button"
-                    disabled={harnessLoading || !canPromote}
-                    title={canPromote ? 'staging 결과를 vault로 반영' : '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 promote할 수 있습니다'}
-                    onClick={() => void promoteHarnessRun()}
+                    disabled={harnessLoading || !canPromote || (reviewGated && approvedCount === 0)}
+                    title={!canPromote
+                      ? '리뷰 대기(HUMAN_REVIEW_REQUIRED) 상태에서만 반영할 수 있습니다'
+                      : reviewGated && approvedCount === 0
+                        ? '검수 탭에서 항목을 승인해야 반영할 수 있습니다'
+                        : '승인한 항목만 vault로 반영'}
+                    onClick={() => {
+                      if (
+                        reviewGated
+                        && pendingCount > 0
+                        && !window.confirm(`미결 ${pendingCount}건은 반영되지 않습니다. 승인 ${approvedCount}건만 반영할까요?`)
+                      ) return
+                      void promoteHarnessRun()
+                    }}
                   >
-                    Promote run
+                    {reviewGated ? `승인 ${approvedCount}건 반영` : 'Promote run'}
                   </button>
                   {harnessPromoteBlockedReason && (
-                    <button type="button" className="wikigen__force" disabled={harnessLoading} title={harnessPromoteBlockedReason} onClick={() => void promoteHarnessRun(undefined, true)}>
+                    <button type="button" className="wikigen__force" disabled={harnessLoading || (reviewGated && approvedCount === 0)} title={harnessPromoteBlockedReason} onClick={() => void promoteHarnessRun(undefined, true)}>
                       ⚠ 검증 무시
                     </button>
                   )}
@@ -248,12 +389,24 @@ export function WikiGenDashboard() {
             policy={wikiPolicy}
             policyPreview={wikiPolicyPreview}
             policyBusy={wikiPolicyBusy}
-            onProposePolicy={() => selectedProjectId && proposeWikiPolicy(selectedProjectId, config.model.engine)}
+            onProposePolicy={() => selectedProjectId && proposeWikiPolicy(selectedProjectId)}
             onApprovePolicy={() => selectedProjectId && approveWikiPolicy(selectedProjectId)}
             onRevertPolicy={() => selectedProjectId && revertWikiPolicy(selectedProjectId)}
           />
         )}
       </div>
+      <WikiGenerationSetup
+        open={pendingRun !== null}
+        projectId={selectedProjectId}
+        modeLabel={pendingRun?.fullRegen ? '전체 재생성' : pendingRun?.materialize ? '전체 문서' : '최근 세션'}
+        suggestedFolders={projectFolders}
+        onCancel={() => setPendingRun(null)}
+        onConfirm={(projectContext) => {
+          const run = pendingRun
+          setPendingRun(null)
+          if (run) void startHarnessRun(run.materialize, run.fullRegen, interactiveMode, projectContext)
+        }}
+      />
     </section>
   )
 }

@@ -1,0 +1,56 @@
+# entities.yaml — project-docs 프로파일: 일반 프로젝트 문서용 범용 온톨로지 (W 트랙 W1).
+# 스펙: docs/superpowers/specs/2026-07-13-generic-repo-wiki-track-spec.md §3
+
+tasks:
+  dir: wiki/tasks/
+  fields:
+    title:   { type: str, required: true }
+    slug:    { type: str, required: true }
+    sources: { type: list_str, required: true, default: [], append_only: true }
+    status:  { type: enum, values: [open, in_progress, done, dropped], required: true, default: open }
+    topic:   { type: list_link, to: topics, default: [] }
+    created: { type: date }
+    todo:
+      type: list_object
+      item:
+        text: { type: str, required: true }
+        done: { type: bool }
+  lifecycle:
+    transitions:
+      open:        [in_progress, done, dropped]
+      in_progress: [done, dropped]
+
+decisions:
+  dir: wiki/decisions/
+  fields:
+    title:   { type: str, required: true }
+    slug:    { type: str, required: true }
+    sources: { type: list_str, required: true, default: [], append_only: true }
+    date:    { type: date }
+    status:  { type: enum, values: [proposed, accepted, superseded], default: accepted }
+    topic:   { type: list_link, to: topics, default: [] }
+
+docs:
+  dir: wiki/docs/
+  fields:
+    title:   { type: str, required: true }
+    slug:    { type: str, required: true }
+    sources: { type: list_str, required: true, default: [], append_only: true }
+    topic:   { type: list_link, to: topics, default: [] }
+
+topics:
+  dir: wiki/topics/
+  fields:
+    title:   { type: str, required: true }
+    slug:    { type: str, required: true }
+    sources: { type: list_str, required: true, default: [] }
+    tasks:   { type: list_link, to: tasks, default: [] }
+
+overview:
+  dir: wiki/overview/
+  fields:
+    title:        { type: str, required: true }
+    slug:         { type: str, required: true }
+    sources:      { type: list_str, required: true, default: [] }
+    purpose:      { type: str, required: true }
+    date_updated: { type: date }

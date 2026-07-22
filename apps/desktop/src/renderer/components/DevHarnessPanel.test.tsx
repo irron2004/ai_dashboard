@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
-import type { Task, AgentRun } from '@apc/shared'
-const run = (id: string): AgentRun => ({
-  id, taskId: 'T1', agent: 'harness', repoPath: '/x', startedAt: '2026-06-01T00:00:00Z', status: 'completed',
-})
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
+import type { Task } from '@apc/shared'
 
 const devHarnessRun = vi.fn()
 const devHarnessCancel = vi.fn()
@@ -31,8 +28,8 @@ const task = (id: string, title: string): Task => ({
   id, projectId: 'p1', title, status: 'todo', assigneeType: 'agent', priority: 'medium',
   reviewStatus: 'none', acceptanceCriteria: [], linkedWikiPages: [], blockedBy: [],
 })
-const runBtn = () => screen.getByRole('button', { name: /run harness/i }) as HTMLButtonElement
-const cancelBtn = () => screen.getByRole('button', { name: /cancel/i }) as HTMLButtonElement
+const runBtn = () => screen.getByRole('button', { name: /harness 실행/i }) as HTMLButtonElement
+const cancelBtn = () => screen.getByRole('button', { name: /중단/i }) as HTMLButtonElement
 
 describe('DevHarnessPanel', () => {
   beforeEach(() => { vi.clearAllMocks(); logCb = () => {}; startedCb = () => {} })
@@ -86,6 +83,7 @@ describe('DevHarnessPanel', () => {
     render(<DevHarnessPanel projectId="p1" tasks={[task('T1', 'do work')]} />)
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /컨텍스트 조립/ })) })
     expect(composeContext).toHaveBeenCalledWith({ projectId: 'p1', taskId: 'T1' })
+    expect(screen.getByRole('dialog', { name: '컨텍스트 패키지 — do work' })).toBeDefined()
     expect((screen.getByTestId('composer-prompt') as HTMLTextAreaElement).value).toContain('# 작업: do work')
   })
 
@@ -96,13 +94,72 @@ describe('DevHarnessPanel', () => {
     fireEvent.change(screen.getByLabelText('주입 대상 에이전트'), { target: { value: 'codex' } })
     fireEvent.click(screen.getByRole('button', { name: /터미널에 주입/ }))
     expect(writePty).toHaveBeenCalledWith({ id: 'p1:codex', data: 'PROMPT-BODY' })
+    expect((writePty.mock.calls[0]?.[0] as { data: string }).data.endsWith('\n')).toBe(false)
+    expect(screen.getByText(/자동 전송하지 않습니다/)).toBeDefined()
   })
 
-  it('opens a transcript modal for a recent harness run', async () => {
+  it('honours a compose request for a specific task without using the current selection', async () => {
+    composeContext.mockResolvedValue({ ok: true, prompt: 'context for T2' })
+    render(
+      <DevHarnessPanel
+        projectId="p1"
+        tasks={[task('T1', 'first'), task('T2', 'selected from card')]}
+        request={{ requestId: 1, projectId: 'p1', action: 'compose', taskId: 'T2' }}
+      />,
+    )
+
+    await waitFor(() => expect(composeContext).toHaveBeenCalledWith({ projectId: 'p1', taskId: 'T2' }))
+    expect((screen.getByLabelText('실행할 작업') as HTMLSelectElement).value).toBe('T2')
+    expect(screen.getByRole('dialog', { name: '컨텍스트 패키지 — selected from card' })).toBeDefined()
+    expect((screen.getByLabelText('조립된 컨텍스트 검토') as HTMLTextAreaElement).value).toBe('context for T2')
+  })
+
+  it('honours a Run request for a specific task only once', async () => {
+    devHarnessRun.mockResolvedValue({ ok: true, runId: 'RUN-T2' })
+    const tasks = [task('T1', 'first'), task('T2', 'from board')]
+    const request = { requestId: 2, projectId: 'p1', action: 'run' as const, taskId: 'T2' }
+    const { rerender } = render(<DevHarnessPanel projectId="p1" tasks={tasks} request={request} />)
+
+    await waitFor(() => expect(devHarnessRun).toHaveBeenCalledWith({ projectId: 'p1', taskId: 'T2' }))
+    rerender(<DevHarnessPanel projectId="p1" tasks={tasks} request={request} />)
+    expect(devHarnessRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens a transcript modal from an external recent-run request', async () => {
     devHarnessReadTranscript.mockResolvedValue({ ok: true, content: 'transcript body here' })
-    render(<DevHarnessPanel projectId="p1" tasks={[task('T1', 'do work')]} recentRuns={[run('RUN7')]} />)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /RUN7/ })) })
-    expect(devHarnessReadTranscript).toHaveBeenCalledWith({ runId: 'RUN7' })
+    render(
+      <DevHarnessPanel
+        projectId="p1"
+        tasks={[task('T1', 'do work')]}
+        request={{ requestId: 3, projectId: 'p1', action: 'open-transcript', runId: 'RUN7', title: 'do work' }}
+      />,
+    )
+
+    await waitFor(() => expect(devHarnessReadTranscript).toHaveBeenCalledWith({ runId: 'RUN7' }))
+    const dialog = screen.getByRole('dialog', { name: 'dev-run transcript' })
+    expect(within(dialog).getByText('do work')).toBeDefined()
     expect(screen.getByTestId('transcript-content').textContent).toContain('transcript body here')
+  })
+
+  it('closes the composer dialog from its accessible close button', async () => {
+    composeContext.mockResolvedValue({ ok: true, prompt: 'PROMPT' })
+    render(<DevHarnessPanel projectId="p1" tasks={[task('T1', 'do work')]} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /컨텍스트 조립/ })) })
+    fireEvent.click(screen.getByRole('button', { name: '컨텍스트 패키지 닫기' }))
+    expect(screen.queryByRole('dialog', { name: /컨텍스트 패키지/ })).toBeNull()
+  })
+
+  it('disables conflicting controls while context composition is in progress', async () => {
+    let resolveCompose!: (value: unknown) => void
+    composeContext.mockImplementation(() => new Promise((resolve) => { resolveCompose = resolve }))
+    render(<DevHarnessPanel projectId="p1" tasks={[task('T1', 'do work')]} />)
+    fireEvent.click(screen.getByRole('button', { name: /컨텍스트 조립/ }))
+
+    await waitFor(() => expect(runBtn().disabled).toBe(true))
+    expect(screen.getByRole('dialog', { name: '컨텍스트 패키지 조립 중' })).toBeDefined()
+    expect(screen.getByRole('status').textContent).toContain('조립하고 있습니다')
+    expect((screen.getByRole('button', { name: /컨텍스트 조립/ }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByLabelText('실행할 작업') as HTMLSelectElement).disabled).toBe(true)
+    await act(async () => { resolveCompose({ ok: true, prompt: 'ready' }) })
   })
 })

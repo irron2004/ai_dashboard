@@ -1,6 +1,13 @@
 import { create } from 'zustand'
-import type { Project, AgentProfile, AgentType } from '@apc/shared'
-import type { GeneratePreflightCategoryId, GeneratePreflightRes, ProjectDashboardRes, GenerateProjectRes, HarnessCanonicalProposalsRes, WikiPolicyRecordDto, HarnessLiveNode, HarnessNodesEvent } from '../shared/ipc-contract.js'
+import type { AgentActivity, AgentPaneIdentity, Project, AgentProfile, AgentType } from '@apc/shared'
+import {
+  WIKI_GENERATION_ENGINE,
+  type GeneratePreflightCategoryId, type GeneratePreflightRes, type ProjectDashboardRes,
+  type GenerateProjectRes, type HarnessCanonicalProposalsRes, type WikiPolicyRecordDto,
+  type HarnessLiveNode, type HarnessNodesEvent, type ProjectStructureHintDto,
+  type ProjectContextConfirmReq, type ProjectContextInput, type ProjectContextMutRes,
+  type WorkspaceRestore,
+} from '../shared/ipc-contract.js'
 import type { WorkspaceOverview, ResumeCard } from '@apc/dashboard-api'
 import { api } from './api.js'
 import {
@@ -13,10 +20,12 @@ import {
   saveHarnessRuns,
   saveHarnessSelectedRun,
   modelSettingsToEngineOptions,
+  readReviewDecisions,
   type HarnessAgentPromptKey,
   type HarnessConfig,
   type HarnessFeatureGateKey,
   type HarnessRunBundle,
+  type ReviewDecisionMap,
 } from './harness-utils.js'
 
 export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
@@ -24,9 +33,25 @@ export type AgentRunStatus = 'idle' | 'running' | 'attention' | 'done'
 type ApcStore = {
   projects: Project[]
   selectedProjectId: string | null
+  /** Agent dock selection, shared by terminal, Git, diff and Learning Gate surfaces. */
+  activeWorktrees: Record<string, string | null>
+  setActiveWorktree(projectId: string, worktreePath: string | null): void
+  paneTarget: { pane: AgentPaneIdentity; nonce: number } | null
+  focusAgentPane(pane: AgentPaneIdentity): void
+  clearPaneTarget(paneId?: string): void
+  activities: AgentActivity[]
+  activitySnapshotAsOf: string | null
+  activityLoadGeneration: number
+  mergeAgentActivity(activity: AgentActivity): void
+  loadAgentActivities(projectId?: string): Promise<void>
   dashboard: ProjectDashboardRes | null
   workspaceOverview: WorkspaceOverview | null
   resumeCard: ResumeCard | null
+  /** Incremented by coordinated mutation refreshes so earlier independent reads cannot win a race. */
+  projectSurfaceRevision: number
+  refreshProjectSurfaces(
+    options?: { includeProjects?: boolean },
+  ): Promise<void>
   resumeBannerOpen: boolean
   loadResumeCard: (projectId: string) => Promise<void>
   openResumeBanner: () => void
@@ -67,17 +92,19 @@ type ApcStore = {
   /** Same, but for a CANONICAL proposal promote — tracks which proposal was blocked so the per-doc
    * force button can retry exactly that one with allowInvalid. */
   harnessCanonicalBlock: { proposalRelPath: string; lastReadHash: string; reason: string } | null
+  /** Human verdicts for the selected run. Pending is represented by a missing proposal id. */
+  harnessReviewDecisions: ReviewDecisionMap
 
   wikiPolicy: WikiPolicyRecordDto | null
   wikiPolicyPreview: string | null
   wikiPolicyBusy: boolean
   wikiPolicyMessage: string | null
-  proposeWikiPolicy(projectId: string, engine: AgentType): Promise<void>
+  proposeWikiPolicy(projectId: string): Promise<void>
   approveWikiPolicy(projectId: string): Promise<void>
   loadWikiPolicy(projectId: string): Promise<void>
   revertWikiPolicy(projectId: string): Promise<void>
 
-  hydrateWorkspace(p: { panes: Array<{ projectId: string; agent: AgentType; lastSessionId: string | null }>; selectedProjectId: string | null }): void
+  hydrateWorkspace(p: WorkspaceRestore): void
   setAgentStatus(key: string, status: AgentRunStatus): void
   /** Per-session restart token keyed by `${projectId}:${agent}`. Bumping it re-spawns that agent's terminal. */
   restartNonce: Record<string, number>
@@ -86,15 +113,16 @@ type ApcStore = {
   restartAgent(key: string): void
   /** Resumes `key`'s pane at a specific session (from a resume-card target) and bumps restartNonce in the
    *  SAME set() so AgentTerminal's respawn effect (deps: restartNonce) picks up the new resumeSessionId. */
-  resumeAgentSession(key: string, sessionId: string): void
+  resumeAgentSession(key: string, sessionId: string, agent?: AgentType): void
   stopAgent(key: string): void
   prepareGenerate(): Promise<void>
-  generate(engine: AgentType, selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
+  generate(selectedPreflightCategoryIds?: GeneratePreflightCategoryId[]): Promise<void>
   clearGeneratePreflight(): void
   clearGeneration(): void
   loadProjects(): Promise<void>
-  addProject(name: string, projectType: string, repoPath: string, domain: string): Promise<void>
-  updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string): Promise<void>
+  addProject(name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<ProjectContextMutRes>
+  updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context?: ProjectContextInput): Promise<ProjectContextMutRes>
+  confirmProjectContext(req: ProjectContextConfirmReq): Promise<ProjectContextMutRes>
   deleteProject(id: string): Promise<void>
   selectProject(projectId: string): Promise<void>
   loadWorkspaceOverview(): Promise<void>
@@ -104,10 +132,11 @@ type ApcStore = {
 
   hydrateHarnessProject(projectId: string): void
   selectHarnessRun(runId: string): void
-  startHarnessRun(materialize?: boolean, fullRegen?: boolean, interactive?: boolean): Promise<void>
+  startHarnessRun(materialize?: boolean, fullRegen?: boolean, interactive?: boolean, projectContext?: ProjectStructureHintDto): Promise<void>
   refreshHarnessRun(runId?: string): Promise<void>
   resumeHarnessRun(runId?: string): Promise<void>
   confirmNodes(runId: string, approvedNodes: { nodes: Array<{ id?: string; title: string; type?: string; source_proposal_id?: string }> }): Promise<void>
+  setReviewVerdict(proposalIds: string[], verdict: 'approved' | 'excluded' | null): Promise<void>
   promoteHarnessRun(runId?: string, allowInvalid?: boolean): Promise<void>
   exportWiki(projectId?: string): Promise<void>
   loadCanonicalProposals(runId?: string): Promise<void>
@@ -140,6 +169,37 @@ function upsertRun(runs: HarnessRunBundle[], bundle: HarnessRunBundle): HarnessR
   })
 }
 
+const REVIEW_DECISIONS_PATH = 'artifacts/HUMAN_REVIEW_REQUIRED/review-decisions.json'
+const reviewDecisionWrites = new Map<string, Promise<void>>()
+
+function attachReviewDecisions(
+  runs: HarnessRunBundle[],
+  runId: string,
+  decisions: Array<{ proposal_id: string; verdict: 'approved' | 'excluded'; decided_at: string }>,
+): HarnessRunBundle[] {
+  return runs.map((bundle) => {
+    if (bundle.runState.runId !== runId) return bundle
+    const existing = bundle.artifacts.find((artifact) => artifact.name === 'review-decisions')
+    const path = existing?.path ?? REVIEW_DECISIONS_PATH
+    const artifacts = [
+      ...bundle.artifacts.filter((artifact) => artifact.name !== 'review-decisions'),
+      { state: 'HUMAN_REVIEW_REQUIRED' as const, name: 'review-decisions', path, data: { decisions } },
+    ]
+    const humanReview = bundle.runState.artifacts.HUMAN_REVIEW_REQUIRED ?? []
+    const indexed = humanReview.some((entry) => entry.replace(/\\/g, '/').endsWith('review-decisions.json'))
+      ? humanReview
+      : [...humanReview, path]
+    return {
+      ...bundle,
+      runState: {
+        ...bundle.runState,
+        artifacts: { ...bundle.runState.artifacts, HUMAN_REVIEW_REQUIRED: indexed },
+      },
+      artifacts,
+    }
+  })
+}
+
 function getHarnessConfig(state: ApcStore, projectId: string): HarnessConfig {
   return state.harnessConfigs[projectId] ?? loadHarnessConfig(projectId) ?? createDefaultHarnessConfig()
 }
@@ -148,12 +208,90 @@ function updateHarnessConfig(state: ApcStore, projectId: string, next: HarnessCo
   return { harnessConfigs: { ...state.harnessConfigs, [projectId]: next } }
 }
 
+/** Revision is pane-local. Snapshot/event arrival order must never roll a pane backwards. */
+export function mergeAgentActivities(
+  current: readonly AgentActivity[],
+  incoming: readonly AgentActivity[],
+): AgentActivity[] {
+  const byPane = new Map(current.map((activity) => [activity.pane.paneId, activity]))
+  for (const activity of incoming) {
+    const existing = byPane.get(activity.pane.paneId)
+    if (!existing || activity.revision > existing.revision) byPane.set(activity.pane.paneId, activity)
+  }
+  return [...byPane.values()].sort((left, right) => (
+    right.lastActivityAt.localeCompare(left.lastActivityAt)
+    || left.pane.paneId.localeCompare(right.pane.paneId)
+  ))
+}
+
 export const useStore = create<ApcStore>((set, get) => ({
   projects: [],
   selectedProjectId: null,
+  activeWorktrees: {},
+  setActiveWorktree: (projectId, worktreePath) => set((state) => ({
+    activeWorktrees: { ...state.activeWorktrees, [projectId]: worktreePath },
+  })),
+  paneTarget: null,
+  focusAgentPane: (pane) => set((state) => ({
+    activeWorktrees: { ...state.activeWorktrees, [pane.projectId]: pane.worktreePath },
+    paneTarget: { pane, nonce: (state.paneTarget?.nonce ?? 0) + 1 },
+  })),
+  clearPaneTarget: (paneId) => set((state) => (
+    !state.paneTarget || (paneId && state.paneTarget.pane.paneId !== paneId)
+      ? {}
+      : { paneTarget: null }
+  )),
+  activities: [],
+  activitySnapshotAsOf: null,
+  activityLoadGeneration: 0,
+  mergeAgentActivity: (activity) => set((state) => ({
+    activities: mergeAgentActivities(state.activities, [activity]),
+  })),
+  loadAgentActivities: async (projectId) => {
+    const generation = get().activityLoadGeneration + 1
+    set({ activityLoadGeneration: generation })
+    try {
+      const snapshot = await api.agentActivitySnapshot(projectId ? { projectId } : {})
+      if (get().activityLoadGeneration !== generation) return
+      if (projectId && get().selectedProjectId !== projectId) return
+      set((state) => ({
+        activities: mergeAgentActivities(state.activities, snapshot.activities),
+        activitySnapshotAsOf: snapshot.asOf,
+      }))
+    } catch (error) {
+      if (get().activityLoadGeneration === generation) set({ error: `Failed to load agent activity: ${error}` })
+    }
+  },
   dashboard: null,
   workspaceOverview: null,
   resumeCard: null,
+  projectSurfaceRevision: 0,
+  refreshProjectSurfaces: async (options = {}) => {
+    const projectId = get().selectedProjectId
+    const revision = get().projectSurfaceRevision + 1
+    set({ projectSurfaceRevision: revision })
+    const includeSelectedProject = Boolean(projectId && get().selectedProjectId === projectId)
+    try {
+      const [projects, workspaceOverview, dashboard, resumeCard] = await Promise.all([
+        options.includeProjects ? api.listProjects() : Promise.resolve(undefined),
+        api.workspaceOverview(),
+        includeSelectedProject ? api.projectDashboard({ projectId: projectId! }) : Promise.resolve(undefined),
+        includeSelectedProject ? api.resumeCard(projectId!) : Promise.resolve(undefined),
+      ])
+      if (get().projectSurfaceRevision !== revision) return
+      const selectedProjectStillMatches = !includeSelectedProject || get().selectedProjectId === projectId
+      set({
+        ...(projects ? { projects } : {}),
+        workspaceOverview,
+        ...(selectedProjectStillMatches && dashboard ? { dashboard } : {}),
+        ...(selectedProjectStillMatches && resumeCard !== undefined ? { resumeCard } : {}),
+      })
+    } catch (error) {
+      if (get().projectSurfaceRevision === revision) {
+        set({ error: `Failed to refresh project surfaces: ${error}` })
+      }
+    }
+  },
   resumeBannerOpen: false,
   profiles: [],
   ingesting: false,
@@ -180,6 +318,7 @@ export const useStore = create<ApcStore>((set, get) => ({
   harnessLiveNodesRunId: null,
   harnessPromoteBlockedReason: null,
   harnessCanonicalBlock: null,
+  harnessReviewDecisions: {},
   harnessConfigs: {},
 
   wikiPolicy: null,
@@ -189,7 +328,12 @@ export const useStore = create<ApcStore>((set, get) => ({
 
   hydrateWorkspace(p) {
     const openPanes: Record<string, { agent: AgentType; sessionId: string | null }> = {}
-    for (const pane of p.panes) openPanes[`${pane.projectId}:${pane.agent}`] = { agent: pane.agent, sessionId: pane.lastSessionId }
+    for (const pane of p.panes) {
+      openPanes[pane.paneId ?? `${pane.projectId}:${pane.agent}`] = {
+        agent: pane.agent,
+        sessionId: pane.lastSessionId,
+      }
+    }
     set({ openPanes, selectedProjectId: p.selectedProjectId ?? get().selectedProjectId })
   },
 
@@ -214,9 +358,9 @@ export const useStore = create<ApcStore>((set, get) => ({
       }
     })
   },
-  resumeAgentSession(key, sessionId) {
+  resumeAgentSession(key, sessionId, requestedAgent) {
     set((s) => {
-      const agent = s.openPanes[key]?.agent ?? (key.split(':').pop() as AgentType)
+      const agent = requestedAgent ?? s.openPanes[key]?.agent ?? (key.split(':').pop() as AgentType)
       // Mirror restartAgent's stoppingKeys reset (a prior ⏹ stop shouldn't linger across resume) and
       // bump restartNonce in the SAME set() as the sessionId write — AgentTerminal's respawn effect only
       // depends on restartNonce, so both must land in one render for it to pick up the new resumeSessionId.
@@ -252,12 +396,12 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
-  async generate(engine, selectedPreflightCategoryIds) {
+  async generate(selectedPreflightCategoryIds) {
     const { selectedProjectId } = get()
     if (!selectedProjectId) { set({ error: 'Select a project first.' }); return }
     set({ generating: true, generation: null })
     try {
-      const generation = await api.generateProject({ projectId: selectedProjectId, engine, selectedPreflightCategoryIds })
+      const generation = await api.generateProject({ projectId: selectedProjectId, engine: WIKI_GENERATION_ENGINE, selectedPreflightCategoryIds })
       set({ generation })
       if (!generation.ok) set({ error: generation.reason ?? 'Generate failed' })
     } catch (e) {
@@ -271,67 +415,102 @@ export const useStore = create<ApcStore>((set, get) => ({
   clearGeneration() { set({ generation: null }) },
 
   async loadProjects() {
+    const revision = get().projectSurfaceRevision
     try {
       const projects = await api.listProjects()
-      set({ projects })
+      if (get().projectSurfaceRevision === revision) set({ projects })
     } catch (e) {
-      set({ error: `Failed to load projects: ${e}` })
+      if (get().projectSurfaceRevision === revision) set({ error: `Failed to load projects: ${e}` })
     }
   },
 
-  async addProject(name: string, projectType: string, repoPath: string, domain: string) {
+  async addProject(name: string, projectType: string, repoPath: string, domain: string, context = {}) {
     try {
-      await api.registerProject({ name, projectType, repoPath, domain })
-      await get().loadProjects()
+      const project = await api.registerProject({ name, projectType, repoPath, domain, ...context })
+      await get().refreshProjectSurfaces({ includeProjects: true })
+      return { ok: true, project }
     } catch (e) {
-      set({ error: `Failed to add project: ${e}` })
+      const reason = `Failed to add project: ${e}`
+      set({ error: reason })
+      return { ok: false, reason }
     }
   },
 
-  async updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string) {
+  async updateProject(id: string, name: string, projectType: string, repoPath: string, domain: string, context = {}) {
     try {
-      await api.updateProject({ id, name, projectType, repoPath, domain })
-      await get().loadProjects()
-      if (get().selectedProjectId === id) await get().selectProject(id)
+      const project = await api.updateProject({ id, name, projectType, repoPath, domain, ...context })
+      await get().refreshProjectSurfaces({ includeProjects: true })
+      return { ok: true, project }
     } catch (e) {
-      set({ error: `Failed to update project: ${e}` })
+      const reason = `Failed to update project: ${e}`
+      set({ error: reason })
+      return { ok: false, reason }
+    }
+  },
+
+  async confirmProjectContext(req) {
+    try {
+      const result = await api.projectContextConfirm(req)
+      if (!result.ok || !result.project) return result
+      set((state) => ({
+        projects: state.projects.map((project) => project.id === result.project!.id ? result.project! : project),
+        dashboard: state.dashboard?.project.id === result.project!.id
+          ? { ...state.dashboard, project: result.project! }
+          : state.dashboard,
+      }))
+      await get().refreshProjectSurfaces({ includeProjects: true })
+      return result
+    } catch (error) {
+      const reason = `Failed to confirm project context: ${error}`
+      set({ error: reason })
+      return { ok: false, reason }
     }
   },
 
   async deleteProject(id: string) {
     try {
       await api.deleteProject(id)
-      if (get().selectedProjectId === id) set({ selectedProjectId: null, dashboard: null, profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null, harnessCanonicalProposals: [] })
-      await get().loadProjects()
+      if (get().selectedProjectId === id) {
+        set({
+          selectedProjectId: null, dashboard: null, resumeCard: null, resumeBannerOpen: false,
+          profiles: [], harnessRuns: [], selectedHarnessRunId: null, harnessMessage: null,
+          harnessCanonicalProposals: [], harnessReviewDecisions: {},
+        })
+      }
+      await get().refreshProjectSurfaces({ includeProjects: true })
     } catch (e) {
       set({ error: `Failed to delete project: ${e}` })
     }
   },
 
   async selectProject(projectId: string) {
+    const revision = get().projectSurfaceRevision
     try {
       set({ selectedProjectId: projectId, dashboard: null })
       const dashboard = await api.projectDashboard({ projectId })
-      if (get().selectedProjectId !== projectId) return // stale response guard
+      if (get().projectSurfaceRevision !== revision || get().selectedProjectId !== projectId) return
       set({ dashboard })
       get().hydrateHarnessProject(projectId)
     } catch (e) {
-      if (get().selectedProjectId !== projectId) return
+      if (get().projectSurfaceRevision !== revision || get().selectedProjectId !== projectId) return
       set({ error: `Failed to load dashboard: ${e}` })
     }
   },
 
   async loadWorkspaceOverview() {
+    const revision = get().projectSurfaceRevision
     try {
       const workspaceOverview = await api.workspaceOverview()
-      set({ workspaceOverview })
+      if (get().projectSurfaceRevision === revision) set({ workspaceOverview })
     } catch (e) {
-      set({ error: `Failed to load workspace overview: ${e}` })
+      if (get().projectSurfaceRevision === revision) set({ error: `Failed to load workspace overview: ${e}` })
     }
   },
 
   async loadResumeCard(projectId) {
+    const revision = get().projectSurfaceRevision
     const card = await api.resumeCard(projectId)
+    if (get().projectSurfaceRevision !== revision || get().selectedProjectId !== projectId) return
     set({ resumeCard: card, resumeBannerOpen: Boolean(card?.hasHistory) })
   },
   openResumeBanner() { set({ resumeBannerOpen: true }) },
@@ -341,8 +520,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     if (!pid) return
     const res = await api.nextNoteAdd({ projectId: pid, text })
     if (res.ok && res.note) {
-      const card = get().resumeCard
-      if (card && card.project.id === pid) set({ resumeCard: { ...card, nextNotes: [res.note, ...card.nextNotes], hasHistory: true } })
+      await get().refreshProjectSurfaces()
     }
   },
 
@@ -381,6 +559,7 @@ export const useStore = create<ApcStore>((set, get) => ({
     const runs = loadHarnessRuns(projectId)
     const config = loadHarnessConfig(projectId) ?? createDefaultHarnessConfig()
     const selectedHarnessRunId = loadHarnessSelectedRun(projectId) ?? runs[0]?.runState.runId ?? null
+    const selectedBundle = runs.find((bundle) => bundle.runState.runId === selectedHarnessRunId)
     set((state) => ({
       ...updateHarnessConfig(state, projectId, config),
       harnessRuns: runs,
@@ -389,24 +568,45 @@ export const useStore = create<ApcStore>((set, get) => ({
       harnessCanonicalProposals: [],  // hashes are run-specific; clear until the next refresh re-captures
       harnessPromoteBlockedReason: null,
       harnessCanonicalBlock: null,
+      harnessReviewDecisions: readReviewDecisions(selectedBundle?.artifacts ?? []),
     }))
   },
 
   selectHarnessRun(runId: string) {
     const projectId = get().selectedProjectId
     if (!projectId) return
+    const bundle = get().harnessRuns.find((item) => item.runState.runId === runId)
     // canonical hashes belong to the previously-selected run — clear so we never promote against the wrong run
-    set({ selectedHarnessRunId: runId, harnessCanonicalProposals: [], harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+    set({
+      selectedHarnessRunId: runId,
+      harnessCanonicalProposals: [],
+      harnessPromoteBlockedReason: null,
+      harnessCanonicalBlock: null,
+      harnessReviewDecisions: readReviewDecisions(bundle?.artifacts ?? []),
+    })
     saveHarnessSelectedRun(projectId, runId)
   },
 
-  async startHarnessRun(materialize = false, fullRegen = false, interactive = false) {
+  async startHarnessRun(materialize = false, fullRegen = false, interactive = false, projectContext?: ProjectStructureHintDto) {
     const projectId = get().selectedProjectId
     if (!projectId) { set({ error: 'Select a project first.' }); return }
-    const config = getHarnessConfig(get(), projectId)
-    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+    const storedConfig = getHarnessConfig(get(), projectId)
+    const config: HarnessConfig = {
+      ...storedConfig,
+      model: { ...storedConfig.model, engine: WIKI_GENERATION_ENGINE, permissionMode: undefined },
+    }
+    set({ harnessLoading: true, harnessMessage: null, harnessCanonicalProposals: [], harnessProgress: null, harnessLiveLabel: null, harnessLiveTail: [], harnessLiveNodes: [], harnessLiveNodesRunId: null, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null, harnessReviewDecisions: {} })
     try {
-      const started = await api.harnessRun({ projectId, engine: config.model.engine, materialize, engineOptions: modelSettingsToEngineOptions(config.model), workerConcurrency: config.model.workerConcurrency, fullRegen, ...(interactive ? { interactive: true } : {}) })
+      const started = await api.harnessRun({
+        projectId,
+        engine: WIKI_GENERATION_ENGINE,
+        materialize,
+        engineOptions: modelSettingsToEngineOptions(config.model),
+        workerConcurrency: config.model.workerConcurrency,
+        fullRegen,
+        ...(interactive ? { interactive: true } : {}),
+        ...(projectContext ? { projectContext } : {}),
+      })
       if (!started.runId) throw new Error(started.reason ?? 'Harness run did not return a run id')
       const shown = await api.harnessGetRun({ runId: started.runId })
       if (shown.ok && shown.runState) {
@@ -416,6 +616,7 @@ export const useStore = create<ApcStore>((set, get) => ({
           ...updateHarnessConfig(state, projectId, config),
           harnessRuns: runs,
           selectedHarnessRunId: bundle.runState.runId,
+          harnessReviewDecisions: readReviewDecisions(bundle.artifacts),
           harnessMessage: `${started.runId} → ${started.finalState ?? bundle.runState.state}`,
         }))
         persistProjectRuns(projectId, runs, bundle.runState.runId)
@@ -442,7 +643,14 @@ export const useStore = create<ApcStore>((set, get) => ({
       if (!shown.ok || !shown.runState) throw new Error(shown.reason ?? 'Run not found')
       const bundle: HarnessRunBundle = { runState: shown.runState, artifacts: shown.artifacts ?? [] }
       const runs = upsertRun(get().harnessRuns, bundle)
-      set({ harnessRuns: runs, selectedHarnessRunId: targetRunId, harnessMessage: `Refreshed ${targetRunId}`, harnessPromoteBlockedReason: null, harnessCanonicalBlock: null })
+      set({
+        harnessRuns: runs,
+        selectedHarnessRunId: targetRunId,
+        harnessReviewDecisions: readReviewDecisions(bundle.artifacts),
+        harnessMessage: `Refreshed ${targetRunId}`,
+        harnessPromoteBlockedReason: null,
+        harnessCanonicalBlock: null,
+      })
       persistProjectRuns(projectId, runs, targetRunId)
       await get().loadCanonicalProposals(targetRunId)  // capture canonical hashes as of this view
     } catch (e) {
@@ -489,11 +697,121 @@ export const useStore = create<ApcStore>((set, get) => ({
     }
   },
 
+  async setReviewVerdict(proposalIds, verdict) {
+    const runId = get().selectedHarnessRunId
+    const projectId = get().selectedProjectId
+    if (!runId || !projectId) return
+    const ids = [...new Set(proposalIds.filter(Boolean))]
+    if (!ids.length) return
+
+    const previous = get().harnessReviewDecisions
+    const next: ReviewDecisionMap = { ...previous }
+    for (const proposalId of ids) {
+      if (verdict === null) delete next[proposalId]
+      else next[proposalId] = verdict
+    }
+    set({ harnessReviewDecisions: next })
+
+    const decided_at = new Date().toISOString()
+    const decisions = Object.entries(next).map(([proposal_id, decisionVerdict]) => ({
+      proposal_id,
+      verdict: decisionVerdict,
+      decided_at,
+    }))
+    // The IPC operation replaces the whole artifact. Serialize writes per run so rapid approve/exclude
+    // clicks cannot arrive out of order and let an older snapshot overwrite the newest one.
+    const prior = reviewDecisionWrites.get(runId) ?? Promise.resolve()
+    const write = prior.catch(() => undefined).then(async () => {
+      try {
+        const response = await api.harnessSetReviewDecisions({ runId, decisions })
+        if (!response.ok) throw new Error(response.reason ?? 'unknown')
+
+        const current = get()
+        if (current.selectedProjectId === projectId) {
+          const runs = attachReviewDecisions(current.harnessRuns, runId, decisions)
+          set({ harnessRuns: runs })
+          persistProjectRuns(projectId, runs, current.selectedHarnessRunId)
+        } else {
+          // The user changed projects while the write was in flight. Keep that project's cache truthful
+          // without touching the newly selected project's in-memory run list.
+          saveHarnessRuns(projectId, attachReviewDecisions(loadHarnessRuns(projectId), runId, decisions))
+        }
+      } catch (error) {
+        // Roll back only if this exact optimistic snapshot is still visible. A newer click or run switch
+        // owns the state now and must never be overwritten by this older response.
+        if (
+          get().selectedProjectId === projectId
+          && get().selectedHarnessRunId === runId
+          && get().harnessReviewDecisions === next
+        ) {
+          set({
+            harnessReviewDecisions: previous,
+            harnessMessage: `판단 저장 실패: ${error instanceof Error ? error.message : String(error)}`,
+          })
+        }
+      }
+    })
+    reviewDecisionWrites.set(runId, write)
+    await write
+    if (reviewDecisionWrites.get(runId) === write) reviewDecisionWrites.delete(runId)
+  },
+
   async promoteHarnessRun(runId?: string, allowInvalid = false) {
     const targetRunId = runId ?? get().selectedHarnessRunId
     if (!targetRunId) { set({ error: 'Select a harness run first.' }); return }
+
+    const selectedState = get()
+    const targetBundle = selectedState.harnessRuns.find((bundle) => bundle.runState.runId === targetRunId)
+    const proposalIds = new Set(
+      ((targetBundle?.artifacts.find((artifact) => artifact.name === 'node-proposals')?.data as
+        { proposals?: Array<{ proposal_id?: unknown }> } | undefined)?.proposals ?? [])
+        .map((proposal) => proposal.proposal_id)
+        .filter((proposalId): proposalId is string => typeof proposalId === 'string' && proposalId.length > 0),
+    )
+    const reviewGated = proposalIds.size > 0
+    const decisionSnapshot = targetRunId === selectedState.selectedHarnessRunId
+      ? selectedState.harnessReviewDecisions
+      : readReviewDecisions(targetBundle?.artifacts ?? [])
+    const decidedAt = new Date().toISOString()
+    const decisions = Object.entries(decisionSnapshot)
+      .filter(([proposalId]) => proposalIds.has(proposalId))
+      .map(([proposal_id, verdict]) => ({ proposal_id, verdict, decided_at: decidedAt }))
+
+    if (reviewGated && !decisions.some((decision) => decision.verdict === 'approved')) {
+      set({
+        harnessMessage: 'Promote failed: 승인된 항목이 없습니다 — 검수 탭에서 항목을 승인한 뒤 반영하세요',
+        harnessPromoteBlockedReason: null,
+      })
+      return
+    }
+
     try {
-      const promoted = await api.harnessPromote(allowInvalid ? { runId: targetRunId, allowInvalid: true } : { runId: targetRunId })
+      let promoted
+      const promote = async () => api.harnessPromote(
+        allowInvalid ? { runId: targetRunId, allowInvalid: true } : { runId: targetRunId },
+      )
+
+      if (reviewGated) {
+        // The verdict buttons update optimistically. Put one final full-artifact write on the same
+        // per-run queue and promote only after it succeeds, so a fast approve -> promote click can
+        // never fall through to the service's legacy "artifact absent = promote everything" path.
+        const prior = reviewDecisionWrites.get(targetRunId) ?? Promise.resolve()
+        const barrier = prior.catch(() => undefined).then(async () => {
+          const saved = await api.harnessSetReviewDecisions({ runId: targetRunId, decisions })
+          if (!saved.ok) throw new Error(`판단 저장 실패: ${saved.reason ?? 'unknown'}`)
+          promoted = await promote()
+        })
+        reviewDecisionWrites.set(targetRunId, barrier)
+        try {
+          await barrier
+        } finally {
+          if (reviewDecisionWrites.get(targetRunId) === barrier) reviewDecisionWrites.delete(targetRunId)
+        }
+      } else {
+        promoted = await promote()
+      }
+
+      if (!promoted) throw new Error('promote response missing')
       if (!promoted.ok) {
         const reason = promoted.reason ?? 'unknown reason'
         // Surface a force-override affordance only for gates allowInvalid can lift (graph/markdown/link),
@@ -503,9 +821,16 @@ export const useStore = create<ApcStore>((set, get) => ({
         return
       }
       await get().refreshHarnessRun(targetRunId)  // clears harnessPromoteBlockedReason on its success path
-      set({ harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)${allowInvalid ? ' (검증 무시)' : ''}`, harnessPromoteBlockedReason: null })
+      const extra = [
+        promoted.skippedByReview?.length ? `검수 제외 ${promoted.skippedByReview.length}건 반영 안 함` : null,
+        promoted.danglingLinks ? `미해결 링크 ${promoted.danglingLinks}건` : null,
+      ].filter(Boolean).join(' · ')
+      set({
+        harnessMessage: `Promoted ${promoted.promoted?.length ?? 0} file(s)${extra ? ` — ${extra}` : ''}${allowInvalid ? ' (검증 무시)' : ''}`,
+        harnessPromoteBlockedReason: null,
+      })
     } catch (e) {
-      set({ error: `Harness promote failed: ${e}` })
+      set({ harnessMessage: `Promote failed: ${e instanceof Error ? e.message : String(e)}`, harnessPromoteBlockedReason: null })
     }
   },
 
@@ -569,7 +894,10 @@ export const useStore = create<ApcStore>((set, get) => ({
     const projectId = get().selectedProjectId
     if (!projectId) return
     const current = getHarnessConfig(get(), projectId)
-    const next = { ...current, model: { ...current.model, ...patch } }
+    const next: HarnessConfig = {
+      ...current,
+      model: { ...current.model, ...patch, engine: WIKI_GENERATION_ENGINE, permissionMode: undefined },
+    }
     set((state) => updateHarnessConfig(state as ApcStore, projectId, next))
     saveHarnessConfig(projectId, next)
   },
@@ -617,10 +945,10 @@ export const useStore = create<ApcStore>((set, get) => ({
     })
   },
 
-  async proposeWikiPolicy(projectId, engine) {
+  async proposeWikiPolicy(projectId) {
     set({ wikiPolicyBusy: true, wikiPolicyMessage: null })
     try {
-      const res = await api.harnessProposePolicy({ projectId, engine })
+      const res = await api.harnessProposePolicy({ projectId, engine: WIKI_GENERATION_ENGINE })
       if (res.ok && res.proposal) {
         set({
           wikiPolicyPreview: res.effectivePreview ?? null,

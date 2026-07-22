@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { FakeAgentRunner, type AgentRunner } from '@apc/llm-wiki'
 import { RunLock, RunArtifactStore, readPolicy, resolveProjectPreamble, writeProposedPolicy, approvePolicy } from '@apc/knowledge-harness'
 import type { AgentIngestAdapter } from '@apc/agents'
-import type { AgentSource, NormalizedSession } from '@apc/shared'
+import type { AgentSource, NormalizedSession, WikiRunEvent } from '@apc/shared'
 import { KhProjectPolicyProposalSchema, RunStateSchema } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
 
@@ -179,7 +179,7 @@ describe('HarnessService', () => {
       '  auto_create_write_plan: true',
       '  auto_write_to_staging: true',
     ].join('\n'))
-    const mk = (runner: FakeAgentRunner) => new HarnessService({
+    const mk = (runner: AgentRunner) => new HarnessService({
       runner, vaultRoot: join(ws, 'vault'), runsRoot: join(ws, 'runs'),
       gatesPath: gatesFile, preamble: 'RULES', now: () => '2026-06-02T00:00:00Z',
     })
@@ -196,11 +196,31 @@ describe('HarnessService', () => {
     // operator reopens the gate, then resumes — a FRESH runner seeded only with the states that re-run
     writeGates(true)
     const lead = { graph_update_plan: { created_by: 'lead' }, shared_promotion_plan: { created_by: 'lead' }, stale_doc_report: { generated_by: 'lead' }, write_plan: { write_plan_id: 'WP-1', created_by: 'lead', operations: [{ op: 'create_file', path: 'concepts/n1.md', content: '# T\n' }] } }
-    const resumed = await mk(new FakeAgentRunner([
+    const fake = new FakeAgentRunner([
       JSON.stringify({ proposals: [{ proposal_id: 'NP-1', proposed_by: 'extractor', created_at: '2026-06-02T00:00:00Z', node: { id: 'n1', type: 'ConceptNode', title: 'T' }, evidence: [{ evidence_id: 'EV-1', source_id: 's', source_path: 'raw/a', evidence_type: 'd' }], claims: [{ claim_id: 'CL-1', text: 'x', evidence_ids: ['EV-1'] }] }] }),
       JSON.stringify(lead),
-    ])).resume({ runId: first.runId })
+    ])
+    const streamingRunner: AgentRunner = {
+      async run(input) {
+        const result = await fake.run(input)
+        input.onChunk?.('stdout', result.output)
+        return result
+      },
+    }
+    const legacyProgress: string[] = []
+    const legacyLogs: string[] = []
+    const legacyNodes: string[] = []
+    const resumed = await mk(streamingRunner).resume(
+      { runId: first.runId },
+      undefined,
+      (state) => legacyProgress.push(state.state),
+      (event) => legacyLogs.push(event.chunk),
+      (event) => legacyNodes.push(...event.nodes.map((node) => node.title)),
+    )
     expect(resumed.finalState).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(legacyProgress).toContain('NODE_PROPOSALS_CREATED')
+    expect(legacyLogs.join('')).toContain('NP-1')
+    expect(legacyNodes).toContain('T')
   })
 
   test('resume reports an unknown run', async () => {
@@ -394,12 +414,89 @@ describe('HarnessService engine logging', () => {
       run: async (i) => { i.onChunk?.('stdout', 'scanning…'); return { ok: false, output: '', raw: 'dead' } },
     }
     const svc = new HarnessService({ runner: streaming, vaultRoot, runsRoot: join(tmp, 'runs') })
-    const events: Array<{ label: string; stream: string; chunk: string }> = []
-    await svc.run({ projectId: 'p1', engine: 'codex' }, undefined, (e) => events.push(e))
+    const events: Array<{ runId: string; label: string; stream: string; chunk: string }> = []
+    const result = await svc.run({ projectId: 'p1', engine: 'codex' }, undefined, (e) => events.push(e))
     expect(events).toEqual([
-      { label: 'workspace', stream: 'stdout', chunk: 'domain: project-docs\n' },
-      { label: 'PROJECT_SCANNED-project-discovery', stream: 'stdout', chunk: 'scanning…' },
+      { runId: result.runId, label: 'workspace', stream: 'stdout', chunk: 'domain: project-docs\n' },
+      { runId: result.runId, label: 'PROJECT_SCANNED-project-discovery', stream: 'stdout', chunk: 'scanning…' },
     ])
+  })
+})
+
+describe('HarnessService progress replay queries', () => {
+  test('lists and replays persisted progress, and lazily reads only capped output logs', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hs-replay-'))
+    const vaultRoot = join(tmp, 'vault')
+    const runsRoot = join(tmp, 'runs')
+    mkdirSync(join(vaultRoot, 'raw'), { recursive: true })
+    writeFileSync(join(vaultRoot, 'raw', 'a'), 'evidence source\n')
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot,
+      runsRoot,
+      gatesPath,
+      preamble: 'RULES-PRIVATE-PROMPT',
+      now: () => '2026-07-20T10:00:00Z',
+    })
+    const live: WikiRunEvent[] = []
+    const result = await svc.run(
+      { projectId: 'p1', engine: 'codex' },
+      undefined,
+      undefined,
+      undefined,
+      (event) => { live.push(event) },
+    )
+
+    const progress = svc.getProgress({ runId: result.runId })
+    expect(progress.ok).toBe(true)
+    if (!progress.ok) return
+    expect(progress.active).toBe(false)
+    expect(progress.summary).toMatchObject({ runId: result.runId, projectId: 'p1', status: 'completed' })
+    expect(progress.events.map((event) => event.eventId)).toEqual(live.map((event) => event.eventId))
+    expect(progress.events.at(0)?.kind).toBe('run_started')
+    expect(progress.events.at(-1)?.kind).toBe('run_completed')
+
+    const listed = svc.listRuns({ projectId: 'p1', limit: 1 })
+    expect(listed).toMatchObject({ ok: true, runs: [{ runId: result.runId, active: false }] })
+
+    const first = svc.readLog({ runId: result.runId, limit: 32 })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    expect(first.content).toContain('== ')
+    expect(first.content).not.toContain('RULES-PRIVATE-PROMPT')
+    expect(first.nextOffset).toBeLessThanOrEqual(32)
+    expect(first.truncated).toBe(true)
+    const next = svc.readLog({ runId: result.runId, offset: first.nextOffset, limit: 32 })
+    expect(next.ok).toBe(true)
+    if (next.ok) expect(next.nextOffset).toBeGreaterThan(first.nextOffset)
+
+    expect(svc.getProgress({ runId: '../escape' })).toMatchObject({ ok: false, reason: 'invalid run id: ../escape' })
+    expect(svc.readLog({ runId: '../escape' })).toMatchObject({ ok: false, reason: 'invalid run id: ../escape' })
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('a throwing activity sink is diagnostic-only and does not fail the run', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'hs-sink-'))
+    const vaultRoot = join(tmp, 'vault')
+    mkdirSync(join(vaultRoot, 'raw'), { recursive: true })
+    writeFileSync(join(vaultRoot, 'raw', 'a'), 'evidence source\n')
+    const svc = new HarnessService({
+      runner: new FakeAgentRunner(cannedOutputs()),
+      vaultRoot,
+      runsRoot: join(tmp, 'runs'),
+      gatesPath,
+      preamble: 'RULES',
+    })
+    const result = await svc.run(
+      { projectId: 'p1', engine: 'codex' },
+      undefined,
+      undefined,
+      undefined,
+      () => { throw new Error('renderer closed') },
+    )
+    expect(result.ok, result.reason).toBe(true)
+    expect(svc.getProgress({ runId: result.runId })).toMatchObject({ ok: true, summary: { status: 'completed' } })
+    rmSync(tmp, { recursive: true, force: true })
   })
 })
 

@@ -33,7 +33,10 @@ function runStateLabel(state: string | undefined): string {
 }
 
 export function KnowledgeView() {
-  const { selectedProjectId, projects, harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading } = useStore()
+  const {
+    selectedProjectId, projectSurfaceRevision, projects,
+    harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading,
+  } = useStore()
   // Paper-domain projects publish autosci's own knowledge graph (wiki/<type>/<slug>.md + edges.jsonl);
   // project-docs projects don't, so the graph source differs by domain.
   const domain = projects.find((p) => p.id === selectedProjectId)?.domain
@@ -126,7 +129,7 @@ export function KnowledgeView() {
       if (!stale) setProjectDocs(res.docs.filter((d) => /\.mdx?$/i.test(d.relPath)))
     })
     return () => { stale = true }
-  }, [selectedProjectId])
+  }, [projectSurfaceRevision, selectedProjectId])
 
   useEffect(() => {
     if (!selectedProjectId) { setProjectWiki(null); setGraphSource('run'); return }

@@ -1,0 +1,336 @@
+import { expect, test, type Page } from '@playwright/test'
+import { expectElementContained, expectNoOverlap, expectSingleLineButton, expectViewportContained } from './layout-contracts.js'
+
+const PROJECT_ID = 'qa-project-01'
+
+async function openFixture(page: Page, scenario: string): Promise<void> {
+  await page.goto(`/?fixture=${scenario}`)
+  await expect(page.locator('html')).toHaveAttribute('data-apc-fixture', scenario)
+  await expect(page.getByRole('tab', { name: '전체', exact: true })).toBeVisible()
+}
+
+async function openTab(page: Page, name: '전체' | '홈' | '문서' | '지식' | '위키 생성' | '회고'): Promise<void> {
+  await page.getByRole('tab', { name, exact: name !== '위키 생성' }).click()
+  await expect(page.getByRole('tab', { name, exact: name !== '위키 생성' })).toHaveAttribute('aria-selected', 'true')
+}
+
+test('empty-project: 빈 프로젝트와 빈 workspace를 결정적으로 렌더한다', async ({ page }) => {
+  await openFixture(page, 'empty-project')
+  await expect(page.getByText('프로젝트 없음', { exact: true })).toBeVisible()
+  await expect(page.getByText('아직 프로젝트가 없습니다', { exact: true })).toBeVisible()
+  await expectViewportContained(page)
+})
+
+test('many-projects-docs: 프로젝트 다수와 문서 240개를 실제 renderer에 공급한다', async ({ page }) => {
+  await openFixture(page, 'many-projects-docs')
+  await expect(page.locator('.workspace-card')).toHaveCount(18)
+  await openTab(page, '지식')
+  await expect(page.locator('.knowledge__tree-item')).toHaveCount(240)
+  await expect(page.getByText('docs/section-01/architecture-and-quality-contract-001.md', { exact: true })).toBeVisible()
+  await expectViewportContained(page)
+})
+
+test('wiki-generating: 실행 중 progress, 긴 로그, live node 이벤트를 고정한다', async ({ page }) => {
+  await openFixture(page, 'wiki-generating')
+  await openTab(page, '위키 생성')
+
+  const start = page.locator('.start-run-dropdown > button')
+  await expectSingleLineButton(start)
+  await start.click()
+  await page.getByRole('menuitem', { name: /^전체 문서/ }).click()
+  await page.getByRole('button', { name: '이 설정으로 위키 생성' }).click()
+
+  const progress = page.getByRole('region', { name: '위키 생성 진행' })
+  await expect(progress.getByText('생성 중', { exact: true }).first()).toBeVisible()
+  await expect(page.getByTestId('wikigen-running-dot')).toBeVisible()
+  await progress.getByRole('button', { name: '상세 로그 보기 ▾' }).click()
+  await expect(progress.locator('.wiki-progress__log')).toContainText('문서와 세션을 분석 중입니다')
+  await expect(progress.locator('.wiki-progress__log')).toContainText('stderr-with-a-very-long-filename.log')
+  await expectViewportContained(page)
+})
+
+test('auth-failure-long-path: 401과 긴 로그 경로 및 B2 구분자를 보존한다', async ({ page }) => {
+  await openFixture(page, 'auth-failure-long-path')
+  await openTab(page, '위키 생성')
+
+  await expect(page.locator('.wikigen__error')).toContainText('HTTP 401 Unauthorized')
+  await expect(page.locator('.wikigen__error')).toContainText('stderr-with-a-very-long-filename.log')
+  await expect(page.locator('.harness-run-list__footer span')).toContainText('오후 9:25 · 0 artifacts')
+  const headerTextWidth = await page.locator('.harness-run-list__header > div:first-child').evaluate((element) => element.getBoundingClientRect().width)
+  expect(headerTextWidth).toBeGreaterThan(180)
+  await expectElementContained(page.locator('.wikigen__main'))
+  await expectViewportContained(page)
+})
+
+test('many-changes: 변경 파일 20개 이상을 dialog와 내부 스크롤로 처리한다', async ({ page }) => {
+  await openFixture(page, 'many-changes')
+  await page.keyboard.press('Control+Shift+D')
+  const dialog = page.getByRole('dialog', { name: '변경사항' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('.diff-panel__totals')).toContainText('파일 24')
+  await expect(dialog.locator('.diff-panel__item')).toHaveCount(24)
+  await expectElementContained(dialog)
+  await expectViewportContained(page)
+})
+
+test('daily-retro: 변경 증거와 Teach-back을 채워야 Receipt를 발급한다', async ({ page }) => {
+  await openFixture(page, 'many-changes')
+  await openTab(page, '회고')
+
+  await expect(page.getByText(/Push 전에 내가 변경을 이해했는지/)).toBeVisible()
+  const project = page.locator('.retro-project').first()
+  await expect(project).toBeVisible()
+  await expect(project.getByText('feat: Learning Gate fixture flow')).toBeVisible()
+
+  const receipt = project.getByRole('button', { name: 'Receipt 발급', exact: true })
+  await expect(receipt).toBeDisabled()
+  const answers = project.locator('.retro-project__questions textarea')
+  await expect(answers).toHaveCount(5)
+  for (let index = 0; index < 5; index += 1) await answers.nth(index).fill(`내가 설명한 답변 ${index + 1}`)
+  await project.getByLabel('직접 확인한 검증 근거').fill('pnpm test 전체 통과')
+  await project.getByLabel('위험·아직 확인하지 못한 것').fill('없음')
+
+  await expect(receipt).toBeEnabled()
+  await receipt.click()
+  await expect(project.getByText(/Receipt 발급 완료/)).toBeVisible()
+  await expectViewportContained(page)
+})
+
+test('large-graph: 노드 96개와 엣지 180개의 graph fixture를 렌더한다', async ({ page }) => {
+  await openFixture(page, 'large-graph')
+  await openTab(page, '지식')
+  await page.getByRole('button', { name: '그래프', exact: true }).click()
+  await expect(page.locator('.cy-canvas')).toBeVisible()
+
+  const counts = await page.evaluate(async (projectId) => {
+    const result = await window.apc.invoke('c:readProjectWiki', { projectId }) as { nodes: unknown[]; edges: unknown[] }
+    return { nodes: result.nodes.length, edges: result.edges.length }
+  }, PROJECT_ID)
+  expect(counts).toEqual({ nodes: 96, edges: 180 })
+  await expectViewportContained(page)
+})
+
+test('long-korean-narrow: 좁은 viewport에서도 버튼 nowrap과 비겹침 계약을 지킨다', async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 800 })
+  await openFixture(page, 'long-korean-narrow')
+  await openTab(page, '위키 생성')
+
+  await expectSingleLineButton(page.locator('.start-run-dropdown > button'))
+  await expectNoOverlap(page.locator('.harness-run-list__actions button'))
+  await expect(page.getByRole('button', { name: /긴 한글 프로젝트 이름/ })).toBeVisible()
+  await expectViewportContained(page)
+})
+
+test('conversation-history: 세 에이전트, 최신순, 3일 이전 더 불러오기와 질문 답변을 렌더한다', async ({ page }) => {
+  await page.goto('/?fixture=many-projects-docs&history=1')
+  await expect(page.locator('html')).toHaveAttribute('data-apc-fixture', 'many-projects-docs')
+  await page.getByRole('button', { name: '질문 히스토리' }).click()
+
+  await expect(page.getByRole('tab', { name: '히스토리' })).toHaveAttribute('aria-selected', 'true')
+  const panel = page.getByRole('tabpanel')
+  await expect(panel.getByRole('tab', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
+  await expect(panel.locator('.question-history__session')).toHaveCount(1)
+  const questions = panel.locator('.question-history__question-text')
+  await expect(questions.nth(0)).toHaveText('codex 최신 질문이 먼저 보이는지 확인해 줘')
+  await expect(questions.nth(1)).toHaveText('codex 대화 히스토리 화면을 검증해 줘')
+  await panel.getByRole('button', { name: /^Q2 codex 대화 히스토리 화면을 검증해 줘/ }).click()
+  await expect(panel.getByRole('region', { name: 'Q2 답변' })).toContainText('세션 목록과 질문 아코디언을 확인했습니다.')
+
+  await panel.getByRole('tab', { name: 'Claude' }).click()
+  await expect(panel.getByText('claude 대화 히스토리 화면을 검증해 줘').first()).toBeVisible()
+
+  await panel.getByRole('tab', { name: 'OpenCode' }).click()
+  await expect(panel.getByText('opencode 대화 히스토리 화면을 검증해 줘').first()).toBeVisible()
+  await panel.getByRole('button', { name: '3일 이전 대화 더 불러오기' }).click()
+  await expect(panel.locator('.question-history__session')).toHaveCount(2)
+  const sessionPreviews = panel.locator('.question-history__session-preview')
+  await expect(sessionPreviews.nth(0)).toHaveText('opencode 대화 히스토리 화면을 검증해 줘')
+  await expect(sessionPreviews.nth(1)).toHaveText('opencode 3일 이전 대화')
+  await expect(panel.getByRole('button', { name: '3일 이전 대화 더 불러오기' })).toHaveCount(0)
+  await expectElementContained(panel)
+  await expectViewportContained(page)
+})
+
+test('worktree-agent-dock: worktree 전환과 동적 에이전트 추가를 실제 renderer에서 처리한다', async ({ page }) => {
+  await openFixture(page, 'many-projects-docs')
+
+  const featureWorktree = page.getByRole('tab', { name: 'feat/fixture-browser-qa', exact: true })
+  await expect(featureWorktree).toBeVisible()
+  await featureWorktree.click()
+  await expect(featureWorktree).toHaveAttribute('aria-selected', 'true')
+  const activePanes = page.locator('.agent-panes:visible')
+  await expect(activePanes.getByText('이 worktree에는 아직 에이전트가 없습니다.', { exact: true })).toBeVisible()
+  await expect(activePanes.locator('.agent-pane')).toHaveCount(0)
+
+  await page.getByRole('button', { name: '에이전트 추가', exact: true }).click()
+  await page.getByRole('menuitem', { name: /Codex/ }).click()
+  await expect(page.getByRole('button', { name: 'Codex 에이전트 제거', exact: true })).toBeVisible()
+  await expect(activePanes.locator('.agent-pane')).toHaveCount(1)
+  await expectViewportContained(page)
+})
+
+test('agent-terminal-ime: 한글 조합 입력을 PTY에 한 번만 전달한다', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'CDP IME 입력 재현은 Chromium에서만 지원한다.')
+  await openFixture(page, 'many-projects-docs')
+
+  await page.getByRole('tab', { name: 'feat/fixture-browser-qa', exact: true }).click()
+  await page.getByRole('button', { name: '에이전트 추가', exact: true }).click()
+  await page.getByRole('menuitem', { name: /Codex/ }).click()
+
+  const terminalInput = page.locator('.agent-panes:visible .xterm-helper-textarea')
+  await expect(terminalInput).toHaveCount(1)
+  const inputGeometry = await terminalInput.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { minHeight: style.minHeight, padding: style.padding, borderWidth: style.borderWidth }
+  })
+  expect(inputGeometry).toEqual({ minHeight: '0px', padding: '0px', borderWidth: '0px' })
+
+  await page.evaluate(() => {
+    const state = window as typeof window & { __qaPtyWrites?: string[] }
+    state.__qaPtyWrites = []
+    const writePty = window.apc.writePty
+    window.apc.writePty = (request) => {
+      state.__qaPtyWrites?.push(request.data)
+      writePty(request)
+    }
+    document.querySelector<HTMLTextAreaElement>('.agent-panes:not([style*="display: none"]) .xterm-helper-textarea')?.focus()
+  })
+
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.imeSetComposition', { text: 'ㅎ', selectionStart: 1, selectionEnd: 1 })
+  await cdp.send('Input.imeSetComposition', { text: '하', selectionStart: 1, selectionEnd: 1 })
+  await cdp.send('Input.insertText', { text: '한글' })
+
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __qaPtyWrites?: string[] }
+  ).__qaPtyWrites)).toEqual(['한글'])
+})
+
+test('live-ux-contracts: context provenance, Task sources, notes, and five activity states', async ({ page }) => {
+  await openFixture(page, 'live-ux-contracts')
+
+  const card = page.getByTestId(`workspace-card-${PROJECT_ID}`)
+  await expect(card.getByText('사용자 작성', { exact: true })).toBeVisible()
+  await expect(card.getByText('AI 제안 · 사용자 확정', { exact: true })).toBeVisible()
+  const activity = card.getByRole('list', { name: '에이전트 활동' })
+  await expect(activity.locator('li')).toHaveCount(5)
+  for (const status of ['작업 중', '응답 대기', '유휴', '오류', '연결 끊김']) {
+    await expect(activity.getByText(status, { exact: true })).toBeVisible()
+  }
+  await expect(activity.getByText('[민감한 질문]', { exact: true })).toBeVisible()
+  await expect(activity.getByText(/docs\/fixture-guide\.md를 먼저 확인할까요/)).toBeVisible()
+
+  await card.getByRole('button', { name: 'APC 시각 품질 보증', exact: true }).click()
+  const board = page.locator('.pm-board')
+  for (const source of ['직접 생성', '대화 추출', '메모 전환', '리뷰 생성', '시스템']) {
+    await expect(board.getByText(`출처: ${source}`, { exact: true }).first()).toBeVisible()
+  }
+  await expect(board.getByText('사용자 수정', { exact: true }).first()).toBeVisible()
+
+  await page.getByRole('button', { name: '프로젝트 메모 (Ctrl+Shift+N)', exact: true }).click()
+  const drawer = page.getByRole('dialog', { name: '프로젝트 메모' })
+  await expect(drawer.getByRole('button', { name: '진행 중 2', exact: true })).toBeVisible()
+  await expect(drawer.locator('.project-notes__text').filter({ hasText: '고정된 진행 메모' })).toBeVisible()
+  await expect(drawer.locator('.project-notes__text').filter({ hasText: 'Task로 전환된 진행 메모' })).toBeVisible()
+  await drawer.getByRole('button', { name: '완료 1', exact: true }).click()
+  await expect(drawer.getByText('완료한 프로젝트 메모', { exact: true })).toBeVisible()
+  await drawer.getByRole('button', { name: '보관됨 1', exact: true }).click()
+  await expect(drawer.getByText('보관된 프로젝트 메모', { exact: true })).toBeVisible()
+})
+
+test('live-ux-contracts: active, quiet, stalled, completed, and failed wiki runs replay', async ({ page }) => {
+  await openFixture(page, 'live-ux-contracts')
+  await openTab(page, '위키 생성')
+
+  await expect(page.locator('.harness-run-list__item')).toHaveCount(5)
+  const progress = page.getByRole('region', { name: '위키 생성 진행' })
+  await expect(progress.getByText('생성 중', { exact: true }).first()).toBeVisible()
+  await expect(progress.locator('.wiki-progress__warning')).toHaveCount(0)
+
+  await page.getByRole('button', { name: /실행 wiki-fixture-quiet/ }).click()
+  await expect(progress.getByText('응답 대기 중', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /실행 wiki-fixture-stalled/ }).click()
+  await expect(progress.getByText('중단 가능성', { exact: true })).toBeVisible()
+
+  const completed = page.getByRole('button', { name: /실행 wiki-fixture-completed/ })
+  const failed = page.getByRole('button', { name: /실행 wiki-fixture-failed/ })
+  await expect(completed.locator('.harness-run-list__badge')).toHaveText('완료')
+  await expect(failed.locator('.harness-run-list__badge')).toHaveText('실패')
+})
+
+test('live-ux-contracts: Ctrl-click previews md, html, py and explains a rejected path', async ({ page }) => {
+  await page.goto('/?fixture=live-ux-contracts&history=1')
+  await expect(page.locator('html')).toHaveAttribute('data-apc-fixture', 'live-ux-contracts')
+  await page.getByRole('button', { name: '질문 히스토리' }).click()
+
+  const markdown = page.getByRole('link', { name: 'docs/fixture-guide.md 파일 미리보기' })
+  await expect(markdown).toBeVisible()
+  await markdown.click({ modifiers: ['Control'] })
+  let panel = page.getByRole('complementary', { name: '파일 미리보기' })
+  await expect(panel.getByText('Fixture Markdown', { exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: '파일 미리보기 닫기' }).click()
+
+  await page.getByRole('link', { name: 'reports/fixture-preview.html 파일 미리보기' })
+    .click({ modifiers: ['Control'] })
+  panel = page.getByRole('complementary', { name: '파일 미리보기' })
+  await expect(panel.getByText('html', { exact: true })).toBeVisible()
+  await expect(page.frameLocator('iframe[title="샌드박스 HTML 미리보기"]').getByText('Fixture HTML')).toBeVisible()
+  await expect(page).toHaveURL(/fixture=live-ux-contracts/)
+  await panel.getByRole('button', { name: '파일 미리보기 닫기' }).click()
+
+  await page.getByRole('link', { name: 'scripts/fixture_check.py:2 파일 미리보기' })
+    .click({ modifiers: ['Control'] })
+  panel = page.getByRole('complementary', { name: '파일 미리보기' })
+  await expect(panel.locator('[aria-label="Python source"]')).toBeVisible()
+  await expect(panel.locator('.python-preview__line--target')).toHaveAttribute('data-line', '2')
+  await expect(panel).toContainText('Fixture Python')
+
+  await expect(page.getByText('파일 미리보기를 열 수 없습니다: 프로젝트 경계를 벗어난 경로입니다.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: '../outside/secrets.py 파일 미리보기' })).toHaveCount(0)
+})
+
+test('live-ux-contracts: fake clipboard failure and scoped PTY events stay separate', async ({ page }) => {
+  await page.goto('/?fixture=live-ux-contracts&clipboard=failure')
+  await expect(page.locator('html')).toHaveAttribute('data-apc-fixture', 'live-ux-contracts')
+  const clipboard = await page.evaluate(() => window.apc.invoke('q:clipboardReadText'))
+  expect(clipboard).toEqual({ ok: false, reason: 'fixture clipboard permission denied' })
+
+  const events = await page.evaluate(async () => {
+    const data: Array<{ id: string; launchId: string; data: string }> = []
+    const activities: Array<{ pane: { paneId: string; projectId: string; worktreePath: string; slotId: string }; launchId: string }> = []
+    const offData = window.apc.onPtyDataV2((event) => data.push(event))
+    const offActivity = window.apc.onAgentActivity((event) => activities.push(event))
+    const pane = {
+      paneId: 'qa-project-01:fixture:event-smoke', projectId: 'qa-project-01',
+      worktreePath: 'C:\\qa\\workspace\\project-01', slotId: 'codex-event-smoke', agent: 'codex' as const,
+    }
+    window.apc.startPty({
+      id: pane.paneId, command: 'codex', args: [], cwd: pane.worktreePath,
+      pane, launchId: 'fixture-event-launch', agent: 'codex',
+    })
+    await new Promise((resolve) => window.setTimeout(resolve, 25))
+    offData()
+    offActivity()
+    return { data, activities }
+  })
+  expect(events.data[0]).toMatchObject({
+    id: 'qa-project-01:fixture:event-smoke', launchId: 'fixture-event-launch',
+  })
+  expect(events.activities[0]).toMatchObject({
+    launchId: 'fixture-event-launch',
+    pane: {
+      paneId: 'qa-project-01:fixture:event-smoke', projectId: 'qa-project-01',
+      worktreePath: 'C:\\qa\\workspace\\project-01', slotId: 'codex-event-smoke',
+    },
+  })
+})
+
+test('Windows 핵심 컴포넌트 snapshot: 실패 run list', async ({ page }) => {
+  test.skip(process.platform !== 'win32', 'Pixel golden은 Windows 기준 환경에서만 비교한다.')
+  await openFixture(page, 'auth-failure-long-path')
+  await openTab(page, '위키 생성')
+  await expect(page.locator('.harness-run-list')).toHaveScreenshot('failed-run-list.png', {
+    animations: 'disabled',
+    maxDiffPixels: 80,
+  })
+})

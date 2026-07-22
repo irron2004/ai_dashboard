@@ -50,7 +50,14 @@ describe('HarnessPromoteService', () => {
     writeFileSync(join(vaultRoot, 'current.md'), '# original current\n')
 
     const res = new HarnessPromoteService({ runsRoot, vaultRoot }).promote({ runId: 'RUN-1' })
-    expect(res).toEqual({ ok: true, promoted: ['concepts/n1.md'], proposals: ['current.proposal.md'], refusedCanonical: [] })
+    expect(res).toEqual({
+      ok: true,
+      promoted: ['concepts/n1.md'],
+      proposals: ['current.proposal.md'],
+      refusedCanonical: [],
+      skippedByReview: [],
+      danglingLinks: 0,
+    })
     expect(existsSync(join(vaultRoot, 'concepts', 'n1.md'))).toBe(true)
     expect(existsSync(join(vaultRoot, 'current.proposal.md'))).toBe(true)
     expect(readFileSync(join(vaultRoot, 'current.md'), 'utf8')).toContain('original current')  // untouched

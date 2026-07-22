@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import cytoscape from 'cytoscape'
-import type { GraphData, GraphNode } from './graph-types.js'
+import type { GraphData, GraphLink, GraphNode } from './graph-types.js'
 import { obsidianForceLayout } from './graph-layout.js'
 import {
   entityColor, edgeColor, confidenceClass, presentEntityTypes, groupEdgeTypes, workflowFor,
@@ -19,6 +19,16 @@ const PRESET_WORKFLOWS: Record<string, string[]> = {
   Relations:   ['relation'],
 }
 const PRESET_ORDER = ['Provenance', 'Composition', 'Evidence', 'Relations']
+
+// Large graphs stay node-first: edge elements are materialized only for the hovered/pinned node. This
+// avoids asking Cytoscape to paint thousands of mostly-invisible lines and keeps node selection responsive.
+export const FOCUSED_EDGE_NODE_THRESHOLD = 80
+export const FOCUSED_EDGE_LINK_THRESHOLD = 240
+const FOCUSED_EDGE_CAP = 80
+
+export function shouldUseFocusedEdges(data: GraphData): boolean {
+  return data.nodes.length >= FOCUSED_EDGE_NODE_THRESHOLD || data.links.length >= FOCUSED_EDGE_LINK_THRESHOLD
+}
 
 /** Make an edge label safe for use as a CSS class name (mirrors AutoSci cssSafe). */
 function cssSafe(s: string): string {
@@ -103,8 +113,26 @@ function buildStylesheet(entityTypes: string[], edgeLabels: string[]): cytoscape
   ]
 }
 
+function buildEdgeElement(link: GraphLink): cytoscape.ElementDefinition {
+  const dir = link.direction ?? 'directed'
+  const confCls = confidenceClass(link.confidence)
+  const classes = [cssSafe(link.label ?? link.kind), 'dir-' + dir, confCls].filter(Boolean).join(' ')
+  return {
+    data: {
+      id: link.id,
+      source: link.source,
+      target: link.target,
+      label: link.label ?? link.kind,
+      direction: dir,
+      confidence: link.confidence,
+      workflow: link.workflow,
+    },
+    classes,
+  }
+}
+
 /** Map GraphData to Cytoscape element definitions, seeded with force-layout positions. */
-function buildElements(data: GraphData, width: number, height: number): cytoscape.ElementDefinition[] {
+function buildElements(data: GraphData, width: number, height: number, includeEdges = true): cytoscape.ElementDefinition[] {
   const { positions, sizes } = obsidianForceLayout(data.nodes, data.links, width, height)
 
   const nodeEls: cytoscape.ElementDefinition[] = data.nodes.map((node) => {
@@ -124,23 +152,7 @@ function buildElements(data: GraphData, width: number, height: number): cytoscap
     }
   })
 
-  const edgeEls: cytoscape.ElementDefinition[] = data.links.map((link) => {
-    const dir = link.direction ?? 'directed'
-    const confCls = confidenceClass(link.confidence)
-    const classes = [cssSafe(link.label ?? link.kind), 'dir-' + dir, confCls].filter(Boolean).join(' ')
-    return {
-      data: {
-        id: link.id,
-        source: link.source,
-        target: link.target,
-        label: link.label ?? link.kind,
-        direction: dir,
-        confidence: link.confidence,
-        workflow: link.workflow,
-      },
-      classes,
-    }
-  })
+  const edgeEls: cytoscape.ElementDefinition[] = includeEdges ? data.links.map(buildEdgeElement) : []
 
   return [...nodeEls, ...edgeEls]
 }
@@ -193,9 +205,10 @@ function esc(s: string): string {
 type SearchWidgetProps = {
   cyRef: React.MutableRefObject<cytoscape.Core | null>
   adjRef: React.MutableRefObject<ReturnType<typeof buildAdjacency>>
+  onSelectNode?: (id: string) => void
 }
 
-function SearchWidget({ cyRef, adjRef }: SearchWidgetProps) {
+function SearchWidget({ cyRef, adjRef, onSelectNode }: SearchWidgetProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<{ id: string; label: string; entity: string }[]>([])
 
@@ -223,6 +236,12 @@ function SearchWidget({ cyRef, adjRef }: SearchWidgetProps) {
     const node = cy.getElementById(id)
     if (!node.length) return
     cy.animate({ center: { eles: node }, zoom: 2 } as Parameters<typeof cy.animate>[0])
+    if (onSelectNode) {
+      onSelectNode(id)
+      setResults([])
+      setQuery('')
+      return
+    }
     // BFS highlight
     const neighborhood = bfsNeighborhood(adjRef.current, id, 2)
     cy.nodes().removeClass('highlighted faded')
@@ -238,7 +257,7 @@ function SearchWidget({ cyRef, adjRef }: SearchWidgetProps) {
     })
     setResults([])
     setQuery('')
-  }, [cyRef, adjRef])
+  }, [cyRef, adjRef, onSelectNode])
 
   return (
     <div className="sidebar-section">
@@ -516,9 +535,10 @@ function PresetViews({ edgeGroups, cyRef }: PresetViewsProps) {
 type TogglesProps = {
   cyRef: React.MutableRefObject<cytoscape.Core | null>
   alwaysLabelsRef: React.MutableRefObject<boolean>
+  showConfidenceToggle?: boolean
 }
 
-function Toggles({ cyRef, alwaysLabelsRef }: TogglesProps) {
+function Toggles({ cyRef, alwaysLabelsRef, showConfidenceToggle = true }: TogglesProps) {
   const [hideLow, setHideLow] = useState(false)
   const [alwaysLabels, setAlwaysLabels] = useState(false)
 
@@ -547,16 +567,18 @@ function Toggles({ cyRef, alwaysLabelsRef }: TogglesProps) {
 
   return (
     <div className="sidebar-section">
-      <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <input
-          type="checkbox"
-          checked={hideLow}
-          onChange={(e) => handleLowConf(e.target.checked)}
-          id="toggle-hide-low"
-          aria-label="Hide low-confidence edges"
-        />
-        Hide low-confidence edges
-      </label>
+      {showConfidenceToggle && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+          <input
+            type="checkbox"
+            checked={hideLow}
+            onChange={(e) => handleLowConf(e.target.checked)}
+            id="toggle-hide-low"
+            aria-label="Hide low-confidence edges"
+          />
+          Hide low-confidence edges
+        </label>
+      )}
       <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <input
           type="checkbox"
@@ -775,6 +797,7 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
   const cyRef = useRef<cytoscape.Core | null>(null)
   const adjRef = useRef<ReturnType<typeof buildAdjacency>>(new Map())
   const nodeMapRef = useRef<Map<string, GraphNode>>(new Map())
+  const focusNodeRef = useRef<((nodeId: string) => void) | null>(null)
   const onNodeClickRef = useRef(onNodeClick)
   useEffect(() => { onNodeClickRef.current = onNodeClick }, [onNodeClick])
   const alwaysLabelsRef = useRef(false)
@@ -819,6 +842,7 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
 
   // Info panel state
   const [infoNode, setInfoNode] = useState<{ id: string; label: string; entity: string } | null>(null)
+  const focusedEdges = useMemo(() => shouldUseFocusedEdges(data), [data])
 
   // Derive entity types + edge groups from data (stable per data reference)
   const entityTypes = useMemo(() => presentEntityTypes(data.nodes.map((n) => n.type)), [data])
@@ -855,7 +879,7 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
 
     const ets  = presentEntityTypes(data.nodes.map((n) => n.type))
     const lbls = [...new Set(data.links.map((l) => l.label ?? l.kind))]
-    const elements = buildElements(data, W, H)
+    const elements = buildElements(data, W, H, !focusedEdges)
     const style    = buildStylesheet(ets, lbls)
 
     const cy = cytoscape({
@@ -872,6 +896,53 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
     // Build adjacency for BFS / path query
     adjRef.current = buildAdjacency(data.links.map((l) => ({ source: l.source, target: l.target })))
 
+    // In focused-edge mode the graph starts with nodes only. Direct connections are added on demand and
+    // removed as a single small collection, so hover/click cost depends on one node's degree—not graph size.
+    const incident = new Map<string, GraphLink[]>()
+    if (focusedEdges) {
+      for (const link of data.links) {
+        const from = incident.get(link.source) ?? []
+        from.push(link); incident.set(link.source, from)
+        if (link.target !== link.source) {
+          const to = incident.get(link.target) ?? []
+          to.push(link); incident.set(link.target, to)
+        }
+      }
+    }
+    let pinnedNodeId: string | null = null
+    const clearFocusedEdges = () => {
+      if (!focusedEdges) return
+      cy.batch(() => { cy.remove(cy.edges()) })
+    }
+    const showFocusedEdges = (nodeId: string, pin: boolean) => {
+      if (!focusedEdges) return
+      if (pin) pinnedNodeId = nodeId
+      const links = (incident.get(nodeId) ?? []).slice(0, FOCUSED_EDGE_CAP)
+      cy.batch(() => {
+        cy.remove(cy.edges())
+        if (links.length) cy.add(links.map(buildEdgeElement))
+      })
+    }
+    const highlightFocusedNode = (nodeId: string) => {
+      const neighborhood = bfsNeighborhood(adjRef.current, nodeId, 1)
+      cy.nodes().removeClass('highlighted faded')
+      cy.edges().removeClass('highlighted faded')
+      for (const id of neighborhood) cy.getElementById(id).addClass('highlighted')
+      cy.edges().addClass('highlighted')
+      const selected = cy.getElementById(nodeId)
+      if (selected.length) {
+        setInfoNode({
+          id: nodeId,
+          label: selected.data('labelFull') || selected.data('label'),
+          entity: selected.data('entity'),
+        })
+      }
+    }
+    focusNodeRef.current = focusedEdges ? (nodeId: string) => {
+      showFocusedEdges(nodeId, true)
+      highlightFocusedNode(nodeId)
+    } : null
+
     const fitTimer = setTimeout(() => { try { cy.fit(cy.elements(), 60) } catch { /* ignore */ } }, 50)
 
     applyZoomLabels(cy, false)
@@ -879,6 +950,11 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
     // Node single-tap: BFS neighbourhood highlight + info panel
     cy.on('tap', 'node', (evt) => {
       const tapped = evt.target as cytoscape.NodeSingular
+      if (focusedEdges) {
+        showFocusedEdges(tapped.id(), true)
+        highlightFocusedNode(tapped.id())
+        return
+      }
       const neighborhood = bfsNeighborhood(adjRef.current, tapped.id(), 2)
 
       cy.nodes().removeClass('highlighted faded')
@@ -901,11 +977,24 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
     // Background tap: clear highlight
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
+        pinnedNodeId = null
+        clearFocusedEdges()
         cy.nodes().removeClass('highlighted faded')
         cy.edges().removeClass('highlighted faded')
         setInfoNode(null)
       }
     })
+
+    // Hover previews direct links. A click pins them until the background or another node is clicked.
+    if (focusedEdges) {
+      cy.on('mouseover', 'node', (evt) => {
+        if (pinnedNodeId) return
+        showFocusedEdges((evt.target as cytoscape.NodeSingular).id(), false)
+      })
+      cy.on('mouseout', 'node', () => {
+        if (!pinnedNodeId) clearFocusedEdges()
+      })
+    }
 
     // Double-tap: open node via callback
     cy.on('dbltap', 'node', (evt) => {
@@ -933,17 +1022,20 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
     return () => {
       clearTimeout(fitTimer)
       hideEdgeTooltip()
+      focusNodeRef.current = null
       cy.destroy()
       cyRef.current = null
     }
-  }, [data])
+  }, [data, focusedEdges])
 
   return (
     <section className="panel graph-visualization">
       <header className="panel__header graph-visualization__header">
         <div>
           <h2>Graph Visualization</h2>
-          <p>Zoom, pan, and explore connected nodes</p>
+          <p>{focusedEdges
+            ? `큰 그래프 최적화 · 노드 hover 시 직접 연결만 표시 (최대 ${FOCUSED_EDGE_CAP}개)`
+            : 'Zoom, pan, and explore connected nodes'}</p>
         </div>
       </header>
 
@@ -963,12 +1055,28 @@ export function GraphVisualization({ data, onNodeClick }: Props) {
 
         {/* Sidebar — search, filters, presets, path query, toggles, node info */}
         <aside className="graph-visualization__sidebar" aria-label="Graph controls" style={{ width: sidebarW, flexShrink: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: 8 }}>
-          <SearchWidget cyRef={cyRef} adjRef={adjRef} />
-          <Toggles cyRef={cyRef} alwaysLabelsRef={alwaysLabelsRef} />
+          <SearchWidget
+            cyRef={cyRef}
+            adjRef={adjRef}
+            onSelectNode={focusedEdges ? (id) => focusNodeRef.current?.(id) : undefined}
+          />
+          <Toggles cyRef={cyRef} alwaysLabelsRef={alwaysLabelsRef} showConfidenceToggle={!focusedEdges} />
           <EntityFilters entityTypes={entityTypes} counts={entityCounts} cyRef={cyRef} />
-          <EdgeFilters groups={edgeGroups} counts={edgeCounts} cyRef={cyRef} />
-          <PresetViews edgeGroups={edgeGroups} cyRef={cyRef} />
-          <PathQuery cyRef={cyRef} adjRef={adjRef} pathClickRef={pathClickRef} />
+          {focusedEdges ? (
+            <div className="sidebar-section graph-focus-help">
+              <h4 className="sidebar-section__title">연결선 표시</h4>
+              <p style={{ fontSize: '0.78em', color: '#aaa', margin: 0 }}>
+                노드에 마우스를 올리면 직접 연결을 미리 보고, 클릭하면 연결선을 고정합니다.
+                전체 {data.links.length.toLocaleString()}개 연결은 한꺼번에 렌더링하지 않습니다.
+              </p>
+            </div>
+          ) : (
+            <>
+              <EdgeFilters groups={edgeGroups} counts={edgeCounts} cyRef={cyRef} />
+              <PresetViews edgeGroups={edgeGroups} cyRef={cyRef} />
+              <PathQuery cyRef={cyRef} adjRef={adjRef} pathClickRef={pathClickRef} />
+            </>
+          )}
           <NodeInfoPanel node={infoNode} onNodeClickRef={onNodeClickRef} nodeMapRef={nodeMapRef} />
         </aside>
       </div>

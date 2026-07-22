@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { FakeAgentRunner } from '@apc/llm-wiki'
+import type { WikiRunEvent } from '@apc/shared'
 import { HarnessService } from './harness-service.js'
 
 // repo root from packages/app-services/src/
@@ -108,14 +109,27 @@ describe('interactive node-confirmation e2e', () => {
   })
 
   test('interactive run pauses, and dropping a node removes it from staging', async () => {
+    const activity: WikiRunEvent[] = []
     // ── Phase 1: the interactive run pauses at LEAD_MERGED waiting for node confirmation ──
     const svc = new HarnessService({
       runner: new FakeAgentRunner(cannedOutputs()),
       vaultRoot, runsRoot, gatesPath, preamble: 'RULES',
       now: () => '2026-06-19T00:00:00Z',
     })
-    const run = await svc.run({ projectId: 'p1', engine: 'claude', interactive: true })
+    const run = await svc.run(
+      { projectId: 'p1', engine: 'claude', interactive: true },
+      undefined,
+      undefined,
+      undefined,
+      (event) => { activity.push(event) },
+    )
     expect(run.finalState, run.reason).toBe('LEAD_MERGED')
+    expect(svc.getProgress({ runId: run.runId })).toMatchObject({
+      ok: true,
+      active: false,
+      summary: { status: 'waiting', health: 'interrupted' },
+    })
+    const pauseSeq = activity.at(-1)?.seq ?? 0
 
     // ── Phase 2: user approves only node 'a', dropping node 'b' ──
     // confirmNodes writes the approved list under LEAD_MERGED and resumes with an empty runner
@@ -125,13 +139,21 @@ describe('interactive node-confirmation e2e', () => {
       vaultRoot, runsRoot, gatesPath, preamble: 'RULES',
       now: () => '2026-06-19T00:00:00Z',
     })
-    const done = await resumeSvc.confirmNodes({
-      runId: run.runId,
-      approvedNodes: {
-        nodes: [{ id: 'a', title: 'A', source_proposal_id: 'pp-a' }],
+    const done = await resumeSvc.confirmNodes(
+      {
+        runId: run.runId,
+        approvedNodes: {
+          nodes: [{ id: 'a', title: 'A', source_proposal_id: 'pp-a' }],
+        },
       },
-    })
+      (event) => { activity.push(event) },
+    )
     expect(done.finalState, done.reason).toBe('HUMAN_REVIEW_REQUIRED')
+    expect(activity.some((event) => event.seq > pauseSeq)).toBe(true)
+    expect(activity.map((event) => event.seq)).toEqual([...activity.map((event) => event.seq)].sort((a, b) => a - b))
+    expect(activity.some((event) => event.kind === 'node_accepted')).toBe(true)
+    expect(activity.some((event) => event.kind === 'node_dropped')).toBe(true)
+    expect(activity.at(-1)?.kind).toBe('run_completed')
 
     // ── Phase 3: verify staging contains a.md but NOT b.md ──
     const staged = listStagedNodeFiles(runsRoot, run.runId)

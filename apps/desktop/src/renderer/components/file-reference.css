@@ -1,0 +1,42 @@
+.file-reference-text {
+  display: inline;
+}
+
+.file-reference-text__source {
+  white-space: pre-wrap;
+}
+
+.file-reference-text__control {
+  border-radius: 3px;
+  color: var(--accent, #8ea5ff);
+  cursor: alias;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.file-reference-text__control:hover,
+.file-reference-text__control:focus-visible {
+  color: #c6d2ff;
+  outline: 1px solid rgba(113, 141, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.markdown-viewer__file-reference {
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.markdown-viewer__file-reference:focus-visible {
+  border-radius: 3px;
+  outline: 1px solid rgba(113, 141, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.file-reference-text__notice {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted, #8f96ad);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}

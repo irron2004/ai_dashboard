@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>oh-my-opencode Harness Architecture Report</title>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f1e8;
+      --paper: #fffaf1;
+      --ink: #1f2a2e;
+      --muted: #667074;
+      --line: #d9ccb8;
+      --accent: #9b4f22;
+      --accent-2: #245c73;
+      --good: #236b4f;
+      --warn: #9a5d00;
+      --code: #172126;
+      --code-bg: #edf1ef;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, 'Times New Roman', serif;
+      background:
+        radial-gradient(circle at top left, rgba(155, 79, 34, 0.13), transparent 36rem),
+        radial-gradient(circle at bottom right, rgba(36, 92, 115, 0.12), transparent 34rem),
+        var(--bg);
+      color: var(--ink);
+      line-height: 1.65;
+    }
+    header.hero {
+      padding: 64px 24px 42px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 250, 241, 0.72);
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+    h1, h2, h3 { line-height: 1.2; letter-spacing: -0.03em; }
+    h1 { margin: 0 0 14px; font-size: clamp(2.2rem, 5vw, 4.5rem); }
+    h2 { margin: 44px 0 16px; font-size: clamp(1.55rem, 3vw, 2.25rem); color: var(--accent); }
+    h3 { margin: 28px 0 10px; font-size: 1.22rem; color: var(--accent-2); }
+    p { margin: 0 0 14px; }
+    .lead { max-width: 900px; color: var(--muted); font-size: 1.12rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 6px 11px; background: rgba(255,255,255,0.48);
+      color: var(--muted); font-size: 0.9rem;
+    }
+    main { padding: 34px 24px 80px; }
+    section {
+      margin: 0 auto 22px;
+      background: rgba(255, 250, 241, 0.82);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 20px 70px rgba(60, 41, 20, 0.08);
+    }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card {
+      grid-column: span 4;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.52);
+    }
+    .card strong { display: block; color: var(--accent-2); margin-bottom: 6px; }
+    .wide { grid-column: span 12; }
+    .half { grid-column: span 6; }
+    ul, ol { margin-top: 8px; padding-left: 1.3rem; }
+    li { margin: 7px 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--code-bg);
+      color: var(--code);
+      padding: 2px 5px;
+      border-radius: 5px;
+      font-size: 0.92em;
+    }
+    pre {
+      overflow: auto;
+      padding: 16px;
+      background: #172126;
+      color: #f3ead9;
+      border-radius: 12px;
+      font-size: 0.9rem;
+    }
+    .diagram {
+      margin: 18px 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fffdf7;
+      overflow: auto;
+    }
+    .callout {
+      border-left: 5px solid var(--accent);
+      padding: 12px 16px;
+      background: rgba(155, 79, 34, 0.08);
+      border-radius: 10px;
+      margin: 16px 0;
+    }
+    .good { color: var(--good); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95rem; }
+    th, td { border: 1px solid var(--line); padding: 10px; vertical-align: top; }
+    th { background: rgba(36, 92, 115, 0.09); text-align: left; }
+    footer { color: var(--muted); font-size: 0.9rem; padding-top: 20px; }
+    @media (max-width: 850px) { .card, .half { grid-column: span 12; } section { padding: 18px; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <h1>oh-my-opencode 하네스 구조 분석</h1>
+      <p class="lead">상위 경로의 <code>opencode/oh-my-opencode</code>를 기준으로, agent orchestration, category delegation, background task runtime, config merge 구조를 누구나 이해할 수 있게 풀어 쓴 보고서입니다.</p>
+      <div class="meta">
+        <span class="pill">분석 대상: <code>oh-my-opencode</code></span>
+        <span class="pill">비교 대상: <code>ai_dashboard-main</code></span>
+        <span class="pill">작성일: 2026-07-08</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>1. 한 문장 요약</h2>
+      <p><strong>oh-my-opencode의 하네스는 “OpenCode 플러그인 런타임 위에 얹은 agent 운영체제”에 가깝습니다.</strong></p>
+      <p>단순히 agent prompt 몇 개를 등록하는 구조가 아니라, 설정을 읽고, agent를 조립하고, 도구를 등록하고, hook으로 세션 생명주기를 감시하며, task delegation을 별도 세션으로 실행하고, 완료 결과를 부모 세션에 다시 연결합니다.</p>
+      <div class="callout">
+        핵심 설계는 <code>엔진</code>, <code>agent role</code>, <code>category</code>, <code>skill</code>, <code>execution session</code>을 분리한 것입니다. 이 분리가 좋은 확장성을 만듭니다.
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 최상위 조립 흐름</h2>
+      <p>플러그인 진입점은 <code>src/index.ts</code>입니다. 여기서 전체 하네스가 다섯 단계로 조립됩니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+  A[OpenCode loads plugin<br/>src/index.ts] --> B[loadPluginConfig<br/>user + project config]
+  B --> C[createManagers]
+  C --> C1[TmuxSessionManager]
+  C --> C2[BackgroundManager]
+  C --> C3[SkillMcpManager]
+  C --> C4[ConfigHandler]
+  C --> D[createTools]
+  D --> D1[SkillContext]
+  D --> D2[Available Categories]
+  D --> D3[ToolRegistry]
+  C2 --> D3
+  C3 --> D3
+  D --> E[createHooks]
+  E --> E1[Core hooks]
+  E --> E2[Continuation hooks]
+  E --> E3[Skill hooks]
+  D --> F[createPluginInterface]
+  E --> F
+  C --> F
+  F --> G[OpenCode PluginInterface<br/>config, tool, chat.message,<br/>event, tool before/after,<br/>message transforms]
+        </pre>
+      </div>
+      <table>
+        <thead><tr><th>단계</th><th>파일</th><th>역할</th></tr></thead>
+        <tbody>
+          <tr><td>Config load</td><td><code>src/plugin-config.ts</code></td><td>user config와 project config를 JSONC로 읽고 Zod schema로 검증한 뒤 merge합니다.</td></tr>
+          <tr><td>Manager creation</td><td><code>src/create-managers.ts</code></td><td>background task, tmux, skill MCP, config handler 같은 장기 상태 객체를 만듭니다.</td></tr>
+          <tr><td>Tool creation</td><td><code>src/create-tools.ts</code>, <code>src/plugin/tool-registry.ts</code></td><td><code>task</code>, <code>background_output</code>, <code>skill</code>, <code>skill_mcp</code>, grep, AST, LSP 도구를 등록합니다.</td></tr>
+          <tr><td>Hook creation</td><td><code>src/create-hooks.ts</code></td><td>세션, 도구 실행 전후, 메시지 변환, continuation, skill 관련 hook을 묶습니다.</td></tr>
+          <tr><td>Plugin interface</td><td><code>src/plugin-interface.ts</code></td><td>OpenCode가 호출하는 실제 plugin API shape로 변환합니다.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>3. Config 하네스: 설정이 실행환경으로 바뀌는 과정</h2>
+      <p>oh-my-opencode의 설정은 단일 파일 하나가 아닙니다. user, project, Claude Code 호환 리소스, plugin component를 모두 합쳐 OpenCode 런타임 config에 주입합니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  U[User config<br/>~/.config/opencode/oh-my-opencode.jsonc] --> M[loadPluginConfig]
+  P[Project config<br/>.opencode/oh-my-opencode.jsonc] --> M
+  M --> V[Zod validation<br/>partial fallback]
+  V --> C[createConfigHandler]
+  C --> P1[applyProviderConfig]
+  C --> P2[loadPluginComponents<br/>Claude Code plugins]
+  P2 --> A[applyAgentConfig]
+  A --> T[applyToolConfig]
+  T --> MCP[applyMcpConfig]
+  MCP --> CMD[applyCommandConfig]
+  CMD --> R[Mutated OpenCode runtime config]
+        </pre>
+      </div>
+      <h3>중요한 디테일</h3>
+      <ul>
+        <li><code>src/plugin-config.ts</code>는 project config가 user config를 override하게 합니다.</li>
+        <li>잘못된 config section이 있어도 전체 로딩을 죽이지 않고, 가능한 section만 부분 로딩합니다.</li>
+        <li><code>applyAgentConfig</code>는 built-in agents, user/project Claude agents, plugin agents, 기존 OpenCode agents를 모두 합칩니다.</li>
+        <li>기본 agent를 Sisyphus로 바꾸고, 기존 OpenCode <code>build</code>/<code>plan</code> agent는 숨기거나 demote합니다.</li>
+      </ul>
+      <p class="good">좋은 점: 설정 로딩과 실행환경 주입이 분리되어 있어, config UI나 doctor 기능을 만들기 쉽습니다.</p>
+      <p class="warn">주의점: 너무 많은 source를 merge하므로 우선순위와 충돌 설명 UI가 없으면 사용자가 “왜 이 agent가 선택됐는지” 알기 어렵습니다.</p>
+    </section>
+
+    <section>
+      <h2>4. Agent 모델: 엔진이 아니라 역할이다</h2>
+      <p>oh-my-opencode의 agent는 CLI 엔진이 아니라 “역할(role)”입니다. 예를 들어 <code>sisyphus</code>, <code>hephaestus</code>, <code>oracle</code>, <code>librarian</code>, <code>explore</code>는 각각 다른 작업 성격을 가집니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+classDiagram
+  class AgentFactory {
+    +mode: primary | subagent | all
+    +create(model) AgentConfig
+  }
+  class AgentConfig {
+    +model
+    +prompt
+    +tools
+    +permission
+    +category
+    +skills
+    +variant
+  }
+  class AgentPromptMetadata {
+    +category: exploration | specialist | advisor | utility
+    +cost: FREE | CHEAP | EXPENSIVE
+    +triggers
+    +useWhen
+    +avoidWhen
+  }
+  class CategoryConfig {
+    +model
+    +fallback_models
+    +variant
+    +prompt_append
+    +tools
+    +max_prompt_tokens
+  }
+
+  AgentFactory --> AgentConfig
+  AgentConfig --> CategoryConfig : may inherit
+  AgentPromptMetadata --> AgentConfig : explains when to use
+        </pre>
+      </div>
+      <table>
+        <thead><tr><th>Agent</th><th>역할</th><th>실행 모드</th></tr></thead>
+        <tbody>
+          <tr><td><code>sisyphus</code></td><td>메인 orchestrator. 계획, delegation, 진행 강제.</td><td>primary</td></tr>
+          <tr><td><code>hephaestus</code></td><td>자율 구현 worker. end-to-end 작업 수행.</td><td>primary 또는 subagent 성격</td></tr>
+          <tr><td><code>oracle</code></td><td>읽기 전용 고난도 아키텍처/디버깅 상담.</td><td>subagent</td></tr>
+          <tr><td><code>librarian</code></td><td>외부 문서, OSS 예시, 라이브러리 조사.</td><td>subagent</td></tr>
+          <tr><td><code>explore</code></td><td>코드베이스 내부 탐색. 빠른 grep/context map.</td><td>subagent</td></tr>
+          <tr><td><code>sisyphus-junior</code></td><td>category delegation용 실행 agent.</td><td>subagent</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>5. Category delegation: 모델 이름 대신 작업 성격을 고른다</h2>
+      <p>하네스의 가장 좋은 설계 중 하나입니다. 호출자는 “GPT-5를 써라”가 아니라 “이 일은 <code>quick</code>이다” 또는 “이 일은 <code>visual-engineering</code>이다”라고 말합니다. 그러면 resolver가 category에 맞는 모델, variant, prompt append, fallback chain을 결정합니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+  A[task tool called] --> B{category or subagent_type?}
+  B -->|category| C[force agent = sisyphus-junior]
+  C --> D[resolveCategoryExecution]
+  D --> D1[mergeCategories<br/>defaults + user config]
+  D --> D2[resolve model<br/>explicit category model]
+  D --> D3[apply fallback requirements]
+  D --> D4[category prompt_append]
+  B -->|subagent_type| E[resolveSubagentExecution]
+  D --> F[buildSystemContent]
+  E --> F
+  F --> G{run_in_background?}
+  G -->|true| H[BackgroundManager.launch]
+  G -->|false| I[create sync session + poll]
+        </pre>
+      </div>
+      <h3>기본 category 예시</h3>
+      <ul>
+        <li><code>quick</code>: 단일 파일, 오타, 작은 변경.</li>
+        <li><code>deep</code>: 자율 조사와 구현이 필요한 큰 문제.</li>
+        <li><code>ultrabrain</code>: 복잡한 논리, 아키텍처 판단.</li>
+        <li><code>visual-engineering</code>: UI, 디자인, CSS, 애니메이션.</li>
+        <li><code>writing</code>: 문서, prose, 기술 글쓰기.</li>
+      </ul>
+      <p>이 구조는 우리 앱의 <code>Task</code> 모델과 잘 맞습니다. <code>Task.assignee</code>를 CLI 엔진 이름이 아니라 category/profile 기반으로 확장할 수 있습니다.</p>
+    </section>
+
+    <section>
+      <h2>6. task() 도구의 내부 실행 경로</h2>
+      <p><code>src/tools/delegate-task/tools.ts</code>가 task delegation의 관문입니다. 이 도구는 인자 검증, skill resolution, parent context resolution, category/subagent resolution, sync/background 실행 분기를 모두 처리합니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+sequenceDiagram
+  participant User as Parent Agent
+  participant TaskTool as task() tool
+  participant Skill as Skill Resolver
+  participant Parent as Parent Context Resolver
+  participant Cat as Category/Subagent Resolver
+  participant Builder as System Prompt Builder
+  participant Exec as Executor
+  participant Child as Child Session
+
+  User->>TaskTool: task(category, prompt, load_skills, run_in_background)
+  TaskTool->>TaskTool: validate required args
+  TaskTool->>Skill: resolve load_skills
+  Skill-->>TaskTool: skillContent / notFound error
+  TaskTool->>Parent: resolve parent session, model, agent
+  Parent-->>TaskTool: parentContext
+  TaskTool->>Cat: resolve category or subagent_type
+  Cat-->>TaskTool: agentToUse, model, fallbackChain, promptAppend
+  TaskTool->>Builder: buildSystemContent
+  Builder-->>TaskTool: system prompt content
+  alt background
+    TaskTool->>Exec: executeBackgroundTask
+    Exec->>Child: manager.launch creates async child session
+    Exec-->>User: bg task id immediately
+  else sync
+    TaskTool->>Exec: executeSyncTask
+    Exec->>Child: create child session, send prompt, poll idle
+    Child-->>Exec: final messages
+    Exec-->>User: final text result
+  end
+        </pre>
+      </div>
+      <p>중요한 점은 parent context를 보존한다는 것입니다. child session에는 parent session ID, parent message ID, parent model, parent agent, parent tools가 같이 넘어갑니다.</p>
+    </section>
+
+    <section>
+      <h2>7. BackgroundManager: 하네스의 실행 런타임</h2>
+      <p><code>src/features/background-agent/manager.ts</code>는 사실상 작은 job runtime입니다. task를 queue에 넣고, 동시성을 제한하고, OpenCode child session을 만들고, prompt를 비동기로 던지고, polling으로 완료를 감지합니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+stateDiagram-v2
+  [*] --> pending: launch()
+  pending --> queued: add to queuesByKey
+  queued --> running: acquire concurrency + create session
+  running --> completed: session idle + result captured
+  running --> error: prompt/session/model error
+  running --> interrupt: aborted/stale/error interruption
+  running --> cancelled: cancel requested
+  error --> pending: fallback retry available
+  completed --> notified: parent notification queued
+  interrupt --> notified
+  cancelled --> notified
+  notified --> cleanup: delayed cleanup
+  cleanup --> [*]
+        </pre>
+      </div>
+      <h3>내부 상태</h3>
+      <ul>
+        <li><code>tasks</code>: task id에서 BackgroundTask로 가는 registry.</li>
+        <li><code>queuesByKey</code>: model/provider 또는 agent 기준 queue.</li>
+        <li><code>ConcurrencyManager</code>: provider/model별 동시 실행 제한.</li>
+        <li><code>taskHistory</code>: parent session별 task 기록.</li>
+        <li><code>pendingByParent</code>, <code>notifications</code>: 부모 세션 알림 batching.</li>
+      </ul>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart LR
+  L[launch input] --> T[BackgroundTask<br/>id bg_xxxxxxxx]
+  T --> Q[queuesByKey]
+  Q --> ACQ[ConcurrencyManager.acquire]
+  ACQ --> S[client.session.create<br/>child session]
+  S --> TMUX{tmux enabled<br/>inside tmux?}
+  TMUX -->|yes| PANE[spawn pane]
+  TMUX -->|no| RUN[continue]
+  PANE --> RUN
+  RUN --> PROMPT[promptWithModelSuggestionRetry<br/>promptAsync]
+  PROMPT --> POLL[startPolling]
+  POLL --> DONE[completed/error/interrupt]
+  DONE --> NOTIFY[notify parent session]
+  DONE --> REL[release concurrency]
+        </pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>8. 관찰 가능성: background_output과 metadata</h2>
+      <p>백그라운드 task는 즉시 결과를 반환하지 않습니다. 대신 task id를 반환하고, 나중에 <code>background_output</code>으로 상태나 전체 세션을 읽습니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+sequenceDiagram
+  participant Parent as Parent Agent
+  participant Manager as BackgroundManager
+  participant Child as Child Session
+  participant Output as background_output
+
+  Parent->>Manager: launch task
+  Manager-->>Parent: bg task id
+  Manager->>Child: create session + promptAsync
+  Child-->>Manager: messages, tool calls, idle events
+  Parent->>Output: background_output(task_id)
+  Output->>Manager: getTask(task_id)
+  Output->>Child: fetch session messages
+  Output-->>Parent: full session or summarized result
+        </pre>
+      </div>
+      <p><code>create-background-output.ts</code>는 task 상태가 active이면 thinking/tool result를 더 포함하고, 완료 후에는 full session 또는 task result를 format합니다. 이 덕분에 parent agent는 context window를 과하게 쓰지 않고 필요할 때만 child 결과를 가져옵니다.</p>
+    </section>
+
+    <section>
+      <h2>9. Skill 시스템: task별로 prompt와 MCP를 주입한다</h2>
+      <p>skill은 단순 문서가 아닙니다. oh-my-opencode에서는 skill이 prompt 조각과 MCP 설정을 함께 들고 다닐 수 있습니다.</p>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+  A[Skill sources] --> B[createSkillContext]
+  A1[built-in skills] --> A
+  A2[user Claude skills] --> A
+  A3[project Claude skills] --> A
+  A4[opencode global/project skills] --> A
+  A5[config-source skills] --> A
+  B --> C[mergeSkills]
+  C --> D[availableSkills shown to agents]
+  C --> E[skill tool]
+  C --> F[skill_mcp tool]
+  C --> G[task load_skills]
+  G --> H[resolveSkillContent]
+  H --> I[buildSystemContent]
+  I --> J[child agent system prompt]
+        </pre>
+      </div>
+      <p>우리 앱으로 치면, “작업 유형별 Context Package” 또는 “Harness Profile”에 가까운 개념입니다. 예를 들어 <code>wikigen</code> skill은 autosci-core substrate, evidence policy, graph validation 규칙을 담을 수 있습니다.</p>
+    </section>
+
+    <section>
+      <h2>10. 우리 ai_dashboard에 반영할 때의 설계</h2>
+      <div class="grid">
+        <div class="card">
+          <strong>반영 1: AgentKind는 그대로 둔다</strong>
+          <p><code>claude | codex | opencode</code>는 CLI 엔진 선택 전용으로 유지합니다. <code>sisyphus</code>, <code>oracle</code>은 절대 AgentKind에 넣지 않습니다.</p>
+        </div>
+        <div class="card">
+          <strong>반영 2: AgentProfile 확장</strong>
+          <p>현재 <code>AgentProfileSchema</code>에 <code>category</code>, <code>skills</code>, <code>variant</code>, <code>fallbackModels</code>를 추가합니다.</p>
+        </div>
+        <div class="card">
+          <strong>반영 3: Category resolver 추가</strong>
+          <p>Task의 성격을 <code>quick/deep/wikigen/review/git</code> 같은 category로 해석하고 실행 profile을 결정합니다.</p>
+        </div>
+        <div class="card">
+          <strong>반영 4: Config merge</strong>
+          <p>project config, user config, default config를 merge한 결과를 UI에서 보여줍니다.</p>
+        </div>
+        <div class="card">
+          <strong>반영 5: Run runtime 분리</strong>
+          <p><code>DevHarnessService</code>에 queue, status, transcript, cancellation, concurrency를 더 명시적으로 분리합니다.</p>
+        </div>
+        <div class="card">
+          <strong>반영 6: 관찰 가능성</strong>
+          <p>각 child run의 transcript, category, model, skill, parent task를 DB에 남기고 UI에서 추적합니다.</p>
+        </div>
+      </div>
+      <h3>추천 target architecture</h3>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+  UI[Desktop UI<br/>TaskBoard / DevHarnessPanel] --> API[Renderer API + IPC]
+  API --> HS[DevHarnessService]
+  HS --> CR[CategoryResolver]
+  HS --> PR[AgentProfileResolver]
+  HS --> SR[SkillContextResolver]
+  CR --> CFG[HarnessConfig<br/>default + user + project]
+  PR --> CFG
+  SR --> CFG
+  HS --> RUN[AgentRunRuntime]
+  RUN --> Q[Queue + concurrency]
+  RUN --> CLI[CLI Engine<br/>claude/codex/opencode]
+  RUN --> DB[(AgentRunStore)]
+  RUN --> LOG[Transcript files]
+  DB --> UI
+  LOG --> UI
+        </pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>11. 단계별 적용 로드맵</h2>
+      <ol>
+        <li><strong>Read-only discovery부터 확장</strong>: <code>OpenCodeConfigAdapter</code>가 <code>.opencode/oh-my-opencode.jsonc</code>의 <code>agents</code>, <code>categories</code>, <code>skills</code>를 읽게 합니다.</li>
+        <li><strong>공용 schema 추가</strong>: <code>AgentCategory</code>, <code>CategoryConfig</code>, <code>SkillRef</code>, <code>ResolvedAgentProfile</code>를 shared schema로 둡니다.</li>
+        <li><strong>Resolver 추가</strong>: project/user/default config를 합쳐 “왜 이 모델과 profile이 선택됐는지” 설명 가능한 resolver를 만듭니다.</li>
+        <li><strong>UI 추가</strong>: Agent Config 화면에 category, model, skills, source priority를 보여줍니다.</li>
+        <li><strong>DevHarness 연결</strong>: <code>workflow?: string</code> 중심에서 <code>category/profile/skills</code> 중심으로 확장합니다.</li>
+        <li><strong>실행 런타임 강화</strong>: concurrency, cancellation, retry, result fetch를 <code>AgentRunRuntime</code> 같은 별도 모듈로 뺍니다.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>12. 결론</h2>
+      <p>oh-my-opencode의 하네스 구조는 우리 앱에 그대로 복사할 대상은 아닙니다. OpenCode plugin API에 깊게 묶인 부분이 많기 때문입니다. 하지만 <strong>개념 구조</strong>는 매우 좋습니다.</p>
+      <ul>
+        <li><strong>가져올 것</strong>: role-based agent, category delegation, skill injection, config merge, background run runtime, result retrieval.</li>
+        <li><strong>그대로 가져오면 안 되는 것</strong>: OpenCode plugin hook API, Sisyphus prompt 내부 정책, 모델별 강한 하드코딩.</li>
+        <li><strong>우리식으로 바꿀 것</strong>: Electron/SQLite/IPC 기반의 project task orchestration으로 재해석합니다.</li>
+      </ul>
+      <div class="callout">
+        최우선 구현 후보는 <strong>“oh-my-opencode config discovery + category/profile schema 확장 + Agent Config UI”</strong>입니다. 이 세 가지를 먼저 하면, 이후 DevHarnessService를 category 기반 하네스로 자연스럽게 확장할 수 있습니다.
+      </div>
+    </section>
+
+
+    <section>
+      <h2>13. 추가 확인: lifecycle hook과 direct agent invocation</h2>
+      <p>백그라운드 탐색 결과, 보고서 본문에 적은 구조 외에 두 지점이 특히 중요합니다.</p>
+      <div class="grid">
+        <div class="card half">
+          <strong>Lifecycle event dispatcher</strong>
+          <p><code>src/plugin/event.ts</code>가 런타임 이벤트의 중앙 fan-out 지점입니다. <code>session.created</code>, <code>session.deleted</code>, <code>message.updated</code> 같은 이벤트를 받아 session state, tmux, MCP, fallback, tool metadata, task continuation hook으로 나눠 보냅니다.</p>
+        </div>
+        <div class="card half">
+          <strong>Direct agent invocation</strong>
+          <p><code>src/tools/call-omo-agent/tools.ts</code>는 category가 아니라 특정 agent를 직접 호출하는 경로입니다. 반면 <code>src/tools/delegate-task/tools.ts</code>는 category/subagent 선택, skill 주입, fallback chain, sync/background 분기를 처리하는 더 높은 수준의 dispatcher입니다.</p>
+        </div>
+      </div>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TD
+  EV[OpenCode runtime event] --> EH[src/plugin/event.ts]
+  EH --> S1[session state cleanup/setup]
+  EH --> S2[tmux session mirror]
+  EH --> S3[MCP disconnect/cleanup]
+  EH --> S4[model fallback hooks]
+  EH --> S5[continuation/todo hooks]
+  EH --> S6[tool metadata/session tools]
+
+  AG[Agent request] --> KIND{Invocation kind}
+  KIND -->|direct agent| CA[call_omo_agent]
+  KIND -->|task category/subagent| DT[task delegate tool]
+  CA --> BG[background executor]
+  CA --> SY[sync executor]
+  DT --> RES[category/subagent + skill + model resolver]
+  RES --> BG
+  RES --> SY
+        </pre>
+      </div>
+      <p>따라서 우리 앱에 반영할 때도 <strong>execution runtime</strong>과 <strong>lifecycle event dispatcher</strong>를 분리하는 편이 좋습니다. 실행은 run/session을 만들고, event dispatcher는 상태 변화와 cleanup을 책임지게 하면 구조가 단순해집니다.</p>
+    </section>
+
+    <footer>
+      <p>분석에 사용한 주요 파일: <code>src/index.ts</code>, <code>src/create-managers.ts</code>, <code>src/create-tools.ts</code>, <code>src/create-hooks.ts</code>, <code>src/plugin-interface.ts</code>, <code>src/plugin-handlers/config-handler.ts</code>, <code>src/plugin-handlers/agent-config-handler.ts</code>, <code>src/tools/delegate-task/tools.ts</code>, <code>src/features/background-agent/manager.ts</code>, <code>src/plugin/tool-registry.ts</code>.</p>
+    </footer>
+  </main>
+</body>
+</html>
