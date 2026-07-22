@@ -44,6 +44,7 @@ import type {
   FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes,
   PtyDataEvent, PtyExitEvent, ClipboardReadTextRes,
   TerminalSetPreferencesReq, TerminalPreferencesRes, TerminalDiagnosticsReq, TerminalDiagnosticsRes,
+  ProjectImportReq, ProjectImportRes,
 } from '../shared/ipc-contract.js'
 import type {
   Project, AgentProfile, UnifiedSearchResponse, Task, NextNote, QuestionLogEntry,
@@ -55,6 +56,7 @@ declare global {
   interface Window {
     apc: {
       invoke(channel: string, payload?: unknown): Promise<unknown>
+      importProjectItems(req: ProjectImportReq): Promise<ProjectImportRes>
       startPty(req: StartPtyReq): void
       writePty(req: PtyInputReq): void
       killPty(req: PtyKillReq): void
@@ -82,6 +84,9 @@ declare global {
 export const api = {
   selectFolder(): Promise<string | null> {
     return window.apc.invoke(CH.selectFolder) as Promise<string | null>
+  },
+  importProjectItems(req: ProjectImportReq): Promise<ProjectImportRes> {
+    return window.apc.importProjectItems(req)
   },
   appUpdate(): Promise<{ ok: boolean; output: string }> {
     return window.apc.invoke(CH.appUpdate) as Promise<{ ok: boolean; output: string }>

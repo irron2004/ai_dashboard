@@ -350,6 +350,24 @@ textarea:not(.xterm-helper-textarea) {
   text-align: center;
 }
 
+.project-import-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(520px, calc(100vw - 36px));
+  padding: 10px 14px;
+  border: 1px solid;
+  border-radius: 7px;
+  color: #eef6f1;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
+  cursor: pointer;
+  z-index: 1000;
+}
+.project-import-toast--success { background: #173d2d; border-color: #34755a; }
+.project-import-toast--error { background: #5a2020; border-color: #a44; color: #fcc; }
+
 /* ── Add-project dialog ────────────────────────────────── */
 .add-project-overlay {
   position: fixed;

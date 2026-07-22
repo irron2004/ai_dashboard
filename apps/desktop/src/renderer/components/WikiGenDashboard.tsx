@@ -32,7 +32,7 @@ const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
 
 export function WikiGenDashboard() {
   const {
-    selectedProjectId, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
+    selectedProjectId, projectSurfaceRevision, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
     harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
     harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
     harnessReviewDecisions,
@@ -139,7 +139,7 @@ export function WikiGenDashboard() {
         && current.every((folder, index) => folder === next[index]) ? current : next)
     }).catch(() => { if (!stale) setProjectFolders([]) })
     return () => { stale = true }
-  }, [selectedProjectId])
+  }, [projectSurfaceRevision, selectedProjectId])
 
   const currentRun: HarnessRunBundle | null = useMemo(
     () => harnessRuns.find((b) => b.runState.runId === selectedHarnessRunId) ?? harnessRuns[0] ?? null,

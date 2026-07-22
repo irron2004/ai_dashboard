@@ -33,4 +33,26 @@ describe('GlobalMenu', () => {
     fireEvent.mouseDown(document.body)
     expect(screen.queryByText('⭳ Update')).toBeNull()
   })
+
+  test('supports a discoverable custom trigger and disables the whole menu', () => {
+    const { rerender } = render(
+      <GlobalMenu
+        ariaLabel="프로젝트로 가져오기"
+        trigger="↑ 가져오기"
+        disabled
+        items={[{ label: '파일 가져오기…', onClick: vi.fn() }]}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '프로젝트로 가져오기' }).hasAttribute('disabled')).toBe(true)
+
+    rerender(
+      <GlobalMenu
+        ariaLabel="프로젝트로 가져오기"
+        trigger="↑ 가져오기"
+        items={[{ label: '파일 가져오기…', onClick: vi.fn() }]}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '프로젝트로 가져오기' }))
+    expect(screen.getByRole('menuitem', { name: '파일 가져오기…' })).toBeDefined()
+  })
 })

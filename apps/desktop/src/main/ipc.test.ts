@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { handlers } from './ipc.js'
@@ -316,6 +316,49 @@ describe('IPC handlers (no Electron)', () => {
     const res = await h[CH.fsListDocs]({ projectId: 'p1' }) as { docs: { relPath: string }[] }
     expect(res.docs.map((d) => d.relPath)).toContain('notes.md')
     rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('c:projectImport copies picker-selected files into the registered project root', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'apc-import-repo-'))
+    const sourceDir = mkdtempSync(join(tmpdir(), 'apc-import-source-'))
+    const source = join(sourceDir, 'brief.md')
+    writeFileSync(source, '# imported')
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: [repo] })
+    const picker = vi.fn(async () => [source])
+    const h = handlers(container, { pickProjectImportSources: picker })
+
+    const res = await h[CH.projectImport]({ projectId: 'p1', kind: 'files' }) as {
+      ok: boolean; canceled?: boolean; destination?: string
+    }
+
+    expect(res).toMatchObject({ ok: true, canceled: false })
+    expect(picker).toHaveBeenCalledWith({ kind: 'files', projectName: 'APC', destination: repo })
+    expect(readFileSync(join(repo, 'brief.md'), 'utf8')).toBe('# imported')
+    rmSync(repo, { recursive: true, force: true })
+    rmSync(sourceDir, { recursive: true, force: true })
+  })
+
+  test('c:projectImport treats closing the picker as a successful cancellation', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'apc-import-cancel-'))
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: [repo] })
+    const h = handlers(container, { pickProjectImportSources: async () => null })
+
+    await expect(h[CH.projectImport]({ projectId: 'p1', kind: 'folder' }))
+      .resolves.toEqual({ ok: true, canceled: true, items: [] })
+    rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('c:projectImport rejects unknown fields and does not open a picker for SSH projects', async () => {
+    const picker = vi.fn(async () => [])
+    const h = handlers(container, { pickProjectImportSources: picker })
+    await expect(h[CH.projectImport]({ projectId: 'p1', kind: 'files', sourcePaths: ['/secret'] }))
+      .rejects.toThrow()
+
+    container.registry.update({ ...container.registry.get('p1')!, repoPaths: ['ssh://me@example.test/work/apc'] })
+    const res = await h[CH.projectImport]({ projectId: 'p1', kind: 'files' }) as { ok: boolean; reason?: string }
+    expect(res).toMatchObject({ ok: false })
+    expect(res.reason).toContain('SSH')
+    expect(picker).not.toHaveBeenCalled()
   })
 
   test('q:changesList returns ok:false for a project whose repo is not a git dir', async () => {

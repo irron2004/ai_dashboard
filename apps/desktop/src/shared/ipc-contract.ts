@@ -20,6 +20,7 @@ export const CH = {
   workspaceOverview: 'q:workspaceOverview',
   // dialogs
   selectFolder: 'd:selectFolder',
+  projectImport: 'c:projectImport',
   testSsh: 'd:testSsh',
   // app self-update
   appUpdate: 'c:appUpdate',
@@ -511,6 +512,24 @@ export type FsReadDocReq = { projectId: string; relPath: string }
 export type FsReadDocRes = { ok: boolean; content?: string; reason?: string }
 export type FsListDocsReq = { projectId: string }
 export type FsListDocsRes = { docs: { relPath: string; mtimeMs: number }[] }
+
+export type ProjectImportKind = 'files' | 'folder'
+export type ProjectImportReq = {
+  projectId: string
+  kind: ProjectImportKind
+  /** When present, main verifies this is a registered Git worktree before copying into it. */
+  worktreePath?: string
+}
+export type ProjectImportItem = {
+  sourceName: string
+  relativePath: string
+  kind: 'file' | 'folder'
+  renamed: boolean
+}
+export type ProjectImportRes =
+  | { ok: true; canceled: true; items: [] }
+  | { ok: true; canceled: false; destination: string; items: ProjectImportItem[] }
+  | { ok: false; reason: string }
 
 // File preview request/response DTOs are defined and runtime-validated in @apc/shared.
 export type { FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes }

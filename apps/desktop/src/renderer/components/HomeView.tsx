@@ -33,7 +33,10 @@ export function HomeView({ dashboard, onChanged }: { dashboard: ProjectDashboard
 }
 
 export function ProjectDocumentsView({ dashboard }: { dashboard: ProjectDashboardRes }) {
-  const { selectedProjectId, ingesting, ingest, lastIngest, prepareGenerate, clearGeneration } = useStore()
+  const {
+    selectedProjectId, projectSurfaceRevision,
+    ingesting, ingest, lastIngest, prepareGenerate, clearGeneration,
+  } = useStore()
   const [viewer, setViewer] = useState<Viewer>({ kind: 'current' })
   const [changes, setChanges] = useState<{ files?: ChangedFile[]; reason?: string } | null>(null)
   const [generateOpen, setGenerateOpen] = useState(false)
@@ -52,7 +55,7 @@ export function ProjectDocumentsView({ dashboard }: { dashboard: ProjectDashboar
     })
   }, [selectedProjectId])
 
-  useEffect(() => { loadCurrent(); loadChanges() }, [loadCurrent, loadChanges])
+  useEffect(() => { loadCurrent(); loadChanges() }, [loadCurrent, loadChanges, projectSurfaceRevision])
 
   const openFile = (file: ChangedFile) => {
     if (!selectedProjectId) return

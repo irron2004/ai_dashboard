@@ -7,6 +7,7 @@ import type { AgentActivity, WikiRunEvent } from '@apc/shared'
 // the PTY stream is event-based.
 contextBridge.exposeInMainWorld('apc', {
   invoke: (channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload),
+  importProjectItems: (req: unknown) => ipcRenderer.invoke(CH.projectImport, req),
 
   startPty: (req: unknown) => ipcRenderer.send(CH.ptyStart, req),
   writePty: (req: unknown) => ipcRenderer.send(CH.ptyInput, req),

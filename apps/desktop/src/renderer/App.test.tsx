@@ -13,6 +13,7 @@ const appMocks = vi.hoisted(() => ({
   resumeCard: vi.fn(),
   conversationHistory: vi.fn(),
   agentActivitySnapshot: vi.fn(),
+  projectImport: vi.fn(),
   activityCallback: null as ((activity: AgentActivity) => void) | null,
   paneOpened: vi.fn(),
   paneClosed: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('./api.js', () => ({
     resumeCard: appMocks.resumeCard,
     conversationHistory: appMocks.conversationHistory,
     agentActivitySnapshot: appMocks.agentActivitySnapshot,
+    importProjectItems: appMocks.projectImport,
     paneOpened: appMocks.paneOpened,
     paneClosed: appMocks.paneClosed,
     selectProject: appMocks.persistSelectedProject,
@@ -68,7 +70,7 @@ vi.mock('./components/ProjectSidebar.js', () => ({
 vi.mock('./components/MainPanel.js', () => ({
   MainPanel: ({
     tab, projectLoadState, onOpenProject, historyFocus, onOpenFileReference, onOpenActivityQuestion,
-    onProjectChanged,
+    onProjectChanged, actions,
   }: {
     tab: string
     projectLoadState: string
@@ -77,8 +79,10 @@ vi.mock('./components/MainPanel.js', () => ({
     onOpenFileReference?: (reference: ResolvedFileReference) => void
     onOpenActivityQuestion?: (activity: AgentActivity) => void
     onProjectChanged?: () => void
+    actions?: import('react').ReactNode
   }) => (
     <div>
+      <div>{actions}</div>
       <span data-testid="active-main-tab">{tab}</span>
       <span data-testid="project-load-state">{projectLoadState}</span>
       <span data-testid="history-focus-agent">{historyFocus?.agent ?? ''}</span>
@@ -134,6 +138,12 @@ beforeEach(() => {
   appMocks.projectDashboard.mockResolvedValue(dashboard)
   appMocks.resumeCard.mockResolvedValue(null)
   appMocks.agentActivitySnapshot.mockResolvedValue({ activities: [], asOf: '2026-07-20T00:00:00Z' })
+  appMocks.projectImport.mockResolvedValue({
+    ok: true,
+    canceled: false,
+    destination: '/repo',
+    items: [{ sourceName: 'brief.md', relativePath: 'brief.md', kind: 'file', renamed: false }],
+  })
   appMocks.conversationHistory.mockResolvedValue({
     projectId: 'p1', agent: 'claude', sessions: [], scannedSources: 0, skippedSources: 0, truncated: false,
   })
@@ -314,5 +324,20 @@ describe('App project navigation', () => {
     await waitFor(() => expect(appMocks.workspaceOverview).toHaveBeenCalledTimes(1))
     expect(appMocks.projectDashboard).toHaveBeenCalledWith({ projectId: 'p1' })
     expect(appMocks.resumeCard).toHaveBeenCalledWith('p1')
+  })
+
+  it('imports selected files into the project worktree and confirms completion', async () => {
+    useStore.setState({ selectedProjectId: 'p1', dashboard, activeWorktrees: { p1: '/repo' } })
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: '프로젝트로 가져오기' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '📄 파일 가져오기…' }))
+
+    await waitFor(() => expect(appMocks.projectImport).toHaveBeenCalledWith({
+      projectId: 'p1',
+      kind: 'files',
+      worktreePath: '/repo',
+    }))
+    expect((await screen.findByRole('status')).textContent).toContain('1개 항목을 프로젝트 경로에 복사했습니다')
   })
 })

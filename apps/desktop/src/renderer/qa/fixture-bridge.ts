@@ -164,6 +164,13 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
     switch (channel) {
       case CH.selectFolder:
         return Promise.resolve(selectedProject?.repoPaths[0] ?? 'C:\\qa\\new-project')
+      case CH.projectImport:
+        return Promise.resolve({
+          ok: true,
+          canceled: false,
+          destination: selectedProject?.repoPaths[0] ?? 'C:\\qa\\workspace',
+          items: [{ sourceName: 'fixture.md', relativePath: 'fixture.md', kind: 'file', renamed: false }],
+        })
       case CH.testSsh:
         return Promise.resolve(model.config.seedFailedRun
           ? { ok: false, error: `HTTP 401 Unauthorized — ${model.longLogPath}` }
@@ -682,6 +689,7 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
 
   window.apc = {
     invoke,
+    importProjectItems: (request) => invoke(CH.projectImport, request) as ReturnType<Window['apc']['importProjectItems']>,
     startPty: (request) => {
       calls.push({ channel: CH.ptyStart, payload: request })
       if (!request.pane || !request.launchId) return

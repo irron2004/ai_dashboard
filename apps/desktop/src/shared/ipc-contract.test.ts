@@ -19,6 +19,7 @@ describe('desktop IPC contract', () => {
       filePreviewRead: 'q:filePreviewRead',
       clipboardReadText: 'q:clipboardReadText',
       terminalDiagnostics: 'q:terminalDiagnostics',
+      projectImport: 'c:projectImport',
     })
   })
 
@@ -35,4 +36,3 @@ describe('desktop IPC contract', () => {
     expect(legacy.id).toBe('legacy')
   })
 })
-

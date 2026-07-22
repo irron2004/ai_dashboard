@@ -17,7 +17,7 @@ import { ProjectNotesDrawer } from './components/ProjectNotesDrawer.js'
 import { FilePreviewPanel } from './components/FilePreviewPanel.js'
 import type { HistoryFocus } from './components/ConversationHistoryView.js'
 import { clampDockHeight, DOCK_DEFAULT_H } from './layout-utils.js'
-import type { ConversationHistoryReq } from '../shared/ipc-contract.js'
+import type { ConversationHistoryReq, ProjectImportKind } from '../shared/ipc-contract.js'
 import './app.css'
 import './components/project-context-pm.css'
 
@@ -72,6 +72,11 @@ export function App() {
   const [upd, setUpd] = useState<{ open: boolean; running: boolean; log: string; ok: boolean }>(
     { open: false, running: false, log: '', ok: false },
   )
+  const [projectImporting, setProjectImporting] = useState(false)
+  const [projectImportNotice, setProjectImportNotice] = useState<{
+    tone: 'success' | 'error'
+    message: string
+  } | null>(null)
   const dragRef = useRef<{ onMove: (e: MouseEvent) => void; onUp: (e: MouseEvent) => void } | null>(null)
   const effectiveSidebarW = sidebarCollapsed ? RAIL_W : sidebarW
   const appLayoutStyle: CSSProperties & Record<'--sidebar-width' | '--dock-height', string> = {
@@ -304,6 +309,44 @@ export function App() {
     void refreshProjectCaches()
   }, [refreshProjectCaches])
 
+  useEffect(() => {
+    if (!projectImportNotice || projectImportNotice.tone === 'error') return
+    const timer = window.setTimeout(() => setProjectImportNotice(null), 5_000)
+    return () => window.clearTimeout(timer)
+  }, [projectImportNotice])
+
+  const runProjectImport = useCallback(async (kind: ProjectImportKind) => {
+    const projectId = selectedProjectId
+    if (!projectId || projectImporting) return
+    setProjectImporting(true)
+    setProjectImportNotice(null)
+    try {
+      const result = await api.importProjectItems({
+        projectId,
+        kind,
+        worktreePath: activeWorktrees[projectId] ?? undefined,
+      })
+      if (!result.ok) {
+        setProjectImportNotice({ tone: 'error', message: result.reason })
+        return
+      }
+      if (result.canceled) return
+      const renamed = result.items.filter((item) => item.renamed).length
+      setProjectImportNotice({
+        tone: 'success',
+        message: `${result.items.length}개 항목을 프로젝트 경로에 복사했습니다${renamed ? ` · 이름 충돌 ${renamed}개 자동 변경` : ''}`,
+      })
+      void refreshProjectCaches()
+    } catch (error) {
+      setProjectImportNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      setProjectImporting(false)
+    }
+  }, [activeWorktrees, projectImporting, refreshProjectCaches, selectedProjectId])
+
   const runUpdate = async () => {
     setUpd({ open: true, running: true, log: 'Running: git pull --ff-only && pnpm install …', ok: false })
     try {
@@ -316,6 +359,16 @@ export function App() {
 
   const toolbarActions = (
     <>
+      <GlobalMenu
+        ariaLabel="프로젝트로 가져오기"
+        trigger={projectImporting ? '가져오는 중…' : '↑ 가져오기'}
+        title="파일 또는 폴더를 현재 프로젝트 경로로 복사"
+        disabled={!selectedProjectId || projectImporting}
+        items={[
+          { label: '📄 파일 가져오기…', onClick: () => { void runProjectImport('files') } },
+          { label: '📁 폴더 가져오기…', onClick: () => { void runProjectImport('folder') } },
+        ]}
+      />
       <button onClick={() => setSearchOpen(true)} title="검색 (Ctrl+K)" aria-label="검색 (Ctrl+K)">🔎</button>
       <button onClick={() => setDiffOpen((value) => !value)} title="변경사항 (Ctrl+Shift+D)" aria-label="변경사항 (Ctrl+Shift+D)">±</button>
       <button
@@ -476,6 +529,15 @@ export function App() {
       {error && (
         <div className="error-toast" onClick={clearError}>
           {error} (click to dismiss)
+        </div>
+      )}
+      {projectImportNotice && (
+        <div
+          className={`project-import-toast project-import-toast--${projectImportNotice.tone}`}
+          role={projectImportNotice.tone === 'error' ? 'alert' : 'status'}
+          onClick={() => setProjectImportNotice(null)}
+        >
+          {projectImportNotice.message}
         </div>
       )}
     </div>

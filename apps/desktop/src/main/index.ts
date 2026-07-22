@@ -116,7 +116,18 @@ function createWindow(): void {
     win.webContents.send(CH.workspaceRestore, payload)
   })
 
-  registerIpc(ipcMain, container)
+  registerIpc(ipcMain, container, {
+    pickProjectImportSources: async ({ kind, projectName }) => {
+      const result = await dialog.showOpenDialog(win, {
+        properties: kind === 'files' ? ['openFile', 'multiSelections'] : ['openDirectory'],
+        title: kind === 'files'
+          ? `${projectName}에 복사할 파일 선택`
+          : `${projectName}에 복사할 폴더 선택`,
+        buttonLabel: '프로젝트로 복사',
+      })
+      return result.canceled ? null : result.filePaths
+    },
+  })
 
   // Opening evidence is native-shell work, so keep it outside the generic service-only IPC table.
   // HarnessService resolves and realpaths the file under raw/ before this boundary sees it.

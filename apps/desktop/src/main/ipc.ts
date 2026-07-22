@@ -18,6 +18,7 @@ import type {
   GitStatusReq, GitWorktreesReq, GitFetchReq, GitPullReq, GitCommitReq, GitPushReq,
   RetroPrepareReq, RetroAnswerReq, RetroTargetNotesReq, RetroCompleteReq, ReceiptIssueReq,
   GateQueryReq, GateInstallReq,
+  ProjectImportReq, ProjectImportKind,
 } from '../shared/ipc-contract.js'
 import type { AgentSource } from '@apc/shared'
 import {
@@ -32,9 +33,20 @@ import type { Container } from './container.js'
 import { readProjectDoc, listProjectDocs } from './project-files.js'
 import { diffProjectFile, listProjectChanges } from './project-changes.js'
 import { listGitWorktrees } from './git-worktrees.js'
+import { importProjectSources } from './project-import.js'
 
 export type IpcMainLike = {
   handle(channel: string, listener: (event: unknown, payload: unknown) => unknown): void
+}
+
+export type ProjectImportPicker = (request: {
+  kind: ProjectImportKind
+  projectName: string
+  destination: string
+}) => Promise<readonly string[] | null>
+
+export type IpcHandlerOptions = {
+  pickProjectImportSources?: ProjectImportPicker
 }
 
 const ProjectContextFields = {
@@ -72,7 +84,10 @@ export async function resolveGitRepoPath(
     : { ok: false, reason: `등록되지 않은 worktree 경로입니다: ${worktreePath}` }
 }
 
-export function handlers(container: Container): Record<string, (payload: unknown) => Promise<unknown>> {
+export function handlers(
+  container: Container,
+  options: IpcHandlerOptions = {},
+): Record<string, (payload: unknown) => Promise<unknown>> {
   return {
     [CH.listProjects]: async (_payload: unknown) => {
       return container.registry.list()
@@ -549,6 +564,36 @@ export function handlers(container: Container): Record<string, (payload: unknown
       return { docs: listProjectDocs(project.repoPaths) }
     },
 
+    [CH.projectImport]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1).max(2_048),
+        kind: z.enum(['files', 'folder']),
+        worktreePath: z.string().min(1).max(8_192).optional(),
+      }).strict().parse(payload) as ProjectImportReq
+      const project = container.registry.get(req.projectId)
+      if (!project) return { ok: false, reason: '프로젝트를 찾을 수 없습니다' }
+      const resolved = await resolveGitRepoPath(container, req.projectId, req.worktreePath)
+      if (!resolved.ok) return { ok: false, reason: resolved.reason }
+      if (resolved.repoPath.startsWith('ssh://')) {
+        return { ok: false, reason: 'SSH 프로젝트로의 파일 가져오기는 아직 지원하지 않습니다' }
+      }
+      if (!options.pickProjectImportSources) {
+        return { ok: false, reason: '파일 선택 기능을 사용할 수 없습니다' }
+      }
+
+      try {
+        const selected = await options.pickProjectImportSources({
+          kind: req.kind,
+          projectName: project.name,
+          destination: resolved.repoPath,
+        })
+        if (!selected || selected.length === 0) return { ok: true, canceled: true, items: [] }
+        return importProjectSources(resolved.repoPath, selected, req.kind)
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      }
+    },
+
     [CH.changesList]: async (payload: unknown) => {
       const req = z.object({ projectId: z.string() }).strict().parse(payload)
       const project = container.registry.get(req.projectId)
@@ -690,8 +735,8 @@ export function handlers(container: Container): Record<string, (payload: unknown
   }
 }
 
-export function registerIpc(ipcMain: IpcMainLike, container: Container): void {
-  for (const [ch, fn] of Object.entries(handlers(container))) {
+export function registerIpc(ipcMain: IpcMainLike, container: Container, options: IpcHandlerOptions = {}): void {
+  for (const [ch, fn] of Object.entries(handlers(container, options))) {
     ipcMain.handle(ch, (_e, payload) => fn(payload))
   }
 }
