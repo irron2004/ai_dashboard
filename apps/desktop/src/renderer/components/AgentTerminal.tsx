@@ -29,6 +29,7 @@ export type AgentTerminalProps = {
   agent?: 'claude' | 'codex' | 'opencode'
   resumeSessionId?: string | null   // null = resume latest; undefined = no resume (fresh start)
   restartNonce?: number   // bump to force re-spawn (start/restart)
+  visible?: boolean
   onStatus?: (status: AgentRunStatus) => void
   onActivate?: () => void
   onQuestionCandidate?: (text: string) => void
@@ -72,11 +73,14 @@ function probeBrowserFont(family: string, sample: string, fontSize: number): Ter
  */
 export function AgentTerminal({
   sessionId, command, args, cwd, paneIdentity, agent, resumeSessionId, restartNonce,
-  onStatus, onActivate, onQuestionCandidate, onRenderingDiagnostic,
+  visible = true, onStatus, onActivate, onQuestionCandidate, onRenderingDiagnostic,
 }: AgentTerminalProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const pasteControllerRef = useRef<TerminalPasteController | null>(null)
+  const renderCoordinatorRef = useRef<TerminalRenderCoordinator | null>(null)
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
   const [notice, setNotice] = useState<TerminalNotice | null>(null)
   const [renderingDiagnostic, setRenderingDiagnostic] = useState<TerminalFontDiagnostic | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -103,9 +107,8 @@ export function AgentTerminal({
     const fit = new FitAddon()
     const unicode11 = new Unicode11Addon()
     const questionBuffer = new TerminalQuestionBuffer()
-    const launchId = paneIdentity
-      ? (globalThis.crypto?.randomUUID?.() ?? `${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`)
-      : undefined
+    const launchId = globalThis.crypto?.randomUUID?.()
+      ?? `${sessionId}:${Date.now()}:${Math.random().toString(36).slice(2)}`
     activateUnicode11(term, unicode11)
     term.loadAddon(fit)
     term.open(host)
@@ -122,9 +125,11 @@ export function AgentTerminal({
       dimensions: () => ({ cols: term.cols, rows: term.rows }),
       resize: (cols, rows) => { void api.resizePty({ id: sessionId, cols, rows, launchId }) },
       refresh: (start, end) => term.refresh(start, end),
+      isVisible: () => visibleRef.current,
       requestFrame,
       cancelFrame,
     })
+    renderCoordinatorRef.current = renderCoordinator
 
     let disposed = false
     const updateFontDiagnostic = () => {
@@ -172,16 +177,12 @@ export function AgentTerminal({
       term.write(`\r\n[process exited: ${code}]\r\n`, () => renderCoordinator.schedule())
       onStatusRef.current?.('done')
     }
-    const offData = paneIdentity && launchId
-      ? api.onPtyDataV2((event) => {
-          if (event.id === sessionId && event.launchId === launchId) onOutput(event.data)
-        })
-      : api.onPtyData((id, data) => { if (id === sessionId) onOutput(data) })
-    const offExit = paneIdentity && launchId
-      ? api.onPtyExitV2((event) => {
-          if (event.id === sessionId && event.launchId === launchId) onExit(event.code)
-        })
-      : api.onPtyExit((id, code) => { if (id === sessionId) onExit(code) })
+    const offData = api.onPtyDataV2(sessionId, (event) => {
+      if (event.launchId === launchId) onOutput(event.data)
+    })
+    const offExit = api.onPtyExitV2(sessionId, (event) => {
+      if (event.launchId === launchId) onExit(event.code)
+    })
     // Activation (pane grow) is click-only — see onMouseDown on the host below. Typing does NOT activate.
     const inputSub = term.onData((data) => {
       const questionCandidates = questionBuffer.push(data)
@@ -207,8 +208,8 @@ export function AgentTerminal({
       agent,
       sessionId: resumeSessionId ?? undefined,
     }
-    if (paneIdentity && launchId) api.startPty({ ...start, pane: paneIdentity, launchId })
-    else api.startPty(start)
+    if (paneIdentity) api.startPty({ ...start, pane: paneIdentity, launchId })
+    else api.startPty({ ...start, launchId })
 
     const scheduleRender = () => renderCoordinator.schedule()
     const onVisibilityChange = () => {
@@ -234,6 +235,7 @@ export function AgentTerminal({
       document.fonts?.removeEventListener('loadingdone', scheduleRender)
       ro?.disconnect()
       renderCoordinator.dispose()
+      renderCoordinatorRef.current = null
       inputSub.dispose()
       selSub.dispose()
       pasteController.dispose()
@@ -251,6 +253,10 @@ export function AgentTerminal({
     paneIdentity?.paneId, paneIdentity?.projectId, paneIdentity?.worktreePath,
     paneIdentity?.slotId, paneIdentity?.agent, paneIdentity?.sessionId,
   ])
+
+  useEffect(() => {
+    if (visible) renderCoordinatorRef.current?.schedule()
+  }, [visible])
 
   return (
     <div

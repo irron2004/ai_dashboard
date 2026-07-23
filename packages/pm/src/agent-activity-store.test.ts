@@ -20,11 +20,13 @@ const base: AgentActivity = {
 describe('AgentActivityStore', () => {
   let db: Db
   let store: AgentActivityStore
+  let clock: string
   beforeEach(() => {
     db = openDb(':memory:')
     migrate(db)
     migratePm(db)
-    store = new AgentActivityStore(db, () => '2026-07-20T10:01:00Z')
+    clock = '2026-07-20T10:01:00Z'
+    store = new AgentActivityStore(db, () => clock)
   })
 
   test('round-trips pane identity and only sanitized question fields', () => {
@@ -56,5 +58,42 @@ describe('AgentActivityStore', () => {
       lastActivityAt: base.lastActivityAt, lastQuestion: base.lastQuestion, reason: 'app-restart', revision: 4,
     })
     expect(store.normalizeStartup()).toBe(0)
+  })
+
+  test('deletes every activity row for one project only', () => {
+    store.put(base)
+    store.put({
+      ...base,
+      pane: { ...base.pane, paneId: 'pane-2', projectId: 'p2' },
+      revision: 1,
+    })
+
+    expect(store.deleteProject('p1')).toBe(1)
+    expect(store.get('pane-1')).toBeUndefined()
+    expect(store.list('p2')).toHaveLength(1)
+  })
+
+  test('prunes orphaned and expired inactive rows but retains live and recent panes', () => {
+    clock = '2026-01-01T00:00:00Z'
+    store.put({ ...base, processAlive: false, connection: 'disconnected', revision: 4 })
+    store.put({
+      ...base,
+      pane: { ...base.pane, paneId: 'orphan', projectId: 'deleted-project' },
+      processAlive: false, connection: 'disconnected', revision: 4,
+    })
+    store.put({
+      ...base,
+      pane: { ...base.pane, paneId: 'live', projectId: 'p2' },
+      revision: 4,
+    })
+    clock = '2026-07-20T00:00:00Z'
+    store.put({
+      ...base,
+      pane: { ...base.pane, paneId: 'recent', projectId: 'p3' },
+      processAlive: false, connection: 'disconnected', revision: 4,
+    })
+
+    expect(store.pruneInactive('2026-06-20T00:00:00Z', ['p1', 'p2', 'p3'])).toBe(2)
+    expect(store.list().map((activity) => activity.pane.paneId).sort()).toEqual(['live', 'recent'])
   })
 })

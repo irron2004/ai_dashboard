@@ -1,6 +1,6 @@
 // packages/agents/src/resume.test.ts
 import { describe, test, expect } from 'vitest'
-import { resumeCommand } from './resume.js'
+import { adapterFor, resumeCommand } from './resume.js'
 
 describe('resumeCommand', () => {
   test('claude with sessionId → --resume <id>', () => {
@@ -20,5 +20,10 @@ describe('resumeCommand', () => {
   })
   test('opencode without sessionId → --continue', () => {
     expect(resumeCommand('opencode', {})).toEqual({ command: 'opencode', args: ['--continue'] })
+  })
+
+  test('reuses default adapters so source discovery caches span project lookups', () => {
+    expect(adapterFor('claude')).toBe(adapterFor('claude'))
+    expect(adapterFor('codex')).toBe(adapterFor('codex'))
   })
 })

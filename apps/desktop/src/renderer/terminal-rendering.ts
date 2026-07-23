@@ -101,6 +101,7 @@ export type TerminalRenderCoordinatorOptions = {
   dimensions: () => { cols: number; rows: number }
   resize: (cols: number, rows: number) => void
   refresh: (start: number, end: number) => void
+  isVisible?: () => boolean
   requestFrame?: (callback: FrameRequestCallback) => number
   cancelFrame?: (handle: number) => void
   onError?: (error: unknown) => void
@@ -110,6 +111,7 @@ export type TerminalRenderCoordinatorOptions = {
 export class TerminalRenderCoordinator {
   private frame: number | null = null
   private disposed = false
+  private lastDimensions: { cols: number; rows: number } | null = null
   private readonly requestFrame: (callback: FrameRequestCallback) => number
   private readonly cancelFrame: (handle: number) => void
 
@@ -119,16 +121,26 @@ export class TerminalRenderCoordinator {
   }
 
   schedule(): void {
-    if (this.disposed || this.frame !== null) return
+    if (this.disposed) return
+    if (this.options.isVisible && !this.options.isVisible()) {
+      return
+    }
+    if (this.frame !== null) return
     this.frame = this.requestFrame(() => {
       this.frame = null
       if (this.disposed) return
+      if (this.options.isVisible && !this.options.isVisible()) {
+        return
+      }
       try {
         this.options.fit()
         if (this.disposed) return
         const { cols, rows } = this.options.dimensions()
         if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 2 || rows < 1) return
-        this.options.resize(cols, rows)
+        if (!this.lastDimensions || this.lastDimensions.cols !== cols || this.lastDimensions.rows !== rows) {
+          this.options.resize(cols, rows)
+          this.lastDimensions = { cols, rows }
+        }
         if (this.disposed) return
         this.options.refresh(0, rows - 1)
       } catch (error) {

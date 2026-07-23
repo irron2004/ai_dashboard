@@ -57,6 +57,24 @@ function createWindow(): void {
     primaryWorktreeForProject: (projectId) => container.registry.get(projectId)?.repoPaths[0],
   })
   sessions.ensureSchema()
+  sessions.pruneInactive(
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString(),
+    container.registry.list().map((project) => project.id),
+  )
+
+  const pty = new PtyManager(
+    (channel, ...args) => win.webContents.send(channel, ...args),
+    { onLifecycle: (event) => { container.activityCoordinator.handle(event) } },
+  )
+  type PendingStart = { token: symbol; projectId?: string; launchId?: string }
+  const pendingStarts = new Map<string, PendingStart>()
+  const cancelPendingProjectStarts = (projectId: string): void => {
+    for (const [id, pending] of [...pendingStarts]) {
+      if (pending.projectId !== projectId) continue
+      pendingStarts.delete(id)
+      if (pending.launchId) pty.kill(id, pending.launchId, 'unmount')
+    }
+  }
 
   const scopedPaneReport = z.object({
     projectId: z.string().min(1).max(2_048),
@@ -74,11 +92,15 @@ function createWindow(): void {
   // Renderer reports pane open/close and selected project
   ipcMain.on(CH.paneOpened, (_e, payload: unknown) => {
     const parsed = paneReport.safeParse(payload)
-    if (parsed.success) sessions.upsertPane({ ...parsed.data, wasOpen: true })
+    if (parsed.success && container.registry.get(parsed.data.projectId)) {
+      sessions.upsertPane({ ...parsed.data, wasOpen: true })
+    }
   })
   ipcMain.on(CH.paneClosed, (_e, payload: unknown) => {
     const parsed = paneReport.safeParse(payload)
-    if (parsed.success) sessions.upsertPane({ ...parsed.data, wasOpen: false })
+    if (parsed.success && container.registry.get(parsed.data.projectId)) {
+      sessions.upsertPane({ ...parsed.data, wasOpen: false })
+    }
   })
   ipcMain.on(CH.selectProject, (_e, payload: unknown) => {
     const parsed = z.string().min(1).max(2_048).safeParse(payload)
@@ -89,6 +111,7 @@ function createWindow(): void {
   if (!quitHandlerRegistered) {
     quitHandlerRegistered = true
     app.on('before-quit', () => {
+      container.activityCoordinator.flush()
       const open = sessions.listOpenPaneRecords()
       void Promise.all(open.map(async (pane) => {
         const repoPath = pane.worktreePath || container.registry.get(pane.projectId)?.repoPaths?.[0]
@@ -126,6 +149,12 @@ function createWindow(): void {
         buttonLabel: '프로젝트로 복사',
       })
       return result.canceled ? null : result.filePaths
+    },
+    beforeDeleteProject: (projectId) => {
+      cancelPendingProjectStarts(projectId)
+      pty.killProject(projectId, 'unmount')
+      sessions.deleteProject(projectId)
+      container.activityCoordinator.deleteProject(projectId)
     },
   })
 
@@ -184,11 +213,6 @@ function createWindow(): void {
   // Relaunch the app to load the pulled code.
   ipcMain.handle(CH.appRestart, async () => { app.relaunch(); app.quit() })
 
-  const pty = new PtyManager(
-    (channel, ...args) => win.webContents.send(channel, ...args),
-    { onLifecycle: (event) => { container.activityCoordinator.handle(event) } },
-  )
-  const pendingStarts = new Map<string, symbol>()
   const rejectPtyStart = (id: string, launchId: string, reason: string) => {
     win.webContents.send(CH.ptyExitV2, { id, launchId, code: 1, reason })
   }
@@ -197,12 +221,17 @@ function createWindow(): void {
     if (!parsed.ok) return
     const req = parsed.value
     const requestToken = Symbol(req.launchId ?? 'legacy-start')
-    pendingStarts.set(req.id, requestToken)
+    pendingStarts.set(req.id, {
+      token: requestToken,
+      projectId: req.pane?.projectId,
+      launchId: req.launchId,
+    })
     void authorizePtyStart(req, (projectId, worktreePath) => (
       resolveGitRepoPath(container, projectId, worktreePath)
     )).then((authorized) => {
-      if (pendingStarts.get(req.id) !== requestToken) return
+      if (pendingStarts.get(req.id)?.token !== requestToken) return
       if (!authorized.ok) {
+        pendingStarts.delete(req.id)
         if (req.launchId) rejectPtyStart(req.id, req.launchId, authorized.reason)
         return
       }
@@ -212,9 +241,12 @@ function createWindow(): void {
         sessionId: req.sessionId,
         pane: req.pane,
         launchId: req.launchId,
+      }).finally(() => {
+        if (pendingStarts.get(req.id)?.token === requestToken) pendingStarts.delete(req.id)
       })
     }).catch(() => {
-      if (pendingStarts.get(req.id) !== requestToken) return
+      if (pendingStarts.get(req.id)?.token !== requestToken) return
+      pendingStarts.delete(req.id)
       if (req.launchId) rejectPtyStart(req.id, req.launchId, 'start-authorization-failed')
     })
   })
@@ -232,6 +264,8 @@ function createWindow(): void {
     const parsed = parsePtyKill(payload)
     if (!parsed.ok) return
     const req = parsed.value
+    const pending = pendingStarts.get(req.id)
+    if (pending && (!req.launchId || pending.launchId === req.launchId)) pendingStarts.delete(req.id)
     pty.kill(req.id, req.launchId, req.reason)
   })
   ipcMain.on(CH.ptyResize, (_e, payload: unknown) => {
@@ -242,8 +276,8 @@ function createWindow(): void {
   })
 
   const silenceTimer = setInterval(() => {
-    for (const activity of container.activityStore.list()) {
-      if (activity.processAlive) container.activityCoordinator.handle({
+    for (const activity of container.activityCoordinator.listLive()) {
+      container.activityCoordinator.handle({
         type: 'silence', paneId: activity.pane.paneId, launchId: activity.launchId,
       })
     }

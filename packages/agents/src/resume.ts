@@ -8,6 +8,8 @@ import { OpenCodeAdapter } from './opencode-adapter.js'
 export type ResumeOpts = { sessionId?: string }
 export type LaunchSpec = { command: string; args: string[] }
 
+const defaultAdapters = new Map<AgentKind, AgentIngestAdapter>()
+
 /**
  * CLI별 resume 명령 매핑. sessionId가 있으면 특정 세션, 없으면 "가장 최근" 세션.
  * NOTE: 플래그는 각 CLI `--help`로 검증됨(2026-06). 변경 시 여기만 고친다.
@@ -27,12 +29,17 @@ export function resumeCommand(agent: AgentKind, opts: ResumeOpts): LaunchSpec {
 }
 
 export function adapterFor(agent: AgentKind): AgentIngestAdapter {
+  const existing = defaultAdapters.get(agent)
+  if (existing) return existing
+  let adapter: AgentIngestAdapter
   switch (agent) {
-    case 'claude': return new ClaudeAdapter()
-    case 'codex': return new CodexAdapter()
-    case 'opencode': return new OpenCodeAdapter()
+    case 'claude': adapter = new ClaudeAdapter(); break
+    case 'codex': adapter = new CodexAdapter(); break
+    case 'opencode': adapter = new OpenCodeAdapter(); break
     default: throw new Error(`no adapter for agent: ${agent}`)
   }
+  defaultAdapters.set(agent, adapter)
+  return adapter
 }
 
 const _t = (s?: string) => (s ? Date.parse(s) : 0)

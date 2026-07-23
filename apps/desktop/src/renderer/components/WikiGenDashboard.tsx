@@ -31,17 +31,41 @@ const REVIEW_TABS: { id: ReviewTab; label: string }[] = [
 ]
 
 export function WikiGenDashboard() {
-  const {
-    selectedProjectId, projectSurfaceRevision, harnessRuns, selectedHarnessRunId, harnessLoading, harnessMessage,
-    harnessProgress, harnessLiveLabel, harnessLiveTail, harnessConfigs,
-    harnessCanonicalProposals, harnessPromoteBlockedReason, harnessCanonicalBlock,
-    harnessReviewDecisions,
-    wikiPolicy, wikiPolicyPreview, wikiPolicyBusy,
-    hydrateHarnessProject, selectHarnessRun, startHarnessRun, refreshHarnessRun, resumeHarnessRun,
-    promoteHarnessRun, promoteCanonicalDoc, exportWiki, updateHarnessModel, updateHarnessSafety, toggleHarnessGate, updateHarnessPrompt,
-    proposeWikiPolicy, approveWikiPolicy, loadWikiPolicy, revertWikiPolicy,
-    confirmNodes, setReviewVerdict,
-  } = useStore()
+  const selectedProjectId = useStore((state) => state.selectedProjectId)
+  const projectSurfaceRevision = useStore((state) => state.projectSurfaceRevision)
+  const harnessRuns = useStore((state) => state.harnessRuns)
+  const selectedHarnessRunId = useStore((state) => state.selectedHarnessRunId)
+  const harnessLoading = useStore((state) => state.harnessLoading)
+  const harnessMessage = useStore((state) => state.harnessMessage)
+  const harnessProgress = useStore((state) => state.harnessProgress)
+  const harnessLiveLabel = useStore((state) => state.harnessLiveLabel)
+  const harnessLiveTail = useStore((state) => state.harnessLiveTail)
+  const harnessConfigs = useStore((state) => state.harnessConfigs)
+  const harnessCanonicalProposals = useStore((state) => state.harnessCanonicalProposals)
+  const harnessPromoteBlockedReason = useStore((state) => state.harnessPromoteBlockedReason)
+  const harnessCanonicalBlock = useStore((state) => state.harnessCanonicalBlock)
+  const harnessReviewDecisions = useStore((state) => state.harnessReviewDecisions)
+  const wikiPolicy = useStore((state) => state.wikiPolicy)
+  const wikiPolicyPreview = useStore((state) => state.wikiPolicyPreview)
+  const wikiPolicyBusy = useStore((state) => state.wikiPolicyBusy)
+  const hydrateHarnessProject = useStore((state) => state.hydrateHarnessProject)
+  const selectHarnessRun = useStore((state) => state.selectHarnessRun)
+  const startHarnessRun = useStore((state) => state.startHarnessRun)
+  const refreshHarnessRun = useStore((state) => state.refreshHarnessRun)
+  const resumeHarnessRun = useStore((state) => state.resumeHarnessRun)
+  const promoteHarnessRun = useStore((state) => state.promoteHarnessRun)
+  const promoteCanonicalDoc = useStore((state) => state.promoteCanonicalDoc)
+  const exportWiki = useStore((state) => state.exportWiki)
+  const updateHarnessModel = useStore((state) => state.updateHarnessModel)
+  const updateHarnessSafety = useStore((state) => state.updateHarnessSafety)
+  const toggleHarnessGate = useStore((state) => state.toggleHarnessGate)
+  const updateHarnessPrompt = useStore((state) => state.updateHarnessPrompt)
+  const proposeWikiPolicy = useStore((state) => state.proposeWikiPolicy)
+  const approveWikiPolicy = useStore((state) => state.approveWikiPolicy)
+  const loadWikiPolicy = useStore((state) => state.loadWikiPolicy)
+  const revertWikiPolicy = useStore((state) => state.revertWikiPolicy)
+  const confirmNodes = useStore((state) => state.confirmNodes)
+  const setReviewVerdict = useStore((state) => state.setReviewVerdict)
 
   const [reviewTab, setReviewTab] = useState<ReviewTab>('overview')
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all')

@@ -1,7 +1,12 @@
 import { cpSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { dirname } from 'node:path'
 import { resolveInside } from '../runtime/vault-fs.js'
+
+const DIFF_MAX_BUFFER = 32 * 1024 * 1024
+const DIFF_TIMEOUT_MS = 60_000
+
+type DiffError = Error & { code?: number | string; stdout?: string | Buffer; stderr?: string | Buffer }
 
 /**
  * A copy-on-prepare staging vault. The Writer writes ONLY here; the real vault is never touched
@@ -28,15 +33,32 @@ export class StagingVault {
 
   get stagingPath(): string { return this.stagingDir }
 
-  /** git diff --no-index between the real vault and staging. git exits 1 when diffs exist — that's success.
+  /** Async git diff --no-index between the real vault and staging. git exits 1 when diffs exist — that's success.
    *  A diff larger than the buffer is degraded-but-non-fatal (the run still has the staging tree and the
    *  applied-write report): return a marker rather than throwing and failing the whole run on diff size. */
-  diff(): string {
-    const r = spawnSync('git', ['diff', '--no-index', '--', this.vaultDir, this.stagingDir], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
-    if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
-      return '# diff omitted: staging diff exceeds the 256MB buffer (staging tree + applied-write report are authoritative)\n'
-    }
-    if (r.status !== 0 && r.status !== 1) throw new Error(`git diff failed: ${r.stderr || r.error?.message || 'unknown'}`)
-    return r.stdout
+  diff(options: { signal?: AbortSignal } = {}): Promise<string> {
+    return new Promise((resolve, reject) => {
+      try {
+        execFile('git', ['diff', '--no-index', '--', this.vaultDir, this.stagingDir], {
+          encoding: 'utf8',
+          maxBuffer: DIFF_MAX_BUFFER,
+          timeout: DIFF_TIMEOUT_MS,
+          signal: options.signal,
+        }, (error, stdout, stderr) => {
+          if (!error) { resolve(String(stdout)); return }
+          const commandError = error as DiffError
+          if (commandError.code === 1) { resolve(String(stdout ?? commandError.stdout ?? '')); return }
+          const bufferExceeded = commandError.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+            || commandError.message.includes('maxBuffer')
+          if (bufferExceeded) {
+            resolve('# diff omitted: staging diff exceeds the 32MB buffer (staging tree + applied-write report are authoritative)\n')
+            return
+          }
+          reject(new Error(`git diff failed: ${String(stderr || commandError.stderr || commandError.message || 'unknown')}`))
+        })
+      } catch (error) {
+        reject(error)
+      }
+    })
   }
 }

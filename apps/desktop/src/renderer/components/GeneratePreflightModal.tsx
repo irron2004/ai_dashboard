@@ -4,7 +4,14 @@ import { useStore } from '../store.js'
 import { api } from '../api.js'
 
 export function GeneratePreflightModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { selectedProjectId, preflighting, generatePreflight, generating, generation, generate, clearGeneratePreflight, clearGeneration } = useStore()
+  const selectedProjectId = useStore((state) => state.selectedProjectId)
+  const preflighting = useStore((state) => state.preflighting)
+  const generatePreflight = useStore((state) => state.generatePreflight)
+  const generating = useStore((state) => state.generating)
+  const generation = useStore((state) => state.generation)
+  const generate = useStore((state) => state.generate)
+  const clearGeneratePreflight = useStore((state) => state.clearGeneratePreflight)
+  const clearGeneration = useStore((state) => state.clearGeneration)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<GeneratePreflightCategoryId[]>([])
   const [promoteMsg, setPromoteMsg] = useState<string | null>(null)
 

@@ -25,7 +25,13 @@ import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
-import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, latestSessionDetail, type AgentIngestAdapter } from '@apc/agents'
+import {
+  ClaudeAdapter,
+  CodexAdapter,
+  OpenCodeAdapter,
+  latestSessionDetail,
+  type AgentIngestAdapter,
+} from '@apc/agents'
 import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { generateRemote } from './remote-generate.js'
@@ -286,8 +292,8 @@ export function buildContainer(opts: {
   const nextNotes = new NextNoteStore(db, nowIso)
   const questionLog = new QuestionLogStore(db)
   const runs = new AgentRunStore(db)
-  // resumeCard is expensive: latestSessionDetail re-discovers + parses ALL sessions for 3 engines on
-  // every call (no incremental cursor). Cache per project; invalidated on project/task/note mutations and ingest.
+  // Resume cards are cached per project. The agents package additionally shares short-lived source listings
+  // and size/mtime-keyed JSONL metadata so switching projects does not re-read every transcript prefix.
   const resumeCardCache = new Map<string, ResumeCard | null>()
   const invalidateResumeCards = (projectId?: string): void => {
     if (projectId) resumeCardCache.delete(projectId)
@@ -309,6 +315,10 @@ export function buildContainer(opts: {
     emit: opts.emitAgentActivity,
   })
   activityCoordinator.normalizeStartup()
+  activityCoordinator.pruneInactive(
+    new Date(now() - 30 * 24 * 60 * 60 * 1_000).toISOString(),
+    registry.list().map((project) => project.id),
+  )
   const liveQuestions = new LiveQuestionService(activityCoordinator, { now: nowIso })
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
@@ -674,11 +684,11 @@ export function buildContainer(opts: {
   }
 
   const agentActivitySnapshot = (req: AgentActivitySnapshotReq): AgentActivitySnapshotRes => ({
-    activities: activityStore.list(req.projectId),
+    activities: activityCoordinator.list(req.projectId),
     asOf: nowIso(),
   })
   const agentQuestionReconcile = async (req: AgentQuestionReconcileReq): Promise<AgentQuestionReconcileRes> => {
-    const activity = activityStore.get(req.paneId)
+    const activity = activityCoordinator.get(req.paneId)
     if (!activity || activity.launchId !== req.launchId) return { ok: false, reason: 'stale-launch' }
     const sessionId = req.sessionId ?? activity.pane.sessionId ?? activity.lastQuestion?.sessionId
     if (!sessionId) return { ok: false, reason: 'session-id-required' }

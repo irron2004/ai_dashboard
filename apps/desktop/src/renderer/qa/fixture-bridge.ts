@@ -45,6 +45,23 @@ function subscribe<T>(listeners: Set<T>, listener: T): () => void {
   return () => listeners.delete(listener)
 }
 
+function subscribeById<T>(
+  listenersById: Map<string, Set<T>>,
+  id: string,
+  listener: T,
+): () => void {
+  let listeners = listenersById.get(id)
+  if (!listeners) {
+    listeners = new Set()
+    listenersById.set(id, listeners)
+  }
+  listeners.add(listener)
+  return () => {
+    listeners?.delete(listener)
+    if (listeners?.size === 0) listenersById.delete(id)
+  }
+}
+
 function seedRunStorage(model: FixtureModel): void {
   const projectId = model.selectedProjectId
   if (!projectId) return
@@ -85,8 +102,8 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
   const harnessActivity = new Set<HarnessActivityCallback>()
   const devLogs = new Set<DevLogCallback>()
   const devStarted = new Set<DevStartedCallback>()
-  const ptyDataV2 = new Set<PtyDataCallback>()
-  const ptyExitV2 = new Set<PtyExitCallback>()
+  const ptyDataV2 = new Map<string, Set<PtyDataCallback>>()
+  const ptyExitV2 = new Map<string, Set<PtyExitCallback>>()
   const agentActivity = new Set<AgentActivityCallback>()
 
   document.documentElement.dataset.apcFixture = scenario
@@ -704,7 +721,7 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
         revision: 1,
       }
       window.setTimeout(() => {
-        for (const listener of ptyDataV2) listener({
+        for (const listener of ptyDataV2.get(request.id) ?? []) listener({
           id: request.id,
           launchId: request.launchId!,
           data: `fixture PTY ready · ${request.pane!.paneId}\r\n`,
@@ -721,17 +738,15 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
     killPty: (request) => {
       calls.push({ channel: CH.ptyKill, payload: request })
       if (!request.launchId) return
-      for (const listener of ptyExitV2) listener({
+      for (const listener of ptyExitV2.get(request.id) ?? []) listener({
         id: request.id, launchId: request.launchId, code: 0, reason: request.reason ?? 'user',
       })
     },
     resizePty: (request) => {
       calls.push({ channel: CH.ptyResize, payload: request })
     },
-    onPtyData: () => () => {},
-    onPtyExit: () => () => {},
-    onPtyDataV2: (listener) => subscribe(ptyDataV2, listener),
-    onPtyExitV2: (listener) => subscribe(ptyExitV2, listener),
+    onPtyDataV2: (id, listener) => subscribeById(ptyDataV2, id, listener),
+    onPtyExitV2: (id, listener) => subscribeById(ptyExitV2, id, listener),
     onAgentActivity: (listener) => subscribe(agentActivity, listener),
     onHarnessProgress: (listener) => subscribe(harnessProgress, listener),
     onHarnessEngineLog: (listener) => subscribe(harnessLogs, listener),

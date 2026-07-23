@@ -61,10 +61,8 @@ declare global {
       writePty(req: PtyInputReq): void
       killPty(req: PtyKillReq): void
       resizePty(req: PtyResizeReq): void
-      onPtyData(cb: (id: string, data: string) => void): () => void
-      onPtyExit(cb: (id: string, code: number) => void): () => void
-      onPtyDataV2(cb: (event: PtyDataEvent) => void): () => void
-      onPtyExitV2(cb: (event: PtyExitEvent) => void): () => void
+      onPtyDataV2(id: string, cb: (event: PtyDataEvent) => void): () => void
+      onPtyExitV2(id: string, cb: (event: PtyExitEvent) => void): () => void
       onAgentActivity(cb: (event: AgentActivity) => void): () => void
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
@@ -370,10 +368,12 @@ export const api = {
   writePty(req: PtyInputReq): void { window.apc.writePty(req) },
   killPty(req: PtyKillReq): void { window.apc.killPty(req) },
   resizePty(req: PtyResizeReq): void { window.apc.resizePty(req) },
-  onPtyData(cb: (id: string, data: string) => void): () => void { return window.apc.onPtyData(cb) },
-  onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
-  onPtyDataV2(cb: (event: PtyDataEvent) => void): () => void { return window.apc.onPtyDataV2(cb) },
-  onPtyExitV2(cb: (event: PtyExitEvent) => void): () => void { return window.apc.onPtyExitV2(cb) },
+  onPtyDataV2(id: string, cb: (event: PtyDataEvent) => void): () => void {
+    return window.apc.onPtyDataV2(id, cb)
+  },
+  onPtyExitV2(id: string, cb: (event: PtyExitEvent) => void): () => void {
+    return window.apc.onPtyExitV2(id, cb)
+  },
   onAgentActivity(cb: (event: AgentActivity) => void): () => void { return window.apc.onAgentActivity(cb) },
   onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void {
     return window.apc.onHarnessProgress(cb)

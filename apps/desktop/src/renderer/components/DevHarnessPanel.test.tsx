@@ -46,7 +46,7 @@ describe('DevHarnessPanel', () => {
     render(<DevHarnessPanel projectId="p1" tasks={[task('T1', 'do work')]} />)
     await act(async () => { fireEvent.click(runBtn()) })
     act(() => logCb({ runId: 'R1', label: 'harness', stream: 'stdout', chunk: 'building…' }))
-    expect(screen.getByTestId('dev-harness-log').textContent).toContain('building…')
+    await waitFor(() => expect(screen.getByTestId('dev-harness-log').textContent).toContain('building…'))
   })
 
   it('cancel sends the captured runId while running', async () => {

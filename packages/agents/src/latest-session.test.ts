@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { AgentSource, NormalizedSession } from '@apc/shared'
 import type { AgentIngestAdapter } from './types.js'
-import { pickLatestSession } from './latest-session.js'
+import { invalidateLatestSessionDiscovery, pickLatestSession } from './latest-session.js'
 
 function sess(id: string, repoPath: string, endedAt: string): NormalizedSession {
   return {
@@ -29,5 +29,22 @@ describe('pickLatestSession', () => {
   test('returns null when no session matches repoPath', async () => {
     const a = adapter([sess('x', '/work/other', '2026-07-07T00:00:00Z')])
     expect(await pickLatestSession([{ agent: 'claude', adapter: a }], '/work/apc')).toBeNull()
+  })
+
+  test('shares source discovery across project lookups and refreshes after invalidation', async () => {
+    const a = adapter([
+      sess('one', '/work/one', '2026-07-07T00:00:00Z'),
+      sess('two', '/work/two', '2026-07-08T00:00:00Z'),
+    ])
+    const discover = vi.spyOn(a, 'discoverSources')
+    const candidates = [{ agent: 'claude' as const, adapter: a }]
+
+    await pickLatestSession(candidates, '/work/one')
+    await pickLatestSession(candidates, '/work/two')
+    expect(discover).toHaveBeenCalledTimes(1)
+
+    invalidateLatestSessionDiscovery()
+    await pickLatestSession(candidates, '/work/one')
+    expect(discover).toHaveBeenCalledTimes(2)
   })
 })

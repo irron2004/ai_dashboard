@@ -1,7 +1,11 @@
 // apps/desktop/src/main/session-store.ts
 type DB = {
   exec(sql: string): unknown
-  prepare(sql: string): { run(...a: unknown[]): unknown; get(...a: unknown[]): any; all(...a: unknown[]): any[] }
+  prepare(sql: string): {
+    run(...a: unknown[]): { changes?: number | bigint }
+    get(...a: unknown[]): any
+    all(...a: unknown[]): any[]
+  }
 }
 
 export type WorkspacePaneRecord = {
@@ -171,6 +175,32 @@ export class SessionStore {
   getState(key: string): string | null {
     const row = this.db.prepare(`SELECT value FROM app_state WHERE key = ?`).get(key)
     return row ? (row.value as string) : null
+  }
+
+  deleteProject(projectId: string): void {
+    this.db.prepare('DELETE FROM workspace_pane WHERE project_id = ?').run(projectId)
+    this.db.prepare('DELETE FROM workspace_pane_v2 WHERE project_id = ?').run(projectId)
+    if (this.getState('selected_project_id') === projectId) {
+      this.db.prepare('DELETE FROM app_state WHERE key = ?').run('selected_project_id')
+    }
+  }
+
+  /** Retain open panes, but remove deleted-project rows and long-closed restore history. */
+  pruneInactive(inactiveBefore: string, validProjectIds: readonly string[]): number {
+    const placeholders = validProjectIds.map(() => '?').join(', ')
+    let deleted = 0
+    for (const table of ['workspace_pane', 'workspace_pane_v2']) {
+      const orphaned = validProjectIds.length === 0
+        ? this.db.prepare(`DELETE FROM ${table}`).run()
+        : this.db.prepare(`DELETE FROM ${table} WHERE project_id NOT IN (${placeholders})`).run(...validProjectIds)
+      deleted += Number(orphaned.changes ?? 0)
+      const expired = this.db.prepare(
+        `DELETE FROM ${table}
+         WHERE was_open = 0 AND (last_active IS NULL OR last_active < ?)`,
+      ).run(inactiveBefore)
+      deleted += Number(expired.changes ?? 0)
+    }
+    return deleted
   }
 
   closeAllPanes(): void {

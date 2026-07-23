@@ -107,4 +107,58 @@ describe('TerminalRenderCoordinator', () => {
 
     expect(resize).not.toHaveBeenCalled()
   })
+
+  it('does no layout work while hidden and renders once after becoming visible', () => {
+    const callbacks: FrameRequestCallback[] = []
+    let visible = false
+    const fit = vi.fn()
+    const resize = vi.fn()
+    const refresh = vi.fn()
+    const coordinator = new TerminalRenderCoordinator({
+      fit,
+      dimensions: () => ({ cols: 80, rows: 24 }),
+      resize,
+      refresh,
+      isVisible: () => visible,
+      requestFrame: (callback) => { callbacks.push(callback); return callbacks.length },
+      cancelFrame: vi.fn(),
+    })
+
+    coordinator.schedule()
+    coordinator.schedule()
+    expect(callbacks).toHaveLength(0)
+    expect(fit).not.toHaveBeenCalled()
+
+    visible = true
+    coordinator.schedule()
+    expect(callbacks).toHaveLength(1)
+    callbacks[0]?.(0)
+    expect(fit).toHaveBeenCalledTimes(1)
+    expect(resize).toHaveBeenCalledWith(80, 24)
+    expect(refresh).toHaveBeenCalledWith(0, 23)
+  })
+
+  it('sends a resize only when fitted dimensions change', () => {
+    const callbacks: FrameRequestCallback[] = []
+    let dimensions = { cols: 80, rows: 24 }
+    const resize = vi.fn()
+    const coordinator = new TerminalRenderCoordinator({
+      fit: vi.fn(),
+      dimensions: () => dimensions,
+      resize,
+      refresh: vi.fn(),
+      requestFrame: (callback) => { callbacks.push(callback); return callbacks.length },
+      cancelFrame: vi.fn(),
+    })
+
+    coordinator.schedule()
+    callbacks.shift()?.(0)
+    coordinator.schedule()
+    callbacks.shift()?.(1)
+    dimensions = { cols: 100, rows: 30 }
+    coordinator.schedule()
+    callbacks.shift()?.(2)
+
+    expect(resize.mock.calls).toEqual([[80, 24], [100, 30]])
+  })
 })

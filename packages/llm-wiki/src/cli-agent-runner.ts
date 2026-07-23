@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { StringDecoder } from 'node:string_decoder'
 import type { AgentType } from '@apc/shared'
 import type { AgentRunner, RunInput, RunResult } from './agent-runner.js'
+import { BoundedOutputBuffer, DEFAULT_OUTPUT_CAPTURE_BYTES } from './bounded-output.js'
 import { buildEngineArgs } from './engine-options.js'
 
 export type CommandTemplate = { command: string; args: string[] }
@@ -16,7 +18,14 @@ export const DEFAULT_TEMPLATES: EngineTemplates = {
 }
 
 export class CliAgentRunner implements AgentRunner {
-  constructor(private readonly templates: EngineTemplates = DEFAULT_TEMPLATES) {}
+  private readonly maxOutputBytes: number
+
+  constructor(
+    private readonly templates: EngineTemplates = DEFAULT_TEMPLATES,
+    options: { maxOutputBytes?: number } = {},
+  ) {
+    this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_OUTPUT_CAPTURE_BYTES
+  }
 
   run(input: RunInput): Promise<RunResult> {
     const tpl = this.templates[input.agent]
@@ -29,20 +38,36 @@ export class CliAgentRunner implements AgentRunner {
       const command = `${tpl.command} ${args.join(' ')}`
       const startedAt = Date.now()
       const child = spawn(tpl.command, args, { stdio: ['pipe', 'pipe', 'pipe'], shell: process.platform === 'win32', cwd: safeCwd })
-      let stdout = '', stderr = ''
+      const stdout = new BoundedOutputBuffer(this.maxOutputBytes)
+      const stderr = new BoundedOutputBuffer(this.maxOutputBytes)
+      const stdoutDecoder = new StringDecoder('utf8')
+      const stderrDecoder = new StringDecoder('utf8')
       const base = () => ({ command, durationMs: Date.now() - startedAt })
       const timer = setTimeout(() => {
         child.kill('SIGKILL')
-        resolve({ ok: false, output: stdout, stderr, exitCode: null, raw: stderr || `timeout after ${input.timeoutMs}ms`, ...base() })
+        const output = stdout.toString(), diagnostics = stderr.toString()
+        resolve({ ok: false, output, stderr: diagnostics, exitCode: null, raw: diagnostics || `timeout after ${input.timeoutMs}ms`, ...base() })
       }, input.timeoutMs)
-      child.stdout.on('data', (d) => { const t = String(d); stdout += t; input.onChunk?.('stdout', t) })
-      child.stderr.on('data', (d) => { const t = String(d); stderr += t; input.onChunk?.('stderr', t) })
+      const decode = (decoder: StringDecoder, data: unknown) => decoder.write(Buffer.isBuffer(data) ? data : Buffer.from(String(data)))
+      child.stdout.on('data', (data) => {
+        const text = decode(stdoutDecoder, data)
+        if (text) { stdout.append(text); input.onChunk?.('stdout', text) }
+      })
+      child.stderr.on('data', (data) => {
+        const text = decode(stderrDecoder, data)
+        if (text) { stderr.append(text); input.onChunk?.('stderr', text) }
+      })
       child.on('error', (e) => { clearTimeout(timer); resolve({ ok: false, output: '', stderr: String(e), exitCode: null, raw: String(e), ...base() }) })
       child.on('close', (code) => {
         clearTimeout(timer)
+        const stdoutTail = stdoutDecoder.end()
+        if (stdoutTail) { stdout.append(stdoutTail); input.onChunk?.('stdout', stdoutTail) }
+        const stderrTail = stderrDecoder.end()
+        if (stderrTail) { stderr.append(stderrTail); input.onChunk?.('stderr', stderrTail) }
+        const output = stdout.toString(), diagnostics = stderr.toString()
         // raw: 진단용 결합 뷰. `stdout || stderr` 단락 평가로 stderr를 버리던 결함 A 제거 — 둘 다 보존.
-        const raw = stderr && stdout ? `${stderr}\n--- stdout ---\n${stdout}` : (stderr || stdout)
-        resolve({ ok: code === 0, output: stdout, stderr, exitCode: code, raw, ...base() })
+        const raw = diagnostics && output ? `${diagnostics}\n--- stdout ---\n${output}` : (diagnostics || output)
+        resolve({ ok: code === 0, output, stderr: diagnostics, exitCode: code, raw, ...base() })
       })
       try { child.stdin?.write(input.prompt); child.stdin?.end() } catch { /* child already gone */ }
     })

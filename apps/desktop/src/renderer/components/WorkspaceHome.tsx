@@ -1,6 +1,7 @@
 import type { WorkspaceOverview } from '@apc/dashboard-api'
 import type { AgentActivity, AgentPaneIdentity } from '@apc/shared'
 import { AgentActivityList } from './AgentActivityList.js'
+import { useStore } from '../store.js'
 
 type Props = {
   overview: WorkspaceOverview | null
@@ -27,10 +28,12 @@ export function WorkspaceHome({
   overview,
   onRefresh,
   onOpenProject,
-  activities = [],
+  activities: activityOverride,
   onOpenActivityPane = () => {},
   onOpenActivityQuestion = () => {},
 }: Props) {
+  const storeActivities = useStore((state) => state.activities)
+  const activities = activityOverride ?? storeActivities
   return (
     <div className="workspace-home">
       <header className="workspace-home__header">

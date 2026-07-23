@@ -23,7 +23,7 @@ describe('desktop IPC contract', () => {
     })
   })
 
-  test('supports a pane-scoped PTY start while retaining the legacy shape', () => {
+  test('requires a launch id for pane-scoped and unscoped PTY starts', () => {
     const scoped = {
       id: 'pane-1', command: 'codex', args: [], cwd: '/repo',
       pane: {
@@ -31,8 +31,10 @@ describe('desktop IPC contract', () => {
       },
       launchId: 'launch-1',
     } satisfies StartPtyReq
-    const legacy = { id: 'legacy', command: 'codex', args: [], cwd: '/repo' } satisfies StartPtyReq
+    const unscoped = {
+      id: 'utility', command: 'codex', args: [], cwd: '/repo', launchId: 'launch-utility',
+    } satisfies StartPtyReq
     expect(scoped.launchId).toBe('launch-1')
-    expect(legacy.id).toBe('legacy')
+    expect(unscoped.launchId).toBe('launch-utility')
   })
 })

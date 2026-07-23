@@ -123,6 +123,7 @@ export class PtyManager {
       this.emitData(id, launchId, '[node-pty unavailable — native module not loaded]\r\n')
       this.emitExit(id, launchId, 1, 'node-pty-unavailable')
       if (opts.pane) this.onLifecycle({ type: 'error', paneId: opts.pane.paneId, launchId, reason: 'node-pty-unavailable', exitCode: 1 })
+      if (this.latestLaunch.get(id) === launchId) this.latestLaunch.delete(id)
       return launchId
     }
 
@@ -190,6 +191,7 @@ export class PtyManager {
             : { type: 'exit', paneId: managed.pane.paneId, launchId, reason, exitCode })
         }
         if (this.sessions.get(id) === managed) this.sessions.delete(id)
+        if (this.latestLaunch.get(id) === launchId) this.latestLaunch.delete(id)
       })
 
       let line = [command, ...args].filter(Boolean).join(' ').trim()
@@ -213,6 +215,7 @@ export class PtyManager {
       this.emitData(id, launchId, `[PTY spawn failed: ${reason}]\r\n`)
       this.emitExit(id, launchId, 1, 'spawn-failed')
       if (opts.pane) this.onLifecycle({ type: 'error', paneId: opts.pane.paneId, launchId, reason, exitCode: 1 })
+      if (this.latestLaunch.get(id) === launchId) this.latestLaunch.delete(id)
     }
     return launchId
   }
@@ -239,7 +242,14 @@ export class PtyManager {
     reason: 'user' | 'restart' | 'unmount' | 'quit' = 'user',
   ): boolean {
     const managed = this.sessions.get(id)
-    if (!managed || (launchId && managed.launchId !== launchId)) return false
+    if (!managed) {
+      if (launchId && this.latestLaunch.get(id) === launchId) {
+        this.latestLaunch.delete(id)
+        return true
+      }
+      return false
+    }
+    if (launchId && managed.launchId !== launchId) return false
     managed.killReason = reason
     if (!managed.stopEmitted && managed.pane) {
       managed.stopEmitted = true
@@ -251,6 +261,18 @@ export class PtyManager {
     return true
   }
 
+  killProject(
+    projectId: string,
+    reason: 'user' | 'restart' | 'unmount' | 'quit' = 'unmount',
+  ): number {
+    let killed = 0
+    for (const [id, managed] of [...this.sessions]) {
+      if (managed.pane?.projectId !== projectId) continue
+      if (this.kill(id, managed.launchId, reason)) killed += 1
+    }
+    return killed
+  }
+
   currentLaunchId(id: string): string | undefined {
     return this.sessions.get(id)?.launchId
   }
@@ -260,12 +282,10 @@ export class PtyManager {
   }
 
   private emitData(id: string, launchId: string, data: string): void {
-    this.send(CH.ptyData, id, data)
     this.send(CH.ptyDataV2, { id, launchId, data })
   }
 
   private emitExit(id: string, launchId: string, code: number, reason?: string): void {
-    this.send(CH.ptyExit, id, code)
     this.send(CH.ptyExitV2, { id, launchId, code, reason })
   }
 }

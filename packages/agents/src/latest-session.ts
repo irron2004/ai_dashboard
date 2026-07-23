@@ -5,6 +5,46 @@ import { adapterFor } from './resume.js'
 const _t = (s?: string) => (s ? Date.parse(s) : 0)
 
 type Candidate = { agent: AgentKind; adapter: AgentIngestAdapter }
+type DiscoveryCacheEntry = {
+  generation: number
+  expiresAt: number
+  sources?: Awaited<ReturnType<AgentIngestAdapter['discoverSources']>>
+  pending?: Promise<Awaited<ReturnType<AgentIngestAdapter['discoverSources']>>>
+}
+
+const SOURCE_DISCOVERY_TTL_MS = 10_000
+const discoveryCache = new WeakMap<AgentIngestAdapter, DiscoveryCacheEntry>()
+let discoveryGeneration = 0
+
+async function discoverLatestSources(adapter: AgentIngestAdapter) {
+  const now = Date.now()
+  const cached = discoveryCache.get(adapter)
+  if (cached?.generation === discoveryGeneration && cached.sources && cached.expiresAt > now) {
+    return cached.sources
+  }
+  if (cached?.generation === discoveryGeneration && cached.pending) return cached.pending
+
+  const entry: DiscoveryCacheEntry = {
+    generation: discoveryGeneration,
+    expiresAt: now + SOURCE_DISCOVERY_TTL_MS,
+  }
+  entry.pending = adapter.discoverSources(() => undefined).then((sources) => {
+    entry.sources = sources
+    entry.pending = undefined
+    entry.expiresAt = Date.now() + SOURCE_DISCOVERY_TTL_MS
+    return sources
+  }, (error) => {
+    discoveryCache.delete(adapter)
+    throw error
+  })
+  discoveryCache.set(adapter, entry)
+  return entry.pending
+}
+
+/** Force the next latest-session lookup to refresh source listings after an explicit ingest. */
+export function invalidateLatestSessionDiscovery(): void {
+  discoveryGeneration += 1
+}
 
 /** Pick the newest repoPath-matching session across the given (agent, adapter) pairs, returning the
  *  FULL parsed session (turns included). Sources are tried mtime-desc so the newest file usually wins
@@ -15,7 +55,7 @@ export async function pickLatestSession(
 ): Promise<{ agent: AgentKind; session: NormalizedSession } | null> {
   let best: { agent: AgentKind; session: NormalizedSession; rank: number } | null = null
   for (const { agent, adapter } of candidates) {
-    const sources = (await adapter.discoverSources(() => undefined))
+    const sources = (await discoverLatestSources(adapter))
       .filter((s) => !s.repoPath || s.repoPath === repoPath)
       .sort((x, y) => (y.mtimeMs ?? 0) - (x.mtimeMs ?? 0))
     for (const source of sources) {

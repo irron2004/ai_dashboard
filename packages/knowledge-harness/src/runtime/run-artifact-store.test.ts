@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { appendFileSync, mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunStateSchema } from '@apc/shared'
@@ -108,5 +108,41 @@ describe('RunArtifactStore', () => {
     expect(store.rebuildProgressSummary()).toMatchObject({ runId: 'RUN-1', work: { total: 2 } })
     expect(existsSync(join(dir, 'progress-summary.json'))).toBe(true)
     expect(readdirSync(dir).filter((entry) => entry.endsWith('.tmp'))).toEqual([])
+  })
+
+  test('reads the journal once for many appends and checkpoints high-volume events geometrically', async () => {
+    store = new RunArtifactStore(dir, { eventId: (seq) => `event-${seq}` })
+    const readEvents = vi.spyOn(store, 'readProgressEvents')
+    const base = { runId: 'RUN-1', projectId: 'p1' }
+    await store.appendProgressEvent({ ...base, at: '2026-07-20T10:00:00Z', kind: 'run_started' })
+    for (let index = 1; index <= 20; index += 1) {
+      await store.appendProgressEvent({
+        ...base, at: `2026-07-20T10:00:${String(index).padStart(2, '0')}Z`, kind: 'engine_activity',
+      })
+    }
+
+    expect(readEvents).toHaveBeenCalledTimes(1)
+    expect(readFileSync(join(dir, 'progress-summary.seq'), 'utf8').trim()).toBe('16')
+
+    await store.appendProgressEvent({ ...base, at: '2026-07-20T10:01:00Z', kind: 'run_completed' })
+    expect(readEvents).toHaveBeenCalledTimes(1)
+    expect(readFileSync(join(dir, 'progress-summary.seq'), 'utf8').trim()).toBe('22')
+    expect(store.loadProgressSummary()?.status).toBe('completed')
+  })
+
+  test('refreshes a legacy or stale checkpoint on the next append even off a checkpoint boundary', async () => {
+    const base = { runId: 'RUN-1', projectId: 'p1' }
+    store = new RunArtifactStore(dir, { eventId: (seq) => `event-${seq}` })
+    await store.appendProgressEvent({ ...base, at: '2026-07-20T10:00:00Z', kind: 'run_started' })
+    for (let index = 1; index <= 3; index += 1) {
+      await store.appendProgressEvent({ ...base, at: `2026-07-20T10:00:0${index}Z`, kind: 'engine_activity' })
+    }
+    rmSync(join(dir, 'progress-summary.seq'))
+
+    const restarted = new RunArtifactStore(dir, { eventId: (seq) => `restart-${seq}` })
+    await restarted.appendProgressEvent({ ...base, at: '2026-07-20T10:00:05Z', kind: 'engine_activity' })
+
+    expect(readFileSync(join(dir, 'progress-summary.seq'), 'utf8').trim()).toBe('5')
+    expect(restarted.loadProgressSummary()?.lastActivityAt).toBe('2026-07-20T10:00:05Z')
   })
 })

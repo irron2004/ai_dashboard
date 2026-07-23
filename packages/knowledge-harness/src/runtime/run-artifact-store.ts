@@ -18,7 +18,7 @@ import {
   type WikiProgressSummary,
   type WikiRunEvent,
 } from '@apc/shared'
-import { reduceWikiProgress } from './wiki-progress-reducer.js'
+import { reduceWikiProgress, WikiProgressAccumulator } from './wiki-progress-reducer.js'
 
 type WithoutProgressEnvelope<T> = T extends WikiRunEvent
   ? Omit<T, 'version' | 'seq' | 'eventId'>
@@ -31,11 +31,30 @@ type RunArtifactStoreOptions = {
 
 const PROGRESS_JOURNAL = 'progress.jsonl'
 const PROGRESS_SUMMARY = 'progress-summary.json'
+const PROGRESS_SUMMARY_SEQ = 'progress-summary.seq'
+const PROGRESS_BOUNDARIES = new Set<WikiRunEvent['kind']>([
+  'run_started',
+  'run_completed',
+  'run_failed',
+  'phase_started',
+  'phase_completed',
+  'phase_failed',
+  'phase_paused',
+  'work_planned',
+])
+
+function isPowerOfTwo(value: number): boolean {
+  return value > 0 && (value & (value - 1)) === 0
+}
 
 /** Reads/writes one run directory: runs/RUN-<id>/. The only component that touches the run's filesystem. */
 export class RunArtifactStore {
   private progressQueue: Promise<void> = Promise.resolve()
   private nextProgressSeq: number | undefined
+  private progressAccumulator: WikiProgressAccumulator | undefined
+  private progressEventCount = 0
+  private progressAppenderInitialized = false
+  private needsProgressCheckpoint = false
   private readonly eventId: (seq: number) => string
 
   /** @param runDir absolute path to the run directory. */
@@ -106,32 +125,69 @@ export class RunArtifactStore {
   loadProgressSummary(): WikiProgressSummary | undefined {
     const abs = join(this.runDir, PROGRESS_SUMMARY)
     if (!existsSync(abs)) return undefined
-    return WikiProgressSummarySchema.parse(JSON.parse(readFileSync(abs, 'utf8')))
+    const summary = WikiProgressSummarySchema.parse(JSON.parse(readFileSync(abs, 'utf8')))
+    const checkpointAbs = join(this.runDir, PROGRESS_SUMMARY_SEQ)
+    if (!existsSync(checkpointAbs)) return summary // legacy summaries predate checkpoint sequence metadata
+    const checkpointSeq = Number(readFileSync(checkpointAbs, 'utf8').trim())
+    if (!Number.isSafeInteger(checkpointSeq) || checkpointSeq < 1) return undefined
+    const latestSeq = this.nextProgressSeq === undefined
+      ? this.readProgressEvents().reduce((maximum, event) => Math.max(maximum, event.seq), 0)
+      : this.nextProgressSeq - 1
+    return checkpointSeq === latestSeq ? summary : undefined
   }
 
   rebuildProgressSummary(): WikiProgressSummary | undefined {
-    const summary = reduceWikiProgress(this.readProgressEvents())
-    if (summary) this.saveProgressSummary(summary)
+    const events = this.readProgressEvents()
+    const summary = reduceWikiProgress(events)
+    if (summary) {
+      const maximumSeq = events.reduce((maximum, event) => Math.max(maximum, event.seq), 0)
+      this.saveProgressSummary(summary, maximumSeq)
+    }
     return summary
   }
 
   private appendProgressEventNow(input: WikiRunEventInput): WikiRunEvent {
-    mkdirSync(this.runDir, { recursive: true })
-    this.repairProgressJournalTail()
-    if (this.nextProgressSeq === undefined) {
-      this.nextProgressSeq = this.readProgressEvents().reduce((maximum, event) => Math.max(maximum, event.seq), 0) + 1
-    }
+    this.initializeProgressAppender()
     const seq = this.nextProgressSeq
+    if (seq === undefined || !this.progressAccumulator) throw new Error('Progress appender initialization failed')
     const event = WikiRunEventSchema.parse({ version: 1, seq, eventId: this.eventId(seq), ...input })
     appendFileSync(join(this.runDir, PROGRESS_JOURNAL), `${JSON.stringify(event)}\n`, 'utf8')
-    this.nextProgressSeq += 1
-    const summary = reduceWikiProgress(this.readProgressEvents())
-    if (summary) this.saveProgressSummary(summary)
+    this.nextProgressSeq = seq + 1
+    if (this.progressAccumulator.add(event)) this.progressEventCount += 1
+    if (this.needsProgressCheckpoint || PROGRESS_BOUNDARIES.has(event.kind) || isPowerOfTwo(this.progressEventCount)) {
+      const summary = this.progressAccumulator.summary()
+      if (summary) {
+        this.saveProgressSummary(summary, event.seq)
+        this.needsProgressCheckpoint = false
+      }
+    }
     return event
   }
 
-  private saveProgressSummary(summary: WikiProgressSummary): void {
+  private initializeProgressAppender(): void {
+    if (this.progressAppenderInitialized) return
+    mkdirSync(this.runDir, { recursive: true })
+    this.repairProgressJournalTail()
+    const events = this.readProgressEvents()
+    const accumulator = new WikiProgressAccumulator()
+    for (const event of [...events].sort((left, right) => left.seq - right.seq)) accumulator.add(event)
+    this.progressAccumulator = accumulator
+    this.progressEventCount = accumulator.eventCount
+    this.nextProgressSeq = accumulator.maximumSeq + 1
+    const summaryExists = existsSync(join(this.runDir, PROGRESS_SUMMARY))
+    const checkpointAbs = join(this.runDir, PROGRESS_SUMMARY_SEQ)
+    const checkpointSeq = existsSync(checkpointAbs)
+      ? Number(readFileSync(checkpointAbs, 'utf8').trim())
+      : 0
+    this.needsProgressCheckpoint = accumulator.eventCount > 0
+      && (!summaryExists || checkpointSeq !== accumulator.maximumSeq)
+    this.progressAppenderInitialized = true
+  }
+
+  private saveProgressSummary(summary: WikiProgressSummary, seq: number): void {
     this.writeAtomic(join(this.runDir, PROGRESS_SUMMARY), JSON.stringify(summary, null, 2))
+    // Summary first, marker second: a crash between the two is detected as stale and replayed.
+    this.writeAtomic(join(this.runDir, PROGRESS_SUMMARY_SEQ), `${seq}\n`)
   }
 
   /** Drops only a malformed, non-newline-terminated crash tail before the next append. */

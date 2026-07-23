@@ -117,3 +117,23 @@ test('emits onStarted with runId/taskId/projectId right after recording the run'
   expect(started).toHaveLength(1)
   expect(started[0]).toMatchObject({ taskId: 'req:P:s1', projectId: 'P', runId: res.runId })
 })
+
+test('batches adjacent live chunks and flushes the complete transcript before resolving', async () => {
+  const { store, rows } = fakeRuns()
+  const root = runsRoot()
+  const expected = Array.from({ length: 100 }, (_, index) => `${index},`).join('')
+  const cli = cliOf(async (input) => {
+    for (let index = 0; index < 100; index += 1) input.onChunk?.('stdout', `${index},`)
+    return { exitCode: 0, stdout: expected, stderr: '' }
+  })
+  const logs: Array<{ chunk: string }> = []
+  const svc = new DevHarnessService({
+    cli, runs: store as never, registry: okRegistry, runsRoot: root,
+    logBatchMs: 60_000, logBatchBytes: 1024 * 1024,
+  })
+  await svc.run({ projectId: 'P', taskId: 'T' }, (event) => logs.push(event))
+
+  expect(logs).toHaveLength(1)
+  expect(logs[0].chunk).toBe(expected)
+  expect(readFileSync(String([...rows.values()][0].transcriptPath), 'utf8')).toBe(expected)
+})

@@ -33,10 +33,13 @@ function runStateLabel(state: string | undefined): string {
 }
 
 export function KnowledgeView() {
-  const {
-    selectedProjectId, projectSurfaceRevision, projects,
-    harnessRuns, harnessLiveNodes, harnessLiveNodesRunId, harnessLoading,
-  } = useStore()
+  const selectedProjectId = useStore((state) => state.selectedProjectId)
+  const projectSurfaceRevision = useStore((state) => state.projectSurfaceRevision)
+  const projects = useStore((state) => state.projects)
+  const harnessRuns = useStore((state) => state.harnessRuns)
+  const harnessLiveNodes = useStore((state) => state.harnessLiveNodes)
+  const harnessLiveNodesRunId = useStore((state) => state.harnessLiveNodesRunId)
+  const harnessLoading = useStore((state) => state.harnessLoading)
   // Paper-domain projects publish autosci's own knowledge graph (wiki/<type>/<slug>.md + edges.jsonl);
   // project-docs projects don't, so the graph source differs by domain.
   const domain = projects.find((p) => p.id === selectedProjectId)?.domain

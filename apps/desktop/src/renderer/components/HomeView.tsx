@@ -33,10 +33,13 @@ export function HomeView({ dashboard, onChanged }: { dashboard: ProjectDashboard
 }
 
 export function ProjectDocumentsView({ dashboard }: { dashboard: ProjectDashboardRes }) {
-  const {
-    selectedProjectId, projectSurfaceRevision,
-    ingesting, ingest, lastIngest, prepareGenerate, clearGeneration,
-  } = useStore()
+  const selectedProjectId = useStore((state) => state.selectedProjectId)
+  const projectSurfaceRevision = useStore((state) => state.projectSurfaceRevision)
+  const ingesting = useStore((state) => state.ingesting)
+  const ingest = useStore((state) => state.ingest)
+  const lastIngest = useStore((state) => state.lastIngest)
+  const prepareGenerate = useStore((state) => state.prepareGenerate)
+  const clearGeneration = useStore((state) => state.clearGeneration)
   const [viewer, setViewer] = useState<Viewer>({ kind: 'current' })
   const [changes, setChanges] = useState<{ files?: ChangedFile[]; reason?: string } | null>(null)
   const [generateOpen, setGenerateOpen] = useState(false)

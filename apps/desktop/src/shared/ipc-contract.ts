@@ -86,13 +86,11 @@ export const CH = {
   receiptIssue: 'c:receiptIssue',
   gateStatus: 'q:gateStatus',
   gateInstall: 'c:gateInstall',
-  // pty: renderer → main = ptyStart/ptyInput/ptyKill; main → renderer events = ptyData/ptyExit
+  // pty: renderer → main commands; main → renderer launch-scoped V2 events
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
   ptyKill: 'pty:kill',
   ptyResize: 'pty:resize',
-  ptyData: 'pty:data',
-  ptyExit: 'pty:exit',
   ptyDataV2: 'pty:data:v2',
   ptyExitV2: 'pty:exit:v2',
   agentActivity: 'agent:activity',
@@ -468,9 +466,9 @@ type StartPtyBase = {
   sessionId?: string          // 알려진 세션 id(없으면 main이 최신 발견)
 }
 type ScopedPtyStart = { pane: AgentPaneIdentity; launchId: string }
-type LegacyPtyStart = { pane?: undefined; launchId?: undefined }
-/** Legacy starts remain accepted for one compatibility release; all new panes use the scoped form. */
-export type StartPtyReq = StartPtyBase & (ScopedPtyStart | LegacyPtyStart)
+type UnscopedPtyStart = { pane?: undefined; launchId: string }
+/** Every start is launch-scoped; pane identity is optional only for non-workspace test/utility terminals. */
+export type StartPtyReq = StartPtyBase & (ScopedPtyStart | UnscopedPtyStart)
 export type PtyInputReq = {
   id: string
   data: string

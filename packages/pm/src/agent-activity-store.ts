@@ -82,6 +82,26 @@ export class AgentActivityStore {
     return rows.map(toActivity)
   }
 
+  deleteProject(projectId: string): number {
+    return Number(this.db.prepare('DELETE FROM agent_activity WHERE project_id = ?').run(projectId).changes)
+  }
+
+  /** Remove inactive rows that cannot be restored or have exceeded the retention window. */
+  pruneInactive(inactiveBefore: string, validProjectIds: readonly string[]): number {
+    const placeholders = validProjectIds.map(() => '?').join(', ')
+    const orphaned = validProjectIds.length === 0
+      ? this.db.prepare('DELETE FROM agent_activity WHERE process_alive = 0').run()
+      : this.db.prepare(
+        `DELETE FROM agent_activity
+         WHERE process_alive = 0 AND project_id NOT IN (${placeholders})`,
+      ).run(...validProjectIds)
+    const expired = this.db.prepare(
+      `DELETE FROM agent_activity
+       WHERE process_alive = 0 AND updated_at < ?`,
+    ).run(inactiveBefore)
+    return Number(orphaned.changes) + Number(expired.changes)
+  }
+
   /** Atomic revision guard: a delayed snapshot/event can never overwrite newer pane state. */
   put(input: AgentActivity): boolean {
     const activity = AgentActivitySchema.parse(input)

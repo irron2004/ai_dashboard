@@ -4,19 +4,21 @@ import { dirname, join } from 'node:path'
 import { AgentSourceSchema, NormalizedSessionSchema, SourceMetaSchema, type AgentSource, type NormalizedSession, type NormalizedTurn, type SourceCursor } from '@apc/shared'
 import { redact } from './redact.js'
 import type { AgentIngestAdapter } from './types.js'
-import { folderPathFor, readFilePrefix, walkFiles } from './source-discovery.js'
+import { cachedSourceMetadata, folderPathFor, readFilePrefix, walkFiles } from './source-discovery.js'
 
-function discoverRepoPath(locator: string): string | undefined {
-  for (const line of readFilePrefix(locator).split('\n')) {
-    if (!line.trim()) continue
-    try {
-      const item = JSON.parse(line) as { type?: string; payload?: { cwd?: unknown } }
-      if (item.type === 'session_meta' && typeof item.payload?.cwd === 'string') return item.payload.cwd
-    } catch {
-      // A prefix can end in the middle of a later JSONL row; the session_meta row is normally first.
+function discoverRepoPath(locator: string, signature: { size: number; mtimeMs: number }): string | undefined {
+  return cachedSourceMetadata('codex-repo-path', locator, signature, () => {
+    for (const line of readFilePrefix(locator).split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const item = JSON.parse(line) as { type?: string; payload?: { cwd?: unknown } }
+        if (item.type === 'session_meta' && typeof item.payload?.cwd === 'string') return item.payload.cwd
+      } catch {
+        // A prefix can end in the middle of a later JSONL row; the session_meta row is normally first.
+      }
     }
-  }
-  return undefined
+    return undefined
+  })
 }
 
 export class CodexAdapter implements AgentIngestAdapter {
@@ -41,7 +43,7 @@ export class CodexAdapter implements AgentIngestAdapter {
       out.push(AgentSourceSchema.parse({
         id, agentKind: 'codex', kind: 'jsonl-file', locator,
         sourceDirPath: folderPathFor(locator),
-        repoPath: discoverRepoPath(locator),
+        repoPath: discoverRepoPath(locator, { size: st.size, mtimeMs: st.mtimeMs }),
         discoveredAt,
         mtimeMs: Math.floor(st.mtimeMs), sizeBytes: st.size,
       }))

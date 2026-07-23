@@ -100,6 +100,18 @@ describe('IPC handlers (no Electron)', () => {
     expect((res as any[]).find((p: any) => p.id === 'p1')).toBeDefined()
   })
 
+  test('c:deleteProject runs runtime cleanup before removing the registry row', async () => {
+    const beforeDeleteProject = vi.fn((projectId: string) => {
+      expect(container.registry.get(projectId)?.id).toBe(projectId)
+    })
+    const h = handlers(container, { beforeDeleteProject })
+
+    await expect(h[CH.deleteProject]({ id: 'p1' })).resolves.toEqual({ ok: true })
+
+    expect(beforeDeleteProject).toHaveBeenCalledWith('p1')
+    expect(container.registry.get('p1')).toBeUndefined()
+  })
+
   test('q:listProfiles reads OpenCode agent profiles from a project path', async () => {
     const projDir = mkdtempSync(join(tmpdir(), 'apc-ipc-proj-'))
     try {

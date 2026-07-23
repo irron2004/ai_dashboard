@@ -19,12 +19,12 @@ describe('StagingVault', () => {
     expect(existsSync(join(root, 'vault-staging', 'a.md'))).toBe(true)
   })
 
-  test('writeDoc writes only into staging; diff() reports the new file', () => {
+  test('writeDoc writes only into staging; diff() reports the new file', async () => {
     const sv = new StagingVault(join(root, 'vault'), join(root, 'vault-staging'))
     sv.prepare()
     sv.writeDoc('concepts/n1.md', '# N1\n')
     expect(existsSync(join(root, 'vault', 'concepts', 'n1.md'))).toBe(false)  // real vault untouched
-    const patch = sv.diff()
+    const patch = await sv.diff()
     expect(patch).toContain('n1.md')
   })
 

@@ -1,6 +1,11 @@
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
+type FileSignature = { size: number; mtimeMs: number }
+type MetadataCacheEntry = FileSignature & { value: unknown }
+const SOURCE_METADATA_CACHE_LIMIT = 4096
+const sourceMetadataCache = new Map<string, MetadataCacheEntry>()
+
 function asAbsolute(path: string): string {
   return isAbsolute(path) ? path : resolve(path)
 }
@@ -59,6 +64,36 @@ export function readFilePrefix(path: string, maxBytes = 64 * 1024): string {
       try { closeSync(fd) } catch { /* best-effort metadata read */ }
     }
   }
+}
+
+/** Cache small derived metadata, never transcript bodies, and invalidate it by the file signature. */
+export function cachedSourceMetadata<T>(
+  namespace: string,
+  path: string,
+  signature: FileSignature,
+  load: () => T,
+): T {
+  const key = `${namespace}\u0000${path}`
+  const cached = sourceMetadataCache.get(key)
+  if (cached && cached.size === signature.size && cached.mtimeMs === signature.mtimeMs) {
+    // Refresh insertion order so the bounded map behaves as an LRU.
+    sourceMetadataCache.delete(key)
+    sourceMetadataCache.set(key, cached)
+    return cached.value as T
+  }
+  const value = load()
+  sourceMetadataCache.delete(key)
+  sourceMetadataCache.set(key, { ...signature, value })
+  while (sourceMetadataCache.size > SOURCE_METADATA_CACHE_LIMIT) {
+    const oldest = sourceMetadataCache.keys().next().value as string | undefined
+    if (oldest === undefined) break
+    sourceMetadataCache.delete(oldest)
+  }
+  return value
+}
+
+export function clearSourceMetadataCache(): void {
+  sourceMetadataCache.clear()
 }
 
 export function folderPathFor(locator: string): string {

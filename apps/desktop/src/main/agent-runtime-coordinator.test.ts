@@ -15,13 +15,14 @@ describe('AgentRuntimeCoordinator', () => {
   let coordinator: AgentRuntimeCoordinator
 
   beforeEach(() => {
+    vi.useFakeTimers()
     const db = openDb(':memory:')
     migrate(db)
     migratePm(db)
     store = new AgentActivityStore(db, () => clock)
     emit = vi.fn()
     clock = '2026-07-20T10:00:00Z'
-    coordinator = new AgentRuntimeCoordinator(store, { now: () => clock, emit })
+    coordinator = new AgentRuntimeCoordinator(store, { now: () => clock, emit, outputCoalesceMs: 500 })
   })
 
   test('persists and emits start, spawn, output, explicit prompt, ready, and stop transitions', () => {
@@ -41,7 +42,8 @@ describe('AgentRuntimeCoordinator', () => {
     expect(store.get(pane.paneId)).toMatchObject({
       connection: 'connected', phase: 'idle', processAlive: false, reason: 'user', exitCode: 0, revision: 6,
     })
-    expect(emit).toHaveBeenCalledTimes(6)
+    // The prompt supersedes the pending output snapshot, so the intermediate output needs no write/emit.
+    expect(emit).toHaveBeenCalledTimes(5)
   })
 
   test('records only a sanitized question summary and ignores an old launch event', () => {
@@ -73,5 +75,56 @@ describe('AgentRuntimeCoordinator', () => {
     coordinator.handle({ type: 'start', pane, launchId: 'L3' })
     coordinator.handle({ type: 'disconnect', paneId: pane.paneId, launchId: 'L3', reason: 'ssh-closed' })
     expect(store.get(pane.paneId)).toMatchObject({ connection: 'disconnected', reason: 'ssh-closed' })
+  })
+
+  test('coalesces high-frequency output without reading or writing SQLite per chunk', () => {
+    coordinator.handle({ type: 'start', pane, launchId: 'L1' })
+    coordinator.handle({ type: 'spawn', paneId: pane.paneId, launchId: 'L1' })
+    const get = vi.spyOn(store, 'get')
+    const put = vi.spyOn(store, 'put')
+    emit.mockClear()
+
+    clock = '2026-07-20T10:00:01Z'
+    coordinator.handle({ type: 'output', paneId: pane.paneId, launchId: 'L1' })
+    clock = '2026-07-20T10:00:02Z'
+    coordinator.handle({ type: 'output', paneId: pane.paneId, launchId: 'L1' })
+    clock = '2026-07-20T10:00:03Z'
+    coordinator.handle({ type: 'output', paneId: pane.paneId, launchId: 'L1', currentLabel: '테스트' })
+
+    expect(get).not.toHaveBeenCalled()
+    expect(put).not.toHaveBeenCalled()
+    expect(emit).not.toHaveBeenCalled()
+    expect(coordinator.get(pane.paneId)).toMatchObject({
+      lastOutputAt: '2026-07-20T10:00:03Z', currentLabel: '테스트', revision: 5,
+    })
+
+    vi.advanceTimersByTime(500)
+
+    expect(put).toHaveBeenCalledTimes(1)
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(store.get(pane.paneId)).toMatchObject({
+      lastOutputAt: '2026-07-20T10:00:03Z', currentLabel: '테스트', revision: 5,
+    })
+  })
+
+  test('flushes pending output and lets immediate exit supersede it without a stale emit', () => {
+    coordinator.handle({ type: 'start', pane, launchId: 'L1' })
+    coordinator.handle({ type: 'spawn', paneId: pane.paneId, launchId: 'L1' })
+    coordinator.handle({ type: 'output', paneId: pane.paneId, launchId: 'L1' })
+    emit.mockClear()
+
+    coordinator.flush(pane.paneId)
+    expect(emit).toHaveBeenCalledTimes(1)
+    expect(store.get(pane.paneId)?.phase).toBe('working')
+
+    clock = '2026-07-20T10:00:05Z'
+    coordinator.handle({ type: 'output', paneId: pane.paneId, launchId: 'L1' })
+    coordinator.handle({ type: 'exit', paneId: pane.paneId, launchId: 'L1', reason: 'done', exitCode: 0 })
+    vi.advanceTimersByTime(500)
+
+    expect(emit).toHaveBeenCalledTimes(2)
+    expect(emit).toHaveBeenLastCalledWith(expect.objectContaining({
+      phase: 'idle', processAlive: false, reason: 'done',
+    }))
   })
 })

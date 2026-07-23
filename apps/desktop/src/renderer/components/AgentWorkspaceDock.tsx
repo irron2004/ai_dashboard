@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -153,6 +154,16 @@ function persistAgentSlots(projectId: string, worktreePath: string, slots: Agent
   } catch { /* localStorage can be unavailable in hardened renderers */ }
 }
 
+function retainWorkspaceProjects<T>(
+  record: Record<string, T>,
+  validProjectIds: ReadonlySet<string>,
+): Record<string, T> {
+  const prefixes = [...validProjectIds].map((projectId) => `${projectId}:`)
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => prefixes.some((prefix) => key.startsWith(prefix))),
+  )
+}
+
 export function nextAgentSlot(slots: AgentSlot[], agent: AgentType): AgentSlot {
   let suffix = 1
   const ids = new Set(slots.map((slot) => slot.id))
@@ -190,10 +201,12 @@ export function AgentWorkspaceDock({
   collapsed,
   onToggleCollapsed,
   onActiveAgentChange,
-  activities = [],
+  activities: activityOverride,
   resumeRequest,
   onResumeHandled,
 }: Props) {
+  const storeActivities = useStore((state) => state.activities)
+  const activities = activityOverride ?? storeActivities
   const agentStatus = useStore((state) => state.agentStatus)
   const openPanes = useStore((state) => state.openPanes)
   const restartNonce = useStore((state) => state.restartNonce)
@@ -218,6 +231,20 @@ export function AgentWorkspaceDock({
   const terminalBodyRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ onMove: (event: MouseEvent) => void; onUp: () => void } | null>(null)
   const resizeTimerRef = useRef<number | null>(null)
+  const activitiesBySlot = useMemo(() => {
+    const index = new Map<string, AgentActivity>()
+    for (const activity of activities) {
+      const key = [
+        activity.pane.projectId,
+        activity.pane.worktreePath,
+        activity.pane.slotId,
+        activity.pane.agent,
+      ].join('\u0000')
+      const current = index.get(key)
+      if (!current || activity.revision > current.revision) index.set(key, activity)
+    }
+    return index
+  }, [activities])
 
   const scheduleTerminalResize = useCallback(() => {
     if (resizeTimerRef.current !== null) window.clearTimeout(resizeTimerRef.current)
@@ -319,6 +346,31 @@ export function AgentWorkspaceDock({
     }
     openedProjectsRef.current = openedProjectIds
   }, [openedProjectIds, projectDocks, slotsByWorkspace])
+
+  useEffect(() => {
+    const validProjectIds = new Set(projects.map((project) => project.id))
+    setProjectDocks((previous) => {
+      const removed = Object.entries(previous).filter(([projectId]) => !validProjectIds.has(projectId))
+      if (removed.length === 0) return previous
+      for (const [projectId, dock] of removed) {
+        try {
+          localStorage.removeItem(activeWorktreeStorageKey(projectId))
+          for (const worktreePath of dock.visitedPaths) {
+            localStorage.removeItem(slotsStorageKey(projectId, worktreePath))
+          }
+        } catch { /* localStorage cleanup is best-effort */ }
+        loadedProjectsRef.current.delete(projectId)
+        loadingProjectsRef.current.delete(projectId)
+        delete activePathRef.current[projectId]
+      }
+      return Object.fromEntries(
+        Object.entries(previous).filter(([projectId]) => validProjectIds.has(projectId)),
+      )
+    })
+    setSlotsByWorkspace((previous) => retainWorkspaceProjects(previous, validProjectIds))
+    setSelectedSlotByWorkspace((previous) => retainWorkspaceProjects(previous, validProjectIds))
+    setWidthsByWorkspace((previous) => retainWorkspaceProjects(previous, validProjectIds))
+  }, [projects])
 
   useEffect(() => {
     if (!pickerOpen) return
@@ -698,7 +750,9 @@ export function AgentWorkspaceDock({
                 {slots.map((slot, index) => {
                   const terminalKey = agentTerminalKey(projectId, worktreePath, slot.id)
                   const status = statusOf(terminalKey)
-                  const activity = activityForAgentSlot(activities, projectId, worktreePath, slot)
+                  const activity = activitiesBySlot.get(
+                    [projectId, worktreePath, slot.id, slot.agent].join('\u0000'),
+                  )
                   const runtimePane = openPanes[terminalKey]
                   const legacyPane = worktree?.isMain && slot.id === `${slot.agent}-1`
                     ? openPanes[`${projectId}:${slot.agent}`]
@@ -742,6 +796,7 @@ export function AgentWorkspaceDock({
                             agent={slot.agent}
                             restartNonce={restartNonce[terminalKey] ?? 0}
                             resumeSessionId={resumeSessionId}
+                            visible={visible && !collapsed}
                             onStatus={(nextStatus) => setAgentStatus(terminalKey, nextStatus)}
                             onActivate={() => activateSlot(workspaceKey, slots, slot)}
                           />
