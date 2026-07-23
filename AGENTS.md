@@ -96,10 +96,10 @@ todo:${projectId}:${sessionId}:${slug}   세션에서 추출된 todo Task
 
 ## 로컬 Claude 스킬
 
-공유 wiki 스킬의 캐노니컬 소스는 워크스페이스 루트 `shared/claude-skills/`이며 사용자
-레벨에 배포된다. 현재 `.claude/skills/`의 `bootstrap-wiki`, `ingest-documents`,
-`overview-wiki`는 캐노니컬과 바이트 단위로 동일한 임시 사본이다. 승인된 정리 전까지
-사본을 직접 수정하거나 추가로 복사하지 않는다.
+wiki 제품 스킬의 캐노니컬 소스는 워크스페이스 `autosci-core/.claude/skills/`다.
+루트 `shared/claude-skills/`는 승인된 통합 전의 사용자 배포용 미러다. 현재
+`.claude/skills/`의 `bootstrap-wiki`, `ingest-documents`, `overview-wiki`도 캐노니컬과
+바이트 단위로 동일한 임시 사본이며, 승인된 정리 전까지 직접 수정하거나 추가로 복사하지 않는다.
 
 ## 커밋
 
