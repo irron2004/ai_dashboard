@@ -35,14 +35,15 @@
 
 ```bash
 pnpm install
+pnpm check                     # 권위 있는 타입 검사 + 전체 테스트
 pnpm test                      # vitest workspace 전체(packages + apps/desktop)
 pnpm typecheck                 # 권위 있는 타입 검사
 npx vitest run <패턴>          # 단일 파일·패턴
 pnpm --filter @apc/desktop dev # Electron 개발 서버(hot reload)
 ```
 
-완료 전 최소 `pnpm typecheck`와 변경 범위의 테스트를 실행한다. 넓은 변경은 `pnpm test`까지
-실행한다. IDE의 `@xterm/…`, `@apc/node:sqlite not found`,
+완료 전 최소 `pnpm typecheck`와 변경 범위의 테스트를 실행한다. 넓은 변경은 `pnpm check`로
+전체 게이트를 실행한다. IDE의 `@xterm/…`, `@apc/node:sqlite not found`,
 `@homebridge/node-pty-prebuilt-multiarch` 진단은 선택적 네이티브 의존성과 vite-node shim
 때문의 오경보일 수 있다. 판단 기준은 `pnpm typecheck` 결과다.
 
