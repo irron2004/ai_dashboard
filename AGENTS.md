@@ -26,6 +26,7 @@
 | `packages/shared/src/schema.ts` | 모든 공용 Zod 타입의 단일 소스 |
 | `apps/desktop/src/main/container.ts` | 서비스 조립 DI 컨테이너 |
 | `apps/desktop/src/shared/ipc-contract.ts` | IPC 채널·요청/응답 타입의 단일 소스 |
+| `ASSETS.md` | 다른 프로젝트가 평가·도입할 수 있는 패키지 계약 카탈로그 |
 | `scripts/` | 그래프·상태 웹 서버와 저장소 보조 스크립트 |
 | `docs/handoffs/2026-07-02-product-diagnosis-and-roadmap.md` | 현재 상태와 로드맵 |
 
