@@ -21,4 +21,12 @@ d('substrate bootstrap', () => {
     const out = execFileSync(venvPython, ['-c', 'import kernel; print(kernel.__file__)']).toString().trim()
     expect(out.replace(/\\/g, '/')).toContain('vendor/autosci-core')
   })
+
+  test('venv package version matches core.lock.core_version', () => {
+    const version = execFileSync(venvPython, [
+      '-c',
+      'from importlib.metadata import version; print(version("autosci-core"))',
+    ]).toString().trim()
+    expect(version).toBe(lock.core_version)
+  })
 })

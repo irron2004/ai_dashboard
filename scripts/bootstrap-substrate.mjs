@@ -17,9 +17,14 @@ sh('uv', ['venv', venv])
 sh('uv', ['pip', 'install', '--python', venvPython, '-e', `${vendor}[pdf]`])
 
 const coreCommit = execFileSync('git', ['-C', vendor, 'rev-parse', 'HEAD'], { cwd: repo }).toString().trim()
+const coreVersion = execFileSync(
+  venvPython,
+  ['-c', 'from importlib.metadata import version; print(version("autosci-core"))'],
+  { cwd: repo },
+).toString().trim()
 writeFileSync(join(repo, 'core.lock'), JSON.stringify({
   core_repo: 'https://github.com/irron2004/autosci-core.git',
-  core_version: 'core-v0.2.0',
+  core_version: coreVersion,
   core_commit: coreCommit,
   venv_python: venvPython,
 }, null, 2) + '\n')
