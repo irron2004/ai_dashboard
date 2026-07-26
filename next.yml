@@ -1,0 +1,17 @@
+project: ai_dashboard
+status: active
+focus: Windows 패키지의 실제 터미널 입력·표시 QA
+updated: "2026-07-26"
+tasks:
+  - id: packaged-terminal-paste-qa
+    title: 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다
+    priority: P0
+    status: todo
+    source: seed:2026-07-26-audit
+    note: TODO.md 터미널 붙여넣기 항목의 남은 수동 QA
+  - id: tmux-unicode-regression
+    title: 패키지 앱의 WSL·SSH tmux에서 glyph·색·resize·재접속 회귀를 비교 검증한다
+    priority: P0
+    status: todo
+    source: seed:2026-07-26-audit
+    note: TODO.md tmux 글자 깨짐 방지 항목의 남은 수동 QA
