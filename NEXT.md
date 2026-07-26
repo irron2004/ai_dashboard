@@ -10,5 +10,9 @@
 
 <a id="task-ai_dashboard-packaged-terminal-paste-qa"></a>
 - [ ] `packaged-terminal-paste-qa` · **P0 · todo** — 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다 — TODO.md 터미널 붙여넣기 항목의 남은 수동 QA
+<a id="task-ai_dashboard-real-load-performance-profile"></a>
+- [ ] `real-load-performance-profile` · **P0 · todo** — 동일한 실제 프로젝트 부하에서 성능 개선 전후 시나리오를 계측해 회귀 기준선을 확정한다 — docs/handoffs/2026-07-23-multi-project-perf-diagnosis.md의 미완료 실부하 검증
 <a id="task-ai_dashboard-tmux-unicode-regression"></a>
-- [ ] `tmux-unicode-regression` · **P0 · todo** — 패키지 앱의 WSL·SSH tmux에서 glyph·색·resize·재접속 회귀를 비교 검증한다 — TODO.md tmux 글자 깨짐 방지 항목의 남은 수동 QA
+- [ ] `tmux-unicode-regression` · **P0 · todo** — 패키지 앱의 WSL·SSH tmux에서 glyph·색·split·resize·detach/attach와 재접속을 비교 검증한다 — TODO.md와 Windows QA handoff의 남은 수동 QA 및 Powerline 결손 진단
+<a id="task-ai_dashboard-packaged-preview-restart-qa"></a>
+- [ ] `packaged-preview-restart-qa` · **P1 · todo** — 패키지 앱에서 Ctrl-click 경로 미리보기와 앱 재시작 후 상태 복원을 검증한다 — docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md의 수동 승인 항목
