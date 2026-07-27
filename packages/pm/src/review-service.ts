@@ -13,7 +13,7 @@ export class ReviewService {
     private readonly nextId: () => string,
   ) {}
 
-  applyReview(input: Review): Task[] {
+  recordReview(input: Review): Review {
     const review = ReviewSchema.parse(input)
     this.db.prepare(
       `INSERT OR REPLACE INTO reviews (id, task_id, agent_run_id, reviewer, status, summary, next_tasks)
@@ -22,7 +22,11 @@ export class ReviewService {
       id: review.id, taskId: review.taskId, agentRunId: review.agentRunId, reviewer: review.reviewer,
       status: review.status, summary: review.summary, nextTasks: JSON.stringify(review.nextTasks),
     })
+    return review
+  }
 
+  applyReview(input: Review): Task[] {
+    const review = this.recordReview(input)
     this.tasks.updateStatus(review.taskId, NEXT_STATUS[review.status], review.status)
 
     const parent = this.tasks.get(review.taskId)

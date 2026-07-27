@@ -1,7 +1,7 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
   RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
+  SubmitReviewReq, SubmitReviewRes, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessConfirmNodesReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
@@ -36,6 +36,7 @@ import type {
   ReceiptIssueReq, ReceiptIssueRes, GateQueryReq, GateStatusRes, GateInstallReq, GateInstallRes,
   ProjectContextConfirmReq, ProjectContextMutRes,
   TaskCreateReq, TaskUpdateReq, TaskDeleteReq, TaskMutRes,
+  NextActionsDecisionReq, NextActionsDecisionRes,
   NextNotesListReq, NextNotesListRes, NextNoteUpdateReq, NextNoteSetPinnedReq,
   NextNoteSetLifecycleReq, NextNoteConvertToTaskReq, NextNoteMutationRes, NextNoteConvertToTaskRes,
   AgentActivitySnapshotReq, AgentActivitySnapshotRes, AgentQuestionReconcileReq, AgentQuestionReconcileRes,
@@ -136,6 +137,12 @@ export const api = {
   },
   taskDelete(req: TaskDeleteReq): Promise<TaskMutRes> {
     return window.apc.invoke(CH.taskDelete, req) as Promise<TaskMutRes>
+  },
+  nextActionsApprove(req: NextActionsDecisionReq): Promise<NextActionsDecisionRes> {
+    return window.apc.invoke(CH.nextActionsApprove, req) as Promise<NextActionsDecisionRes>
+  },
+  nextActionsDiscard(req: NextActionsDecisionReq): Promise<NextActionsDecisionRes> {
+    return window.apc.invoke(CH.nextActionsDiscard, req) as Promise<NextActionsDecisionRes>
   },
   resumeCard(projectId: string): Promise<ResumeCard | null> {
     return window.apc.invoke(CH.resumeCard, { projectId }) as Promise<ResumeCard | null>
@@ -296,8 +303,8 @@ export const api = {
     // Tolerate a missing preload bridge (component tests without a stubbed window.apc).
     return window.apc?.onDevHarnessStarted?.(cb) ?? (() => {})
   },
-  submitReview(req: SubmitReviewReq): Promise<unknown> {
-    return window.apc.invoke(CH.submitReview, req)
+  submitReview(req: SubmitReviewReq): Promise<SubmitReviewRes> {
+    return window.apc.invoke(CH.submitReview, req) as Promise<SubmitReviewRes>
   },
   promoteCurrent(req: PromoteCurrentReq): Promise<unknown> {
     return window.apc.invoke(CH.promoteCurrent, req)

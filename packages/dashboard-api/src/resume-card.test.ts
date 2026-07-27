@@ -60,4 +60,26 @@ describe('buildResumeCard', () => {
     }), 'p1')
     expect(card?.lastSummary).toBe('최신 세션 요약')
   })
+
+  test('finds the latest next.yml-derived request by its chat session provenance', async () => {
+    const current = {
+      ...task('next:p1:chat-request-aaa', '현재 파일 요약'),
+      source: 'conversation' as const,
+      contextPackage: 'session-current',
+    }
+    const older = {
+      ...task('next:p1:chat-request-zzz', '오래된 파일 요약'),
+      source: 'conversation' as const,
+      contextPackage: 'session-old',
+    }
+    const card = await buildResumeCard(deps({
+      tasks: { listByProject: () => [older, current] },
+      latestSession: async () => ({
+        agent: 'claude',
+        sessionId: 'session-current',
+        lastUserTurn: { text: 'Q', ts: '2026-07-07T10:00:00Z' },
+      }),
+    }), 'p1')
+    expect(card?.lastSummary).toBe('현재 파일 요약')
+  })
 })

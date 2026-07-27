@@ -123,6 +123,43 @@ describe('TaskStore', () => {
     expect(fixed.get('edited')).toBeDefined()
     expect(fixed.get('manual')).toBeDefined()
   })
+
+  test('replaces next.yml cache rows from canonical while preserving unrelated rows', () => {
+    store.create({
+      ...base,
+      id: 'next:p1:old',
+      source: 'system',
+      sourceRef: 'next.yml#old',
+      userEditedAt: '2026-07-20T00:00:00.000Z',
+    })
+    store.create({ ...base, id: 'manual', source: 'manual' })
+    store.replaceNextYmlTasks('p1', [{
+      ...base,
+      id: 'next:p1:new',
+      title: 'canonical',
+      source: 'system',
+      sourceRef: 'next.yml#new',
+    }])
+    expect(store.get('next:p1:old')).toBeUndefined()
+    expect(store.get('next:p1:new')).toMatchObject({
+      title: 'canonical',
+      sourceRef: 'next.yml#new',
+      userEditedAt: undefined,
+    })
+    expect(store.get('manual')).toBeDefined()
+  })
+
+  test('rolls back an invalid cache replacement', () => {
+    store.create({ ...base, id: 'next:p1:old', source: 'system', sourceRef: 'next.yml#old' })
+    expect(() => store.replaceNextYmlTasks('p1', [{
+      ...base,
+      id: 'next:p2:wrong',
+      projectId: 'p2',
+      source: 'system',
+      sourceRef: 'next.yml#wrong',
+    }])).toThrow('invalid next.yml cache task')
+    expect(store.get('next:p1:old')).toBeDefined()
+  })
 })
 
 describe('validateBlockedBy', () => {

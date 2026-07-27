@@ -45,6 +45,7 @@ export function ProjectNotesDrawer({ projectId, initialNotes = [], focusInput = 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [convertedTask, setConvertedTask] = useState<Task | null>(null)
+  const [conversionPending, setConversionPending] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const refresh = useCallback(async () => {
@@ -198,6 +199,7 @@ export function ProjectNotesDrawer({ projectId, initialNotes = [], focusInput = 
       }
       replaceNote(result.note)
       setConvertedTask(result.task)
+      setConversionPending(Boolean(result.pendingApproval))
       changed()
     } catch {
       setError('메모를 Task로 전환하지 못했습니다.')
@@ -242,7 +244,11 @@ export function ProjectNotesDrawer({ projectId, initialNotes = [], focusInput = 
       {error && <p className="project-notes__error" role="alert">{error}</p>}
       {convertedTask && (
         <div className="project-notes__converted" role="status">
-          <span>“{convertedTask.title}” Task를 만들었습니다.</span>
+          <span>
+            {conversionPending
+              ? `“${convertedTask.title}” next.yml 제안을 만들었습니다. 승인 대기 중입니다.`
+              : `“${convertedTask.title}” Task를 만들었습니다.`}
+          </span>
           {onOpenTask && <button type="button" onClick={() => onOpenTask(convertedTask)}>Task 열기</button>}
         </div>
       )}

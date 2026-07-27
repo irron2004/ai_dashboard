@@ -22,10 +22,12 @@ export type ResumeCard = {
   hasHistory: boolean
 }
 
-/** Most recent `req:` task title for the project = the "지난번 요약" (SP1 already summarized it — no
- *  re-LLM on switch). `req:` ids sort lexicographically by their sessionId suffix; we take the last. */
+/** Most recent conversation-request task title = "지난번 요약" (no re-LLM on switch).
+ * Legacy SQLite rows use `req:`; next.yml-derived rows use namespaced `chat-request-` ids. */
 function lastRequestSummary(tasks: Task[]): string | null {
-  const reqs = tasks.filter((t) => t.id.startsWith('req:')).sort((a, b) => a.id.localeCompare(b.id))
+  const reqs = tasks
+    .filter((task) => task.id.startsWith('req:') || task.id.includes(':chat-request-'))
+    .sort((a, b) => a.id.localeCompare(b.id))
   return reqs.length ? reqs[reqs.length - 1].title : null
 }
 
@@ -39,6 +41,9 @@ export async function buildResumeCard(deps: ResumeDeps, projectId: string): Prom
   const reqId = latest ? `req:${projectId}:${latest.sessionId}` : null
   const lastSummary =
     (reqId ? tasks.find((t) => t.id === reqId)?.title : undefined)
+    ?? (latest ? tasks.find((task) => (
+      task.id.includes(':chat-request-') && task.contextPackage === latest.sessionId
+    ))?.title : undefined)
     ?? lastRequestSummary(tasks)
   const lastQuestion = latest?.lastUserTurn
     ? { text: latest.lastUserTurn.text, ts: latest.lastUserTurn.ts, agent: latest.agent }

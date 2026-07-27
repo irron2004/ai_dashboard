@@ -145,6 +145,33 @@ describe('IngestService', () => {
     await expect(svc.ingestAll([new FakeAdapter(session)])).resolves.toBeDefined()
   })
 
+  test('does not advance the cursor when a durable downstream proposal is deferred', async () => {
+    const session: NormalizedSession = {
+      id: 's1',
+      agentType: 'claude',
+      repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
+      turns: [],
+      filesTouched: [],
+    }
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const adapter = new FakeAdapter(session)
+      const svc = new IngestService({
+        registry,
+        cursors,
+        index,
+        onSessionParsed: async () => ({ accepted: false }),
+      })
+      await svc.ingestAll([adapter])
+      expect(cursors.get('claude:s1')).toBeUndefined()
+      await svc.ingestAll([adapter])
+      expect(adapter.calls).toBe(2)
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
   test('records user questions to the question log after indexing', async () => {
     const recorded: string[] = []
     const session: NormalizedSession = {

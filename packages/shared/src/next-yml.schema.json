@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ruahverce:contracts/next-actions/next.schema.json",
+  "title": "Project next-actions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project", "status", "updated", "tasks"],
+  "properties": {
+    "project": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "status": {
+      "enum": ["active", "paused", "done", "archived"]
+    },
+    "focus": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updated": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "priority", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "priority": {
+            "enum": ["P0", "P1", "P2"]
+          },
+          "status": {
+            "enum": ["todo", "doing", "blocked", "done"]
+          },
+          "due": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocked_by": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          }
+        }
+      }
+    }
+  }
+}

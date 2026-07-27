@@ -7,6 +7,7 @@ export type TaskChangeKind = 'created' | 'updated' | 'deleted'
 type Props = {
   projectId: string
   task?: Task
+  fileManaged?: boolean
   onClose: () => void
   onChanged?: (task: Task, kind: TaskChangeKind) => void
 }
@@ -31,10 +32,13 @@ function reasonText(reason: string | undefined): string {
   if (reason === 'project-not-found') return '프로젝트를 찾을 수 없습니다.'
   if (reason === 'task-not-found') return 'Task를 찾을 수 없습니다.'
   if (reason === 'project-mismatch') return '다른 프로젝트의 Task는 변경할 수 없습니다.'
+  if (reason === 'unsupported-status') return 'next.yml 프로젝트에서는 할 일·진행 중·완료 상태만 사용할 수 있습니다.'
+  if (reason === 'proposal-conflict') return 'next.yml이 외부에서 변경되었습니다. 제안을 검토한 뒤 다시 시도해 주세요.'
+  if (reason === 'career-pii-detected') return '개인정보 안전 검사를 통과하지 못해 제안을 만들지 않았습니다.'
   return reason ? `요청이 거부되었습니다: ${reason}` : '요청을 처리하지 못했습니다.'
 }
 
-export function TaskEditorDialog({ projectId, task, onClose, onChanged }: Props) {
+export function TaskEditorDialog({ projectId, task, fileManaged = false, onClose, onChanged }: Props) {
   const [title, setTitle] = useState(task?.title ?? '')
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'todo')
   const [priority, setPriority] = useState<Task['priority']>(task?.priority ?? 'medium')
@@ -135,7 +139,9 @@ export function TaskEditorDialog({ projectId, task, onClose, onChanged }: Props)
           <label>
             상태
             <select aria-label="Task 상태" value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)} disabled={busy}>
-              {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {STATUS_OPTIONS
+                .filter((option) => !fileManaged || !['review', 'rejected'].includes(option.value))
+                .map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
           <label>

@@ -5,6 +5,7 @@ import type {
   RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, ListProfilesReq, TasksListReq,
   ProjectContextConfirmReq,
   TaskCreateReq, TaskUpdateReq, TaskDeleteReq,
+  NextActionsDecisionReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
   HarnessRunReq, HarnessGetRunReq, HarnessPromoteReq, HarnessConfirmNodesReq,
   HarnessSetReviewDecisionsReq, HarnessReadSourceExcerptReq,
@@ -168,10 +169,7 @@ export function handlers(
 
     [CH.projectDashboard]: async (payload: unknown) => {
       const req = payload as ProjectDashboardReq
-      return container.dashboard(
-        { registry: container.registry, tasks: container.tasks, runs: container.runs },
-        req.projectId,
-      )
+      return container.dashboard(req.projectId)
     },
 
     [CH.search]: async (payload: unknown) => {
@@ -186,7 +184,7 @@ export function handlers(
 
     [CH.tasksList]: async (payload: unknown) => {
       const req = payload as TasksListReq
-      return container.tasks.listByProject(req.projectId)
+      return container.listTasks(req.projectId)
     },
 
     [CH.workspaceOverview]: async (_payload: unknown) => {
@@ -362,7 +360,7 @@ export function handlers(
 
     [CH.submitReview]: async (payload: unknown) => {
       const req = payload as SubmitReviewReq
-      return container.reviews.applyReview(req.review)
+      return container.submitReview(req)
     },
 
     [CH.promoteCurrent]: async (payload: unknown) => {
@@ -382,7 +380,11 @@ export function handlers(
     },
 
     [CH.taskSetBlockedBy]: async (payload: unknown) => {
-      const req = z.object({ taskId: z.string(), blockedBy: z.array(z.string()) }).strict().parse(payload)
+      const req = z.object({
+        taskId: z.string(),
+        blockedBy: z.array(z.string()),
+        projectId: z.string().optional(),
+      }).strict().parse(payload)
       return container.taskSetBlockedBy(req)
     },
 
@@ -411,6 +413,20 @@ export function handlers(
       const req = z.object({ projectId: z.string().min(1), taskId: z.string().min(1) })
         .strict().parse(payload) as TaskDeleteReq
       return container.taskDelete(req)
+    },
+    [CH.nextActionsApprove]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        proposalHash: z.string().regex(/^[0-9a-f]{64}$/),
+      }).strict().parse(payload) as NextActionsDecisionReq
+      return container.nextActionsApprove(req)
+    },
+    [CH.nextActionsDiscard]: async (payload: unknown) => {
+      const req = z.object({
+        projectId: z.string().min(1),
+        proposalHash: z.string().regex(/^[0-9a-f]{64}$/),
+      }).strict().parse(payload) as NextActionsDecisionReq
+      return container.nextActionsDiscard(req)
     },
 
     [CH.resumeCard]: async (payload: unknown) => {

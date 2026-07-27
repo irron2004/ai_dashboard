@@ -1,8 +1,14 @@
 project: ai_dashboard
 status: active
-focus: Windows 패키지의 실제 터미널 입력·표시 QA
-updated: "2026-07-26"
+focus: Windows 패키지의 실제 터미널·next.yml 승인 흐름 QA
+updated: "2026-07-27"
 tasks:
+  - id: next-yml-dashboard-single-source
+    title: 대시보드 Task 읽기·수동 편집·대화 추출을 next.yml 제안·승인 단일소스로 전환한다
+    priority: P0
+    status: done
+    source: agent:codex
+    note: 파일 화면 라운드트립과 SQLite 파생 캐시·동시편집·career PII 게이트를 자동 검증함
   - id: packaged-terminal-paste-qa
     title: 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다
     priority: P0
@@ -27,3 +33,9 @@ tasks:
     status: todo
     source: agent:codex
     note: docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md의 수동 승인 항목
+  - id: next-yml-dashboard-windows-qa
+    title: Windows 패키지에서 next.yml 제안 승인·거절·외부편집 충돌과 career PII 차단을 실제 검증한다
+    priority: P1
+    status: todo
+    source: agent:codex
+    note: 자동 라운드트립 이후 남은 Electron 패키지 파일 권한·rename·사용자 피드백 수동 승인
