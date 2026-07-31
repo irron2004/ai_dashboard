@@ -28,7 +28,7 @@
 | `packages/shared/src/schema.ts` | 모든 공용 Zod 타입의 단일 소스 |
 | `apps/desktop/src/main/container.ts` | 서비스 조립 DI 컨테이너 |
 | `apps/desktop/src/shared/ipc-contract.ts` | IPC 채널·요청/응답 타입의 단일 소스 |
-| `ASSETS.md` | 다른 프로젝트가 평가·도입할 수 있는 패키지 계약 카탈로그 |
+| `assets.yml` / `ASSETS.md` | 재사용 package 계약의 기계 정본 / 생성된 catalog |
 | `scripts/` | 그래프·상태 웹 서버와 저장소 보조 스크립트 |
 | `docs/handoffs/2026-07-02-product-diagnosis-and-roadmap.md` | 현재 상태와 로드맵 |
 
@@ -102,6 +102,10 @@ todo:${projectId}:${sessionId}:${slug}   세션에서 추출된 todo Task
 wiki 제품 스킬의 캐노니컬 소스는 워크스페이스 `autosci-core/.claude/skills/`다.
 이 저장소에는 범용 wiki 스킬 사본을 두지 않는다. 필요한 사용자 레벨 배포는 워크스페이스
 루트 `scripts/sync-claude-skills.sh`가 캐노니컬 소스를 직접 읽어 수행한다.
+
+재사용 package를 만들거나 소비하기 시작하면 자기 레포의 `assets.yml`만 갱신하고,
+워크스페이스 루트의 `make asset-render PROJECT_KEY=ai_dashboard PROJECT_ROOT=<이 checkout>`으로
+`ASSETS.md`를 다시 만든다. 다른 프로젝트 catalog는 수정하지 않는다.
 
 ## 커밋
 

@@ -1,0 +1,139 @@
+version: 1
+project: ai_dashboard
+updated: "2026-07-31"
+provides:
+  - slug: apc-graph-view
+    title: "@apc/graph-view"
+    lane: typescript
+    canonical_path:
+      - packages/graph-view/package.json
+      - packages/graph-view/src/index.ts
+      - packages/graph-view/src/README.md
+    maturity: adopted
+    contract: >-
+      GraphData nodes·links와 onNodeClick(GraphNode)를 입력으로 받는 React 18와
+      Cytoscape 기반 graph module이다. 미지 node type은 fallback style로 렌더하고
+      graph algorithm, layout, style, wiki reader entry point를 export한다.
+    not_guaranteed: >-
+      현재 version은 0.0.0 workspace package다. 외부 npm 배포, semver 호환성,
+      host CSS나 .cy-canvas 높이 제공, React·Cytoscape runtime 조립을 보장하지 않는다.
+    gate: pnpm --filter @apc/graph-view test
+    promote_blockers:
+      - package build·publish와 semver 정책
+      - workspace 밖 독립 Git 저장소 소비자
+      - stable readiness 여섯 근거 완성
+  - slug: apc-agents
+    title: "@apc/agents"
+    lane: typescript
+    canonical_path:
+      - packages/agents/package.json
+      - packages/agents/src/index.ts
+    maturity: adopted
+    contract: >-
+      Claude, Codex, OpenCode source discovery와 session parse, latest-session,
+      resume, redaction API를 export한다. adapter가 없는 source와 손상된 입력은
+      명시적인 실패 또는 빈 탐색 결과로 보존한다.
+    not_guaranteed: >-
+      raw session·credential의 안전한 외부 전송, 모든 agent 버전의 JSONL 호환,
+      독립 npm 설치나 0.0.0 API 안정성을 보장하지 않는다.
+    gate: pnpm exec vitest run packages/agents/src
+    promote_blockers:
+      - package build·publish와 adapter version matrix
+      - workspace 밖 독립 Git 저장소 소비자
+      - stable readiness 여섯 근거 완성
+  - slug: apc-knowledge-harness
+    title: "@apc/knowledge-harness"
+    lane: workflow
+    canonical_path:
+      - packages/knowledge-harness/package.json
+      - packages/knowledge-harness/src/index.ts
+    maturity: adopted
+    contract: >-
+      source ledger, domain pack, driver를 받아 run state, staging artifact,
+      verification·evaluation 결과를 만든다. lock, policy guard, secret scanner,
+      evidence·link·graph validator를 통과한 promote 경계를 제공한다.
+    not_guaranteed: >-
+      validator를 우회한 promote, LLM 출력의 사실성, 외부 vault layout 호환,
+      0.0.0 package의 semver 안정성과 운영 credential을 보장하지 않는다.
+    gate: pnpm exec vitest run packages/knowledge-harness/src
+    promote_blockers:
+      - public driver·vault interface와 package publish 경계
+      - workspace 밖 독립 Git 저장소 소비자
+      - stable readiness 여섯 근거 완성
+  - slug: apc-wiki-substrate
+    title: "@apc/wiki-substrate"
+    lane: typescript
+    canonical_path:
+      - packages/wiki-substrate/package.json
+      - packages/wiki-substrate/src/index.ts
+    maturity: adopted
+    contract: >-
+      TypeScript 서비스가 Python wiki kernel과 통신하는 WikiSubstrate,
+      PythonKernelAdapter, lint parser, substrate graph adapter 경계를 export한다.
+      subprocess와 lint 실패를 성공으로 변환하지 않는다.
+    not_guaranteed: >-
+      Python kernel 설치·버전 선택, 외부 프로젝트 contract profile 호환,
+      subprocess sandbox, 0.0.0 package의 semver 안정성을 보장하지 않는다.
+    gate: pnpm exec vitest run packages/wiki-substrate/src
+    promote_blockers:
+      - kernel compatibility matrix와 독립 install smoke
+      - workspace 밖 독립 Git 저장소 소비자
+      - stable readiness 여섯 근거 완성
+  - slug: apc-shared-contracts
+    title: "@apc/shared contracts"
+    lane: schema
+    canonical_path:
+      - packages/shared/package.json
+      - packages/shared/src/index.ts
+      - packages/shared/src/schema.ts
+    maturity: adopted
+    contract: >-
+      project, session, task, wiki run, knowledge, search, engine option,
+      human question, git sync, activity와 file reference의 Zod schema·TypeScript type
+      단일 소스를 export한다. 외부 입력은 schema parse를 거쳐야 한다.
+    not_guaranteed: >-
+      parsing을 생략한 입력 신뢰, DB migration 호환, IPC view-model 전체,
+      0.0.0 package의 semver 또는 외부 npm 배포를 보장하지 않는다.
+    gate: pnpm exec vitest run packages/shared/src
+    promote_blockers:
+      - schema versioning과 migration·deprecation 정책
+      - workspace 밖 독립 Git 저장소 소비자
+      - stable readiness 여섯 근거 완성
+consumes:
+  - asset: apc-graph-view
+    mechanism: workspace-editable
+    evidence:
+      path: apps/graph-web/package.json
+      locator: '"@apc/graph-view": "workspace:*"'
+    note: graph-web가 package entry point와 node subpath를 workspace dependency로 import한다.
+  - asset: apc-agents
+    mechanism: workspace-editable
+    evidence:
+      path: packages/app-services/package.json
+      locator: '"@apc/agents": "workspace:*"'
+    note: app-services가 source adapter와 normalized session 경계를 workspace dependency로 소비한다.
+  - asset: apc-knowledge-harness
+    mechanism: workspace-editable
+    evidence:
+      path: packages/app-services/package.json
+      locator: '"@apc/knowledge-harness": "workspace:*"'
+    note: app-services의 harness·promote·staging 서비스가 knowledge harness를 직접 소비한다.
+  - asset: apc-wiki-substrate
+    mechanism: workspace-editable
+    evidence:
+      path: packages/app-services/package.json
+      locator: '"@apc/wiki-substrate": "workspace:*"'
+    note: HarnessService가 PythonKernelAdapter와 WikiSubstrate interface를 소비한다.
+  - asset: apc-shared-contracts
+    mechanism: workspace-editable
+    evidence:
+      path: packages/app-services/package.json
+      locator: '"@apc/shared": "workspace:*"'
+    note: app-services가 session·task·wiki·knowledge runtime schema와 type을 소비한다.
+not_assets:
+  - local SQLite databases
+  - raw agent session logs and terminal transcripts
+  - generated wiki and harness run artifacts
+  - local vault contents and staging output
+  - .env and credentials
+  - packaged native binaries

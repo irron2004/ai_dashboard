@@ -2,7 +2,7 @@
 
 # 다음 할 일 — ai_dashboard
 
-상태: `active` · 갱신: `2026-07-27` · 진실: [`next.yml`](next.yml)
+상태: `active` · 갱신: `2026-07-31` · 진실: [`next.yml`](next.yml)
 
 **지금 집중:** Windows 패키지의 실제 터미널·next.yml 승인 흐름 QA
 
@@ -18,3 +18,5 @@
 - [ ] `next-yml-dashboard-windows-qa` · **P1 · todo** — Windows 패키지에서 next.yml 제안 승인·거절·외부편집 충돌과 career PII 차단을 실제 검증한다 — 자동 라운드트립 이후 남은 Electron 패키지 파일 권한·rename·사용자 피드백 수동 승인
 <a id="task-ai_dashboard-packaged-preview-restart-qa"></a>
 - [ ] `packaged-preview-restart-qa` · **P1 · todo** — 패키지 앱에서 Ctrl-click 경로 미리보기와 앱 재시작 후 상태 복원을 검증한다 — docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md의 수동 승인 항목
+<a id="task-ai_dashboard-publish-reusable-packages"></a>
+- [ ] `publish-reusable-packages` · **P1 · todo** — APC 재사용 package에 build output·semver·독립 install smoke와 배포 경계를 추가한다 — 현재 소비는 모두 같은 Git 저장소의 workspace dependency라 외부 stable 계약이 아니다
