@@ -31,4 +31,12 @@ describe('KnowledgeRetrieval', () => {
     const hits = retrieval.search({ projectId: 'p1', query: 'conflict', limit: 5 })
     expect(hits.some((h) => h.warnings.includes('conflict-document'))).toBe(true)
   })
+
+  test('offers an authority-neutral lexical ranking for cross-source fusion', () => {
+    const lexical = retrieval.searchLexical({ projectId: 'p1', query: 'Temporal retrieval', limit: 5 })
+    const canonical = lexical.find((hit) => hit.doc.status === 'canonical')
+    expect(canonical?.score).toBeTypeOf('number')
+    expect(canonical?.reasons).toContain('status:canonical')
+    expect(lexical.map((hit) => hit.score)).toEqual([...lexical.map((hit) => hit.score)].sort((a, b) => b - a))
+  })
 })

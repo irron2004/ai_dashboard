@@ -37,8 +37,8 @@ function boost(status: KnowledgeStatus): { value: number; reasons: string[]; war
 export class KnowledgeRetrieval {
   constructor(private readonly db: Db) {}
 
-  search(opts: KnowledgeSearchOptions): KnowledgeSearchHit[] {
-    const rows = this.db.prepare(`
+  private queryRows(opts: KnowledgeSearchOptions): Row[] {
+    return this.db.prepare(`
       SELECT f.doc_id, f.chunk_id, snippet(knowledge_chunk_fts, 5, '[', ']', '…', 12) AS snip,
              bm25(knowledge_chunk_fts) AS rank_value,
              d.id, d.collection_id, d.project_id, d.uri, d.rel_path, d.title, d.doc_type, d.status, d.hash, d.updated_at, d.context_text,
@@ -47,21 +47,34 @@ export class KnowledgeRetrieval {
       JOIN knowledge_documents d ON d.id = f.doc_id
       JOIN knowledge_chunks c ON c.id = f.chunk_id
       WHERE knowledge_chunk_fts MATCH ? AND f.project_id = ?
-      ORDER BY rank_value
+      ORDER BY rank_value, f.chunk_id
       LIMIT ?
     `).all(opts.query, opts.projectId, opts.limit ?? 10) as Row[]
-    return rows
-      .map((row) => {
+  }
+
+  private mapRow(row: Row, score: number): KnowledgeSearchHit {
         const metadata = boost(row.status)
-        const baseScore = -row.rank_value
         return KnowledgeSearchHitSchema.parse({
           doc: KnowledgeDocumentSchema.parse({ id: row.id, collectionId: row.collection_id, projectId: row.project_id, uri: row.uri, relPath: row.rel_path, title: row.title, docType: row.doc_type, status: row.status, hash: row.hash, updatedAt: row.updated_at, contextText: row.context_text }),
           chunk: KnowledgeChunkSchema.parse({ id: row.chunk_id, docId: row.doc_id, projectId: row.project_id, uri: row.chunk_uri, headingPath: JSON.parse(row.heading_path), body: row.body, ordinal: row.ordinal, tokenEstimate: row.token_estimate, contextText: row.chunk_context_text }),
-          score: baseScore + metadata.value,
+          score,
           reasons: ['fts', ...metadata.reasons],
           warnings: metadata.warnings,
         })
+  }
+
+  /** Legacy status-adjusted score path retained for q:search compatibility. */
+  search(opts: KnowledgeSearchOptions): KnowledgeSearchHit[] {
+    return this.queryRows(opts)
+      .map((row) => {
+        const metadata = boost(row.status)
+        return this.mapRow(row, -row.rank_value + metadata.value)
       })
       .sort((a, b) => b.score - a.score)
+  }
+
+  /** Source-local lexical ranking for rank fusion; authority never changes this score. */
+  searchLexical(opts: KnowledgeSearchOptions): KnowledgeSearchHit[] {
+    return this.queryRows(opts).map((row) => this.mapRow(row, -row.rank_value))
   }
 }

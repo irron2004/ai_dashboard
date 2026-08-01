@@ -318,6 +318,9 @@ importers:
 
   packages/retrieval:
     dependencies:
+      '@apc/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@apc/search':
         specifier: workspace:*
         version: link:../search

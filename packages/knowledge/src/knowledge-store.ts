@@ -20,6 +20,13 @@ type ContextRow = { collection_id: string; path_prefix: string; description: str
 type DocRow = { id: string; collection_id: string; project_id: string; uri: string; rel_path: string; title: string; doc_type: KnowledgeDocType; status: KnowledgeStatus; hash: string; updated_at: string; context_text: string }
 type ChunkRow = { id: string; doc_id: string; project_id: string; uri: string; heading_path: string; body: string; ordinal: number; token_estimate: number; context_text: string }
 
+export type KnowledgeChunkWithNeighbors = {
+  document: KnowledgeDocument
+  chunk: KnowledgeChunk
+  before: KnowledgeChunk[]
+  after: KnowledgeChunk[]
+}
+
 function hash(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
@@ -119,6 +126,36 @@ export class KnowledgeStore {
   listChunks(docIdValue: string): KnowledgeChunk[] {
     const rows = this.db.prepare('SELECT * FROM knowledge_chunks WHERE doc_id = ? ORDER BY ordinal').all(docIdValue) as ChunkRow[]
     return rows.map(chunkFrom)
+  }
+
+  getChunkWithNeighbors(
+    docIdValue: string,
+    ordinal: number,
+    before: number,
+    after: number,
+  ): KnowledgeChunkWithNeighbors | undefined {
+    if (!Number.isInteger(ordinal) || ordinal < 0) throw new RangeError('ordinal must be a non-negative integer')
+    for (const [name, value] of [['before', before], ['after', after]] as const) {
+      if (!Number.isInteger(value) || value < 0 || value > 20) {
+        throw new RangeError(`${name} must be an integer between 0 and 20`)
+      }
+    }
+    const document = this.getDocument(docIdValue)
+    if (!document) return undefined
+    const rows = this.db.prepare(`
+      SELECT * FROM knowledge_chunks
+      WHERE doc_id = ? AND ordinal BETWEEN ? AND ?
+      ORDER BY ordinal
+    `).all(docIdValue, Math.max(0, ordinal - before), ordinal + after) as ChunkRow[]
+    const chunks = rows.map(chunkFrom)
+    const chunk = chunks.find((item) => item.ordinal === ordinal)
+    if (!chunk) return undefined
+    return {
+      document,
+      chunk,
+      before: chunks.filter((item) => item.ordinal < ordinal),
+      after: chunks.filter((item) => item.ordinal > ordinal),
+    }
   }
 
   clearProject(projectId: string): void {

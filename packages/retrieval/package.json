@@ -4,6 +4,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
+    "@apc/knowledge": "workspace:*",
     "@apc/search": "workspace:*",
     "@apc/shared": "workspace:*"
   }
