@@ -179,7 +179,7 @@ test('real Electron retrieval: scope, sources, context, partial failure, and res
 
     const task = await page.evaluate((projectId) => window.apc.invoke('c:taskCreate', {
       projectId,
-      title: 'contextsearch sharedretrieval implementation',
+      title: 'contextsearch',
       status: 'todo',
       priority: 'high',
     }), alpha.id) as { ok: boolean; task?: { id: string } }

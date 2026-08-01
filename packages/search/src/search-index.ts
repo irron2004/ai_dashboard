@@ -77,12 +77,17 @@ export function parseSessionTurnUri(uri: string): { sessionId: string; turnOrdin
   }
 }
 
-/** Convert a user-entered plain-text query into a literal FTS5 AND expression. */
+/** Quote plain-text tokens; terms within a line are ANDed and newline-separated clauses are ORed. */
 export function buildPlainTextFtsQuery(input: string): string | undefined {
-  const tokens = input.normalize('NFKC').match(/[\p{L}\p{N}_]+/gu) ?? []
-  const uniqueTokens = [...new Set(tokens)]
-  if (uniqueTokens.length === 0) return undefined
-  return uniqueTokens.map((token) => `"${token}"`).join(' AND ')
+  const clauses = input.normalize('NFKC').split(/\r?\n/).flatMap((line) => {
+    const tokens = line.match(/[\p{L}\p{N}_]+/gu) ?? []
+    const expression = [...new Set(tokens)].map((token) => `"${token}"`).join(' AND ')
+    return expression ? [expression] : []
+  })
+  const uniqueClauses = [...new Set(clauses)]
+  if (uniqueClauses.length === 0) return undefined
+  if (uniqueClauses.length === 1) return uniqueClauses[0]
+  return uniqueClauses.map((clause) => `(${clause})`).join(' OR ')
 }
 
 function sameLegacyContent(legacy: LegacyRow[], v2: V2Row[]): boolean {

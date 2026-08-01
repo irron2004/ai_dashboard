@@ -46,6 +46,12 @@ describe('plain-text FTS query', () => {
     expect(buildPlainTextFtsQuery('***')).toBeUndefined()
   })
 
+  test('treats newline-separated task context clauses as alternatives', () => {
+    expect(buildPlainTextFtsQuery('task title\npreserve evidence URI')).toBe(
+      '("task" AND "title") OR ("preserve" AND "evidence" AND "URI")',
+    )
+  })
+
   test('round-trips encoded session IDs through the opaque URI', () => {
     const uri = buildSessionTurnUri('session/with # separators', 4)
     expect(uri).toBe('apc://session/session%2Fwith%20%23%20separators#turn-4')
@@ -94,6 +100,15 @@ describe('SearchIndex', () => {
     const idx = new SearchIndex(new DatabaseSync(':memory:'))
     idx.indexSession(session('s1', 'p1', [{ role: 'user', text: 'ordinary text' }]))
     expect(idx.search('"(()--')).toEqual([])
+  })
+
+  test('matches either newline-separated clause without weakening terms inside a clause', () => {
+    const idx = new SearchIndex(new DatabaseSync(':memory:'))
+    idx.indexSession(session('s1', 'p1', [{ role: 'user', text: 'task title appears together' }]))
+    idx.indexSession(session('s2', 'p1', [{ role: 'user', text: 'preserve evidence URI together' }]))
+    idx.indexSession(session('s3', 'p1', [{ role: 'user', text: 'task appears alone' }]))
+    expect(idx.search('task title\npreserve evidence URI').map((hit) => hit.sessionId).sort())
+      .toEqual(['s1', 's2'])
   })
 
   test('re-indexing a session atomically replaces v1 and v2 rows', () => {
