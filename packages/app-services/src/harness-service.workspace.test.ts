@@ -41,6 +41,15 @@ class FakeWorkspaceVault implements WorkspaceVault {
   async exportWiki(): Promise<WorkspaceExportResult> { this.exported = true; return { ok: true, target: this.localRoot, files: 1 } }
 }
 
+class ThrowingLocalRootWorkspaceVault implements WorkspaceVault {
+  readonly calls: string[] = []
+  get localRoot(): string { throw new Error('test vault localRoot failure') }
+  async pull(): Promise<void> { this.calls.push('pull') }
+  async pushInternal(): Promise<void> { this.calls.push('push') }
+  async pushRuns(): Promise<void> { this.calls.push('pushRuns') }
+  async exportWiki(): Promise<WorkspaceExportResult> { return { ok: false, reason: 'unreachable' } }
+}
+
 describe('HarnessService — workspace vault lifecycle', () => {
   let ws: string
   let localRoot: string
@@ -98,12 +107,10 @@ describe('HarnessService — workspace vault lifecycle', () => {
   })
 
   test('journals setup failures that happen after initialization', async () => {
-    const invalidVaultRoot = join(ws, 'workspace-is-a-file')
     const repo = join(ws, 'repo')
-    writeFileSync(invalidVaultRoot, 'not a directory')
     mkdirSync(repo, { recursive: true })
     writeFileSync(join(repo, 'README.md'), '# source\n')
-    const brokenVault = new FakeWorkspaceVault(invalidVaultRoot)
+    const brokenVault = new ThrowingLocalRootWorkspaceVault()
     const svc = new HarnessService({
       runner: new FakeAgentRunner(cannedOutputs()),
       vaultRoot: join(ws, 'unused-global-vault'),

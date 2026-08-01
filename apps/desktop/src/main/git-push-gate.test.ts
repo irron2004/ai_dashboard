@@ -20,6 +20,11 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: GIT_ENV })
 }
 
+function configureGitIdentity(repo: string): void {
+  git(repo, ['config', '--local', 'user.name', 'APC Test'])
+  git(repo, ['config', '--local', 'user.email', 'apc@example.test'])
+}
+
 function commitFile(repo: string, name: string, content: string, message: string): string {
   writeFileSync(join(repo, name), content)
   git(repo, ['add', name])
@@ -41,6 +46,7 @@ describe('gitPush Learning Gate re-verification', () => {
     repo = join(base, 'repo')
     git(base, ['init', '--bare', remote])
     git(base, ['init', '-b', 'main', repo])
+    configureGitIdentity(repo)
     git(repo, ['remote', 'add', 'origin', remote])
     commitFile(repo, 'initial.txt', 'initial\n', 'initial')
     git(repo, ['push', '-u', 'origin', 'main'])
@@ -77,6 +83,7 @@ describe('gitPush Learning Gate re-verification', () => {
 
     const peer = join(base, 'peer')
     git(base, ['clone', '--branch', 'main', remote, peer])
+    configureGitIdentity(peer)
     const remoteHead = commitFile(peer, 'remote.txt', 'remote\n', 'remote change')
     git(peer, ['push', 'origin', 'main'])
 

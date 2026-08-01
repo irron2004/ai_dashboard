@@ -18,6 +18,11 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: GIT_ENV })
 }
 
+function configureGitIdentity(repo: string): void {
+  git(repo, ['config', '--local', 'user.name', 'APC Test'])
+  git(repo, ['config', '--local', 'user.email', 'apc@example.test'])
+}
+
 const roots: string[] = []
 function makeRepoWithRemote(): { root: string; repo: string; remote: string } {
   const root = mkdtempSync(join(tmpdir(), 'apc-git-split-'))
@@ -26,6 +31,7 @@ function makeRepoWithRemote(): { root: string; repo: string; remote: string } {
   const remote = join(root, 'remote.git')
   git(root, ['init', '--bare', remote])
   git(root, ['init', '-b', 'main', repo])
+  configureGitIdentity(repo)
   git(repo, ['remote', 'add', 'origin', remote])
   writeFileSync(join(repo, 'a.txt'), 'one\n')
   git(repo, ['add', 'a.txt'])
