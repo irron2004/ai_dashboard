@@ -4,6 +4,7 @@ import type {
   GitSyncResult, Retro, RetroQuestion, RetroTarget, ReviewReceipt, GateEvent,
   AgentActivity, AgentPaneIdentity, WikiProgressSummary, WikiRunEvent,
   FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes,
+  RetrievalResponse, RetrieverDiagnostic,
 } from '@apc/shared'
 
 /** Wiki authoring is intentionally single-engine. Keep this runtime constant shared by renderer and
@@ -15,6 +16,7 @@ export const CH = {
   listProjects: 'q:listProjects',
   projectDashboard: 'q:projectDashboard',
   search: 'q:search',
+  searchEvidence: 'q:searchEvidence',
   listProfiles: 'q:listProfiles',
   tasksList: 'q:tasksList',
   workspaceOverview: 'q:workspaceOverview',
@@ -143,7 +145,25 @@ export type ProjectContextMutRes = { ok: boolean; project?: Project; reason?: st
 export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
 export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }
+/** @deprecated Use SearchEvidenceReq/q:searchEvidence. Kept for one compatibility release. */
 export type SearchReq = { query: string; projectId?: string }
+export type SearchEvidenceReq = { query: string; projectId?: string; limit?: number }
+export type SearchEvidenceFailureCode =
+  | 'no-registered-projects'
+  | 'unknown-project'
+  | 'retrieval-unavailable'
+export type SearchEvidenceFailureDiagnostic = {
+  code: SearchEvidenceFailureCode
+  message: string
+  retrievers: RetrieverDiagnostic[]
+}
+export type SearchEvidenceRes =
+  | { ok: true; response: RetrievalResponse }
+  | {
+      ok: false
+      evidence: []
+      diagnostic: SearchEvidenceFailureDiagnostic
+    }
 export type ListProfilesReq = { projectPath: string }
 export type TasksListReq = { projectId: string }
 export type SubmitReviewReq = { review: Review }
@@ -586,7 +606,14 @@ export type WorkspaceRestore = {
 
 // context package composer (P2)
 export type ComposeContextReq = { projectId: string; taskId: string }
-export type ComposeContextRes = { ok: boolean; prompt?: string; reason?: string }
+export type ComposeContextDiagnostic = {
+  code: 'retriever-failed' | 'invalid-candidate' | 'retrieval-unavailable'
+  message: string
+  retrieverId?: string
+}
+export type ComposeContextRes =
+  | { ok: true; prompt: string; diagnostics: ComposeContextDiagnostic[] }
+  | { ok: false; reason: string; diagnostics?: ComposeContextDiagnostic[] }
 
 // dev-harness started ack (P2): fired right after the run is recorded, before any log chunk.
 export type DevHarnessStartedEvent = { runId: string; taskId: string; projectId: string }

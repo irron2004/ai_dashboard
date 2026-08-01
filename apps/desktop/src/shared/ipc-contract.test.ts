@@ -20,6 +20,7 @@ describe('desktop IPC contract', () => {
       clipboardReadText: 'q:clipboardReadText',
       terminalDiagnostics: 'q:terminalDiagnostics',
       projectImport: 'c:projectImport',
+      searchEvidence: 'q:searchEvidence',
     })
   })
 

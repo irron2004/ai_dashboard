@@ -22,7 +22,7 @@ export default _m;
   },
 }
 
-const pkgs = ['shared','core','vault','workflow','agents','search','llm-wiki','pm','dashboard-api','harness','knowledge-harness','app-services','graph-view']
+const pkgs = ['shared','core','vault','workflow','agents','search','retrieval','llm-wiki','pm','dashboard-api','harness','knowledge-harness','app-services','graph-view']
 const alias: Array<{ find: string | RegExp; replacement: string }> = pkgs.map((p) => ({
   find: `@apc/${p}`,
   replacement: `${repoRoot}packages/${p}/src/index.ts`,

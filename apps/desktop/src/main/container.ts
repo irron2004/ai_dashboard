@@ -18,9 +18,15 @@ import {
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
+import {
+  KnowledgeFtsRetriever,
+  RetrievalService,
+  RetrievalUnavailableError,
+  SessionFtsRetriever,
+} from '@apc/retrieval'
 import { VaultAdapter } from '@apc/vault'
 import { getProjectDashboard, buildWorkspaceOverview, buildResumeCard, type WorkspaceOverview, type ResumeCard } from '@apc/dashboard-api'
-import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, GitSyncService, GateService, RetroService, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, composeContextPackage, type WikiExcerpt } from '@apc/app-services'
+import { IngestService, RunService, GenerateService, HarnessService, DevHarnessService, DevHarnessCli, KnowledgeIndexer, LocalWorkspaceVault, GitSyncService, GateService, RetroService, type WorkspaceVault, extractTasks, reconcileSessionTasks, makeSessionSummarizer, buildTaskRetrievalQuery, composeContextPackage, type ContextRetrievalDiagnostic, type WikiExcerpt } from '@apc/app-services'
 import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
@@ -61,7 +67,7 @@ import type {
   DevHarnessRunReq, DevHarnessRunRes, DevHarnessCancelReq, DevHarnessCancelRes, DevHarnessLogEvent,
   ReadProjectWikiReq, ReadProjectWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
-  SearchReq,
+  SearchReq, SearchEvidenceReq, SearchEvidenceRes,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
@@ -80,6 +86,7 @@ import type {
 } from '../shared/ipc-contract.js'
 import {
   isHumanQuestionText,
+  type RetrieverDiagnostic,
   type AgentActivity,
   type UnifiedSearchResponse,
   type QuestionLogEntry,
@@ -123,7 +130,10 @@ export type Container = {
   reviews: ReviewService
   cursors: IngestCursorStore
   searchIndex: SearchIndex
-  search: (req: SearchReq) => UnifiedSearchResponse
+  retrieval: RetrievalService
+  searchEvidence: (req: SearchEvidenceReq) => Promise<SearchEvidenceRes>
+  /** @deprecated Use searchEvidence. */
+  search: (req: SearchReq) => Promise<UnifiedSearchResponse>
   vault: VaultAdapter
   taskProfiles: TaskProfileStore
   ingest: IngestService
@@ -162,7 +172,7 @@ export type Container = {
   harnessReadLog: (req: HarnessReadLogReq) => HarnessReadLogRes
   devHarnessRun: (req: DevHarnessRunReq) => Promise<DevHarnessRunRes>
   devHarnessCancel: (req: DevHarnessCancelReq) => DevHarnessCancelRes
-  composeContext: (req: ComposeContextReq) => ComposeContextRes
+  composeContext: (req: ComposeContextReq) => Promise<ComposeContextRes>
   devHarnessReadTranscript: (req: DevHarnessReadTranscriptReq) => DevHarnessReadTranscriptRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
@@ -202,10 +212,26 @@ function nextId(): string {
 
 const COMPOSE_WIKI_MAX_FILES = 6
 const COMPOSE_EXCERPT_CAP = 512
+const COMPOSE_RETRIEVAL_LIMIT = 12
 /** Strip a leading YAML frontmatter block (LF or CRLF), then cap to COMPOSE_EXCERPT_CAP bytes. */
 function capExcerpt(raw: string): string {
   const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
   return body.length > COMPOSE_EXCERPT_CAP ? body.slice(0, COMPOSE_EXCERPT_CAP) + '…' : body
+}
+
+function contextRetrievalDiagnostics(
+  diagnostics: readonly RetrieverDiagnostic[],
+): ContextRetrievalDiagnostic[] {
+  return diagnostics.flatMap((diagnostic) => {
+    if (!diagnostic.error) return []
+    return [{
+      code: diagnostic.error.code,
+      retrieverId: diagnostic.id,
+      message: diagnostic.error.code === 'invalid-candidate'
+        ? '검색 소스가 유효하지 않은 근거를 반환해 제외했습니다.'
+        : '검색 소스를 사용할 수 없어 해당 결과를 제외했습니다.',
+    }]
+  })
 }
 
 /** Returns true iff `candidate` resolves to a path inside `root` (or equal to it). Pure string resolution — no filesystem access, so it works even if `root` does not yet exist. */
@@ -316,12 +342,20 @@ export function buildContainer(opts: {
   const knowledgeStore = new KnowledgeStore(db)
   const knowledgeRetrieval = new KnowledgeRetrieval(db)
   const processedSources = new ProcessedSourceStore(db)
+  const retrieval = new RetrievalService({
+    registry,
+    retrievers: [
+      new SessionFtsRetriever(searchIndex),
+      new KnowledgeFtsRetriever(knowledgeRetrieval),
+    ],
+  })
   const unifiedSearch = new UnifiedSearch({
-    sessions: searchIndex,
-    knowledge: knowledgeRetrieval,
+    retrieval,
     projectIds: () => registry.list().map((p) => p.id),
   })
-  const search = (req: SearchReq): UnifiedSearchResponse => unifiedSearch.search(req)
+  const searchEvidence = (req: SearchEvidenceReq): Promise<SearchEvidenceRes> =>
+    unifiedSearch.searchEvidence(req)
+  const search = (req: SearchReq): Promise<UnifiedSearchResponse> => unifiedSearch.search(req)
   const vault = new VaultAdapter(opts.vaultRoot)
   const taskProfiles = new TaskProfileStore(db)
   const summarize = makeSessionSummarizer({ runner: opts.agentRunner ?? new RoutingAgentRunner(), engine: 'claude' })
@@ -516,7 +550,7 @@ export function buildContainer(opts: {
     )
   const devHarnessCancel = (req: DevHarnessCancelReq): DevHarnessCancelRes => devHarness.cancel(req)
 
-  const composeContext = (req: ComposeContextReq): ComposeContextRes => {
+  const composeContext = async (req: ComposeContextReq): Promise<ComposeContextRes> => {
     const project = registry.get(req.projectId)
     if (!project) return { ok: false, reason: 'project not found' }
     const task = tasks.get(req.taskId)
@@ -540,7 +574,39 @@ export function buildContainer(opts: {
       }
       // path escapes vaultRoot → skip silently (defence in depth; no error surfaced to caller)
     }
-    return { ok: true, prompt: composeContextPackage({ task, allTasks, wikiExcerpts, sessionSummary }) }
+    let retrievedEvidence: Awaited<ReturnType<RetrievalService['search']>>['evidence'] = []
+    let retrievalDiagnostics: ContextRetrievalDiagnostic[] = []
+    try {
+      const response = await retrieval.search({
+        text: buildTaskRetrievalQuery(task),
+        scope: { projectIds: [project.id] },
+        limit: COMPOSE_RETRIEVAL_LIMIT,
+      })
+      retrievedEvidence = response.evidence
+      retrievalDiagnostics = contextRetrievalDiagnostics(response.diagnostics.retrievers)
+    } catch (error) {
+      if (error instanceof RetrievalUnavailableError) {
+        retrievalDiagnostics = contextRetrievalDiagnostics(error.diagnostics)
+      }
+      if (retrievalDiagnostics.length === 0) {
+        retrievalDiagnostics = [{
+          code: 'retrieval-unavailable',
+          message: '자동 검색을 사용할 수 없어 연결된 문서만 사용합니다.',
+        }]
+      }
+    }
+    return {
+      ok: true,
+      prompt: composeContextPackage({
+        task,
+        allTasks,
+        wikiExcerpts,
+        sessionSummary,
+        retrievedEvidence,
+        retrievalDiagnostics,
+      }),
+      diagnostics: retrievalDiagnostics,
+    }
   }
 
   const devHarnessReadTranscript = (req: DevHarnessReadTranscriptReq): DevHarnessReadTranscriptRes => {
@@ -808,7 +874,7 @@ export function buildContainer(opts: {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, taskCommands, nextNotes, noteTasks, runs,
     activityStore, activityCoordinator, liveQuestions,
-    reviews, cursors, searchIndex, search, vault, taskProfiles,
+    reviews, cursors, searchIndex, retrieval, searchEvidence, search, vault, taskProfiles,
     ingest, gitSync, receipts, retroStore, gate, retroService,
     ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,

@@ -1898,12 +1898,21 @@ textarea:not(.xterm-helper-textarea) {
 .search-modal { width: 640px; max-width: 92vw; }
 .search-modal input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px; }
 .search-modal__results { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
-.search-modal__results button { display: grid; grid-template-columns: auto auto 1fr; gap: 6px; width: 100%; text-align: left; background: #161616; border: 1px solid #2c2c2c; border-radius: 4px; padding: 5px 7px; margin-bottom: 4px; color: #ccc; cursor: pointer; }
+.search-modal__result { background: #161616; border: 1px solid #2c2c2c; border-radius: 4px; margin-bottom: 6px; overflow: hidden; }
+.search-modal__project-action { display: grid; grid-template-columns: auto auto auto 1fr; gap: 6px; width: 100%; text-align: left; background: transparent; border: 0; padding: 7px; color: #ccc; cursor: pointer; }
 .search-modal__kind { color: #9cf; font-size: 0.7rem; }
 .search-modal__proj { opacity: 0.6; font-size: 0.7rem; }
+.search-modal__authority { color: #b9e0a5; font-size: 0.7rem; }
 .search-modal__title { font-weight: 600; font-size: 0.8rem; }
 .search-modal__excerpt { grid-column: 1 / -1; font-size: 0.72rem; opacity: 0.7; }
-.search-modal__empty, .search-modal__error { opacity: 0.6; font-size: 0.82rem; }
+.search-modal__badges { display: flex; align-items: center; gap: 5px; padding: 0 7px 7px; }
+.search-modal__signal, .search-modal__warning { border-radius: 999px; padding: 2px 6px; font-size: 0.65rem; }
+.search-modal__signal { color: #ffd58a; background: rgba(161, 103, 25, 0.28); }
+.search-modal__warning { color: #ffacac; background: rgba(149, 47, 47, 0.28); }
+.search-modal__source-action { margin-left: auto; padding: 2px 7px; font-size: 0.68rem; }
+.search-modal__diagnostics { margin: 0; padding: 7px 10px 7px 28px; color: #ffb6b6; background: rgba(120, 32, 32, 0.2); font-size: 0.72rem; }
+.search-modal__summary { margin: 0; opacity: 0.55; font-size: 0.7rem; }
+.search-modal__empty, .search-modal__error { opacity: 0.75; font-size: 0.82rem; }
 .search-modal__error { color: #f87171; }
 
 /* 3-tab shell */

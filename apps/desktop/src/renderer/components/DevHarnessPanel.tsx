@@ -83,8 +83,8 @@ export function DevHarnessPanel({ projectId, tasks, request = null }: Props) {
     setComposing(true); setStatus('')
     try {
       const res = await api.composeContext({ projectId, taskId: requestedTaskId })
-      if (res.ok && res.prompt) { setPrompt(res.prompt); setStatus('조립 완료 — 검토 후 주입/복사') }
-      else setStatus(`조립 실패: ${res.reason ?? 'unknown'}`)
+      if (res.ok) { setPrompt(res.prompt); setStatus('조립 완료 — 검토 후 주입/복사') }
+      else setStatus(`조립 실패: ${res.reason}`)
     } catch (err) {
       setStatus(`조립 실패: ${err instanceof Error ? err.message : String(err)}`)
     } finally {

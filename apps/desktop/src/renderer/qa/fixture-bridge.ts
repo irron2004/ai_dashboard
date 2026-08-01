@@ -208,6 +208,47 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
             : [],
         })
       }
+      case CH.searchEvidence: {
+        const query = String(request.query ?? '')
+        const project = selectedProject
+        if (!project) {
+          return Promise.resolve({
+            ok: false,
+            evidence: [],
+            diagnostic: {
+              code: 'no-registered-projects',
+              message: '검색할 등록 프로젝트가 없습니다.',
+              retrievers: [],
+            },
+          })
+        }
+        const projectIds = [project.id]
+        return Promise.resolve({
+          ok: true,
+          response: {
+            query: { text: query, scope: { projectIds }, limit: Number(request.limit ?? 20) },
+            evidence: query ? [{
+              candidateId: 'fixture-hit',
+              parentId: 'fixture-document',
+              sourceKind: 'knowledge',
+              projectId: project.id,
+              title: `검색 결과: ${query}`,
+              excerpt: model.longLogPath,
+              uri: `pmw://project/${project.id}/wiki/fixture.md#chunk-0`,
+              sourceRank: 1,
+              authority: 'accepted',
+              signals: { conflict: false, stale: false },
+              reasons: ['fixture'],
+              warnings: [],
+            }] : [],
+            diagnostics: {
+              retrievers: [{ id: 'fixture-knowledge', candidates: query ? 1 : 0, elapsedMs: 0 }],
+              droppedDuplicates: 0,
+              droppedByCap: 0,
+            },
+          },
+        })
+      }
       case CH.listProfiles:
         return Promise.resolve([])
       case CH.tasksList:
@@ -625,7 +666,7 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
       case CH.devHarnessCancel:
         return Promise.resolve({ ok: true })
       case CH.composeContext:
-        return Promise.resolve({ ok: true, prompt: '# Fixture context\n\nDeterministic QA prompt.' })
+        return Promise.resolve({ ok: true, prompt: '# Fixture context\n\nDeterministic QA prompt.', diagnostics: [] })
       case CH.devHarnessReadTranscript:
         return Promise.resolve({ ok: true, content: `fixture transcript\n${model.longLogPath}` })
       case CH.submitReview:
@@ -689,6 +730,7 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
 
   window.apc = {
     invoke,
+    searchEvidence: (request) => invoke(CH.searchEvidence, request) as ReturnType<Window['apc']['searchEvidence']>,
     importProjectItems: (request) => invoke(CH.projectImport, request) as ReturnType<Window['apc']['importProjectItems']>,
     startPty: (request) => {
       calls.push({ channel: CH.ptyStart, payload: request })

@@ -57,6 +57,9 @@ importers:
       '@apc/pm':
         specifier: workspace:*
         version: link:../../packages/pm
+      '@apc/retrieval':
+        specifier: workspace:*
+        version: link:../../packages/retrieval
       '@apc/search':
         specifier: workspace:*
         version: link:../../packages/search
