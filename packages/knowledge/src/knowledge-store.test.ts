@@ -40,4 +40,21 @@ describe('KnowledgeStore', () => {
     const ftsCount = (db.prepare('SELECT count(*) AS n FROM knowledge_chunk_fts WHERE project_id = ?').get('p1') as { n: number }).n
     expect(ftsCount).toBe(0)
   })
+
+  test('returns a selected chunk with bounded neighbors and heading metadata', () => {
+    store.upsertCollection({ id: 'kc1', projectId: 'p1', name: 'Wiki', rootPath: '/vault/p1', include: ['**/*.md'], exclude: [], includeByDefault: true })
+    const doc = store.indexMarkdownDoc({
+      collectionId: 'kc1',
+      projectId: 'p1',
+      relPath: 'guide.md',
+      markdown: '# Root\n\nIntro\n\n## Diagnosis\n\nCheck the alarm.\n\n## Resolution\n\nReset the stage.',
+      updatedAt: '2026-08-01T10:00:00Z',
+    })
+    const detail = store.getChunkWithNeighbors(doc.id, 1, 1, 1)
+    expect(detail?.chunk.headingPath).toEqual(['Root', 'Diagnosis'])
+    expect(detail?.before.map((item) => item.ordinal)).toEqual([0])
+    expect(detail?.after.map((item) => item.ordinal)).toEqual([2])
+    expect(store.getChunkWithNeighbors(doc.id, 99, 1, 1)).toBeUndefined()
+    expect(() => store.getChunkWithNeighbors(doc.id, 1, 21, 0)).toThrow(/between 0 and 20/)
+  })
 })

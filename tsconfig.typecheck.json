@@ -19,6 +19,7 @@
       "@apc/agents": ["./packages/agents/src/index.ts"],
       "@apc/vault": ["./packages/vault/src/index.ts"],
       "@apc/search": ["./packages/search/src/index.ts"],
+      "@apc/retrieval": ["./packages/retrieval/src/index.ts"],
       "@apc/pm": ["./packages/pm/src/index.ts"],
       "@apc/harness": ["./packages/harness/src/index.ts"],
       "@apc/dashboard-api": ["./packages/dashboard-api/src/index.ts"],
