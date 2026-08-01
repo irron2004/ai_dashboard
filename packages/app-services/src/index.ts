@@ -18,7 +18,17 @@ export * from './source-excerpt.js'
 export * from './knowledge-indexer.js'
 export * from './task-extractor.js'
 export * from './session-summarizer.js'
-export { composeContextPackage, type ComposeContextInput, type WikiExcerpt } from './context-composer.js'
+export {
+  DEFAULT_CONTEXT_EVIDENCE_BUDGET,
+  buildTaskRetrievalQuery,
+  composeContextPackage,
+  selectContextEvidence,
+  type ComposeContextInput,
+  type ContextEvidenceBudget,
+  type ContextRetrievalDiagnostic,
+  type SelectedContextEvidence,
+  type WikiExcerpt,
+} from './context-composer.js'
 export { GitSyncService, parseGitStatusPorcelainV2, runGit, type BeforePushCheck, type GitRun } from './git-sync-service.js'
 export { GateService, type GateStatus } from './gate-service.js'
 export {

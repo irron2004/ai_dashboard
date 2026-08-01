@@ -4,7 +4,7 @@
 
 상태: `active` · 갱신: `2026-08-02` · 진실: [`next.yml`](next.yml)
 
-**지금 집중:** 공통 검색 계약과 core 위에 검색 UI·agent context consumer를 연결
+**지금 집중:** retrieval consumer 전환을 마치고 증분 인덱싱·원문 resolver·품질 평가를 완결
 
 ## 할 일
 
@@ -12,14 +12,14 @@
 - [ ] `packaged-terminal-paste-qa` · **P0 · todo** — 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다 — TODO.md 터미널 붙여넣기 항목의 남은 수동 QA
 <a id="task-ai_dashboard-real-load-performance-profile"></a>
 - [ ] `real-load-performance-profile` · **P0 · todo** — 동일한 실제 프로젝트 부하에서 성능 개선 전후 시나리오를 계측해 회귀 기준선을 확정한다 — docs/handoffs/2026-07-23-multi-project-perf-diagnosis.md의 미완료 실부하 검증
-<a id="task-ai_dashboard-retrieval-consumers"></a>
-- [ ] `retrieval-consumers` · **P0 · todo** — 검색 UI와 agent context를 동일한 RetrievalService consumer로 전환하고 legacy q:search adapter를 유지한다 — Phase 1 Stack B는 Stack A 병합 commit에서 별도 worktree·branch·PR로 시작
+<a id="task-ai_dashboard-retrieval-index-eval"></a>
+- [ ] `retrieval-index-eval` · **P0 · todo** — Markdown 증분 인덱싱과 source resolver, Recall·MRR·scope·중복 평가 및 Electron smoke를 완결한다 — Phase 1 Stack C는 PR-B head에서 별도 worktree·branch·PR로 시작
 <a id="task-ai_dashboard-tmux-unicode-regression"></a>
 - [ ] `tmux-unicode-regression` · **P0 · todo** — 패키지 앱의 WSL·SSH tmux에서 glyph·색·split·resize·detach/attach와 재접속을 비교 검증한다 — TODO.md와 Windows QA handoff의 남은 수동 QA 및 Powerline 결손 진단
-<a id="task-ai_dashboard-retrieval-index-eval"></a>
-- [ ] `retrieval-index-eval` · **P0 · blocked · blocked by retrieval-consumers** — Markdown 증분 인덱싱과 source resolver, Recall·MRR·scope·중복 평가 및 Electron smoke를 완결한다 — Phase 1 Stack C와 최종 release gate
 <a id="task-ai_dashboard-packaged-preview-restart-qa"></a>
 - [ ] `packaged-preview-restart-qa` · **P1 · todo** — 패키지 앱에서 Ctrl-click 경로 미리보기와 앱 재시작 후 상태 복원을 검증한다 — docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md의 수동 승인 항목
+<a id="task-ai_dashboard-retrieval-context-package-cleanup"></a>
+- [ ] `retrieval-context-package-cleanup` · **P1 · blocked · blocked by retrieval-index-eval** — legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다 — production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
 <a id="task-ai_dashboard-retrieval-embedding-gate"></a>
 - [ ] `retrieval-embedding-gate` · **P1 · blocked · blocked by retrieval-index-eval** — lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다 — Recall·MRR baseline보다 재현 가능한 개선이 있을 때만 production dependency 추가
 <a id="task-ai_dashboard-retrieval-mcp-primitives"></a>

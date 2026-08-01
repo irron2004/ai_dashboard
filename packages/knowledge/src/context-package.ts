@@ -3,6 +3,11 @@ import type { KnowledgeRetrieval } from './retrieval.js'
 
 export type BuildContextPackageInput = { projectId: string; taskId: string; query: string; limit?: number }
 
+/**
+ * @deprecated Production task context now uses the shared RetrievalService through
+ * desktop `composeContext`. Retained for one compatibility release; remove in the
+ * `retrieval-context-package-cleanup` follow-up after downstream usage is rechecked.
+ */
 export class ContextPackageBuilder {
   constructor(
     private readonly retrieval: KnowledgeRetrieval,

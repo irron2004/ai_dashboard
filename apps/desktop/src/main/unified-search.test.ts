@@ -1,78 +1,213 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { SearchIndex } from '@apc/search'
+import {
+  KnowledgeFtsRetriever,
+  RetrievalService,
+  SessionFtsRetriever,
+  type Retriever,
+} from '@apc/retrieval'
+import type { EvidenceCandidate, NormalizedSession } from '@apc/shared'
 import { UnifiedSearch } from './unified-search.js'
 import { openDb, migrate } from '@apc/core'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval } from '@apc/knowledge'
 
-function knowledgeFor(docs: { projectId: string; relPath: string; markdown: string; pathPrefix?: string; docType?: string }[]) {
-  const db = openDb(':memory:'); migrate(db); migrateKnowledge(db)
-  const store = new KnowledgeStore(db)
-  for (const d of docs) {
-    const collectionId = `project:${d.projectId}`
-    store.upsertCollection({ id: collectionId, projectId: d.projectId, name: d.projectId, rootPath: `/v/${d.projectId}`, include: ['**/*.md'], exclude: [], includeByDefault: true })
-    if (d.pathPrefix && d.docType) store.upsertContext({ collectionId, pathPrefix: d.pathPrefix, description: d.docType, docType: d.docType as never, statusHint: 'candidate' })
-    store.indexMarkdownDoc({ collectionId, projectId: d.projectId, relPath: d.relPath, markdown: d.markdown, updatedAt: '2026-06-01T00:00:00Z' })
+function session(id: string, projectId: string, text: string): NormalizedSession {
+  return {
+    id,
+    agentType: 'claude',
+    projectId,
+    sourceMeta: {
+      provider: 'claude',
+      sourceKind: 'jsonl-file',
+      rawLocator: `/private/${id}.jsonl`,
+      sessionHeader: {},
+    },
+    turns: [{ role: 'user', text, toolCalls: [] }],
+    filesTouched: [],
   }
-  return new KnowledgeRetrieval(db)
 }
 
-function session(id: string, projectId: string, texts: [string, string][]) {
-  return { id, agentType: 'claude' as const, projectId,
-    sourceMeta: { provider: 'claude' as const, sourceKind: 'jsonl-file' as const, rawLocator: '', sessionHeader: {} },
-    turns: texts.map(([role, text]) => ({ role: role as 'user' | 'assistant', text, toolCalls: [] })),
-    filesTouched: [] }
+function fixture(projectIds: string[]) {
+  const sessionIndex = new SearchIndex(new DatabaseSync(':memory:'))
+  const db = openDb(':memory:')
+  migrate(db)
+  migrateKnowledge(db)
+  const store = new KnowledgeStore(db)
+  const registry = { list: () => projectIds.map((id) => ({ id })) }
+  const retrieval = new RetrievalService({
+    registry,
+    retrievers: [
+      new SessionFtsRetriever(sessionIndex),
+      new KnowledgeFtsRetriever(new KnowledgeRetrieval(db)),
+    ],
+  })
+  return {
+    sessionIndex,
+    store,
+    search: new UnifiedSearch({ retrieval, projectIds: () => projectIds }),
+  }
 }
 
-describe('UnifiedSearch', () => {
-  test('returns normalized session hits', () => {
-    const idx = new SearchIndex(new DatabaseSync(':memory:'))
-    idx.indexSession(session('s1', 'p1', [['user', 'design the agent session manager']]))
-    idx.indexSession(session('s2', 'p2', [['user', 'unrelated billing']]))
-    const res = new UnifiedSearch({ sessions: idx }).search({ query: 'agent' })
-    expect(res.query).toBe('agent')
-    expect(res.hits.length).toBe(1)
-    expect(res.hits[0]).toMatchObject({ kind: 'session', id: 's1', projectId: 'p1' })
-    expect(res.hits[0].excerpt).toContain('agent')
+function indexKnowledge(
+  store: KnowledgeStore,
+  projectId: string,
+  relPath: string,
+  markdown: string,
+): void {
+  const collectionId = `project:${projectId}`
+  store.upsertCollection({
+    id: collectionId,
+    projectId,
+    name: projectId,
+    rootPath: `/virtual/${projectId}`,
+    include: ['**/*.md'],
+    exclude: [],
+    includeByDefault: true,
   })
-
-  test('empty/whitespace query returns no hits', () => {
-    const idx = new SearchIndex(new DatabaseSync(':memory:'))
-    expect(new UnifiedSearch({ sessions: idx }).search({ query: '  ' }).hits).toEqual([])
+  store.upsertContext({
+    collectionId,
+    pathPrefix: '/',
+    description: 'project documentation',
+    docType: 'wiki',
+    statusHint: 'canonical',
   })
-
-  test('appends normalized knowledge hits using docType as kind', () => {
-    const idx = new SearchIndex(new DatabaseSync(':memory:'))
-    idx.indexSession(session('s1', 'p1', [['user', 'agent orchestration session']]))
-    const knowledge = knowledgeFor([{ projectId: 'p1', relPath: 'wiki/notes.md', markdown: '# Notes\n\nagent orchestration wiki', pathPrefix: '/wiki', docType: 'wiki' }])
-    const res = new UnifiedSearch({ sessions: idx, knowledge, projectIds: () => ['p1'] }).search({ query: 'orchestration' })
-    const kinds = res.hits.map((h) => h.kind)
-    expect(kinds).toContain('session')
-    expect(kinds).toContain('wiki')
-    const wikiHit = res.hits.find((h) => h.kind === 'wiki')!
-    expect(wikiHit.projectId).toBe('p1')
-    expect(wikiHit.title).toBe('Notes')
-    expect(wikiHit.excerpt.length).toBeGreaterThan(0)
-    expect(res.hits.findIndex((h) => h.kind === 'wiki')).toBeGreaterThan(res.hits.findIndex((h) => h.kind === 'session'))
+  store.indexMarkdownDoc({
+    collectionId,
+    projectId,
+    relPath,
+    markdown,
+    updatedAt: '2026-08-01T00:00:00Z',
   })
+}
 
-  test('projectId filter limits knowledge to that project only', () => {
-    const idx = new SearchIndex(new DatabaseSync(':memory:'))
-    const knowledge = knowledgeFor([
-      { projectId: 'p1', relPath: 'wiki/a.md', markdown: '# A\n\nshared keyword alpha' },
-      { projectId: 'p2', relPath: 'wiki/b.md', markdown: '# B\n\nshared keyword beta' },
+function evidence(id: string): EvidenceCandidate {
+  return {
+    candidateId: id,
+    parentId: `parent:${id}`,
+    sourceKind: 'session',
+    projectId: 'p1',
+    title: id,
+    excerpt: `${id} excerpt`,
+    uri: `apc://session/${id}#turn-0`,
+    sourceRank: 1,
+    fusedScore: 0.99,
+    authority: 'raw',
+    signals: { conflict: false, stale: false },
+    reasons: ['fts:session'],
+    warnings: [],
+  }
+}
+
+describe('UnifiedSearch evidence adapter', () => {
+  test('returns session and knowledge candidates through the same RRF response', async () => {
+    const { sessionIndex, store, search } = fixture(['p1'])
+    sessionIndex.indexSession(session('s1', 'p1', 'shared retrieval keyword in a session'))
+    indexKnowledge(store, 'p1', 'wiki/retrieval.md', '# Retrieval\n\nshared retrieval keyword in a wiki')
+
+    const result = await search.searchEvidence({ query: 'shared retrieval', projectId: 'p1' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.response.evidence.map((item) => item.sourceKind).sort()).toEqual([
+      'knowledge',
+      'session',
     ])
-    const us = new UnifiedSearch({ sessions: idx, knowledge, projectIds: () => ['p1', 'p2'] })
-    const res = us.search({ query: 'shared', projectId: 'p1' })
-    expect(res.hits.every((h) => h.projectId === 'p1')).toBe(true)
-    expect(res.hits.length).toBe(1)
+    expect(result.response.evidence.every((item) => item.projectId === 'p1')).toBe(true)
+    expect(result.response.evidence.every((item) => item.uri.includes('://'))).toBe(true)
+    expect(result.response.diagnostics.retrievers.map((item) => item.id)).toEqual([
+      'session-fts',
+      'knowledge-fts',
+    ])
   })
 
-  test('no knowledge dep preserves session-only behavior', () => {
-    const idx = new SearchIndex(new DatabaseSync(':memory:'))
-    idx.indexSession(session('s1', 'p1', [['user', 'agent thing']]))
-    const res = new UnifiedSearch({ sessions: idx }).search({ query: 'agent' })
-    expect(res.hits).toHaveLength(1)
-    expect(res.hits[0].kind).toBe('session')
+  test('uses every registered project as an explicit global scope', async () => {
+    const { sessionIndex, search } = fixture(['p1', 'p2'])
+    sessionIndex.indexSession(session('s1', 'p1', 'global scope token'))
+    sessionIndex.indexSession(session('s2', 'p2', 'global scope token'))
+
+    const result = await search.searchEvidence({ query: 'global scope' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.response.query.scope.projectIds).toEqual(['p1', 'p2'])
+    expect(result.response.evidence.map((item) => item.projectId).sort()).toEqual(['p1', 'p2'])
+  })
+
+  test('never calls retrieval without scope when the registry is empty', async () => {
+    const retrieval = { search: vi.fn() }
+    const search = new UnifiedSearch({ retrieval, projectIds: () => [] })
+
+    const result = await search.searchEvidence({ query: 'anything' })
+
+    expect(result).toMatchObject({
+      ok: false,
+      evidence: [],
+      diagnostic: { code: 'no-registered-projects' },
+    })
+    expect(retrieval.search).not.toHaveBeenCalled()
+  })
+
+  test('keeps partial evidence and typed retriever diagnostics', async () => {
+    const good: Retriever = {
+      id: 'session-fts',
+      sourceKind: 'session',
+      search: async () => [evidence('session-hit')],
+    }
+    const broken: Retriever = {
+      id: 'knowledge-fts',
+      sourceKind: 'knowledge',
+      search: async () => { throw new Error('knowledge database unavailable') },
+    }
+    const registry = { list: () => [{ id: 'p1' }] }
+    const search = new UnifiedSearch({
+      retrieval: new RetrievalService({ registry, retrievers: [good, broken] }),
+      projectIds: () => ['p1'],
+    })
+
+    const result = await search.searchEvidence({ query: 'session hit', projectId: 'p1' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.response.evidence.map((item) => item.candidateId)).toEqual(['session-hit'])
+    expect(result.response.diagnostics.retrievers).toContainEqual(expect.objectContaining({
+      id: 'knowledge-fts',
+      error: { code: 'retriever-failed', message: 'knowledge database unavailable' },
+    }))
+  })
+
+  test('retains q:search as an intentionally lossy async adapter', async () => {
+    const search = new UnifiedSearch({
+      retrieval: {
+        search: vi.fn(async (query) => ({
+          query,
+          evidence: [evidence('legacy')],
+          diagnostics: { retrievers: [], droppedDuplicates: 0, droppedByCap: 0 },
+        })),
+      },
+      projectIds: () => ['p1'],
+    })
+
+    const result = await search.search({ query: 'legacy', projectId: 'p1' })
+
+    expect(result).toEqual({
+      query: 'legacy',
+      hits: [{
+        kind: 'session',
+        id: 'parent:legacy',
+        title: 'legacy',
+        excerpt: 'legacy excerpt',
+        projectId: 'p1',
+      }],
+    })
+    expect(JSON.stringify(result)).not.toContain('apc://')
+    expect(JSON.stringify(result)).not.toContain('fusedScore')
+  })
+
+  test('legacy empty query returns no hits without invoking retrieval', async () => {
+    const retrieval = { search: vi.fn() }
+    const search = new UnifiedSearch({ retrieval, projectIds: () => ['p1'] })
+    await expect(search.search({ query: '  ' })).resolves.toEqual({ query: '', hits: [] })
+    expect(retrieval.search).not.toHaveBeenCalled()
   })
 })
