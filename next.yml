@@ -1,6 +1,6 @@
 project: ai_dashboard
 status: active
-focus: retrieval consumer 전환을 마치고 증분 인덱싱·원문 resolver·품질 평가를 완결
+focus: Retrieval Phase 1 릴리스 후 실제 corpus 평가와 MCP·embedding 채택 gate를 판정
 updated: "2026-08-02"
 tasks:
   - id: packaged-terminal-paste-qa
@@ -42,27 +42,24 @@ tasks:
   - id: retrieval-index-eval
     title: Markdown 증분 인덱싱과 source resolver, Recall·MRR·scope·중복 평가 및 Electron smoke를 완결한다
     priority: P0
-    status: todo
+    status: done
     source: agent:codex
-    note: Phase 1 Stack C는 PR-B head에서 별도 worktree·branch·PR로 시작
+    note: Stack C agent/retrieval-index-eval에서 snapshot diff·bounded resolver·합성 24질의 gate·실제 Electron restart/partial-failure smoke 완료
   - id: retrieval-context-package-cleanup
     title: legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다
     priority: P1
-    status: blocked
+    status: todo
     source: agent:codex
     note: production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
-    blocked_by: retrieval-index-eval
   - id: retrieval-mcp-primitives
     title: 검증된 retrieval application service 위에 search_evidence와 get_evidence_source MCP primitive를 노출한다
     priority: P1
-    status: blocked
+    status: todo
     source: agent:codex
     note: Phase 2이며 answer_question 도구는 만들지 않음
-    blocked_by: retrieval-index-eval
   - id: retrieval-embedding-gate
     title: lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다
     priority: P1
-    status: blocked
+    status: todo
     source: agent:codex
-    note: Recall·MRR baseline보다 재현 가능한 개선이 있을 때만 production dependency 추가
-    blocked_by: retrieval-index-eval
+    note: 합성 gate를 통과했으므로 sanitized 실제 질의 corpus에서 lexical 실패와 비용·privacy 개선을 먼저 입증
