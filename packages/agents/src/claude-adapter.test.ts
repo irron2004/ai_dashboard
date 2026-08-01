@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ClaudeAdapter, parseClaudeJsonl } from './claude-adapter.js'
@@ -70,6 +70,23 @@ describe('ClaudeAdapter', () => {
     const seen = { sourceId: src.id, position: JSON.stringify({ sizeBytes: src.sizeBytes, mtimeMs: src.mtimeMs }), updatedAt: 'x' }
     const second = await a.discoverSources((id) => (id === src.id ? seen : undefined))
     expect(second).toHaveLength(0)
+  })
+
+  test('discoverSources returns a source again after its durable content changes', async () => {
+    const a = new ClaudeAdapter(base)
+    const [src] = await a.discoverSources(() => undefined)
+    const seen = {
+      sourceId: src.id,
+      position: JSON.stringify({ sizeBytes: src.sizeBytes, mtimeMs: src.mtimeMs }),
+      updatedAt: 'x',
+    }
+    appendFileSync(src.locator, `${JSON.stringify({
+      type: 'user',
+      sessionId: 's1',
+      message: { role: 'user', content: 'changed source' },
+    })}\n`)
+    const changed = await a.discoverSources((id) => (id === src.id ? seen : undefined))
+    expect(changed.map((source) => source.id)).toEqual([src.id])
   })
 
   test('parseSource normalizes turns, repoPath, branch, filesTouched', async () => {

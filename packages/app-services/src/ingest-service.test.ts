@@ -83,6 +83,22 @@ describe('IngestService', () => {
     expect(second.sources).toBe(0)
   })
 
+  test('does not advance the source cursor when the durable session index write fails', async () => {
+    const session: NormalizedSession = {
+      id: 's1', agentType: 'claude', repoPath: '/work/apc',
+      sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} },
+      turns: [{ role: 'user', text: 'must stay retryable', toolCalls: [] }], filesTouched: [],
+    }
+    const setCursor = vi.fn()
+    const svc = new IngestService({
+      registry,
+      cursors: { get: () => undefined, set: setCursor } as never,
+      index: { indexSession: () => { throw new Error('index write failed') } } as never,
+    })
+    await expect(svc.ingestAll([new FakeAdapter(session)])).rejects.toThrow(/index write failed/)
+    expect(setCursor).not.toHaveBeenCalled()
+  })
+
   test('concurrent ingestAll calls are serialized by the service lock', async () => {
     const session: NormalizedSession = { id: 's1', agentType: 'claude', repoPath: '/work/apc', sourceMeta: { provider: 'claude', sourceKind: 'jsonl-file', rawLocator: '', sessionHeader: {} }, turns: [], filesTouched: [] }
     const svc = new IngestService({ registry, cursors, index })

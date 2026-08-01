@@ -318,6 +318,9 @@ importers:
 
   packages/retrieval:
     dependencies:
+      '@apc/search':
+        specifier: workspace:*
+        version: link:../search
       '@apc/shared':
         specifier: workspace:*
         version: link:../shared
