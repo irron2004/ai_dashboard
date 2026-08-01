@@ -1,0 +1,41 @@
+{
+  "fixtureVersion": 1,
+  "rankings": [
+    {"queryId":"exact-leak","results":[{"parentId":"session:s-leak-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:sop/leak.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"exact-align","results":[{"parentId":"session:s-align-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:troubleshooting/align.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"exact-rf","results":[{"parentId":"session:s-rf-beta","projectId":"beta","sourceKind":"session","uri":null},{"parentId":"project:beta:troubleshooting/rf.md","projectId":"beta","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"authentication","results":[{"parentId":"session:s-auth-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:security/auth.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"shared-alpha","results":[{"parentId":"session:s-shared-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/shared.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"shared-beta","results":[{"parentId":"session:s-shared-beta","projectId":"beta","sourceKind":"session","uri":null},{"parentId":"project:beta:wiki/shared.md","projectId":"beta","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"shared-global","results":[{"parentId":"session:s-shared-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:s-shared-beta","projectId":"beta","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/shared.md","projectId":"alpha","sourceKind":"knowledge","uri":null},{"parentId":"project:beta:wiki/shared.md","projectId":"beta","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"conflict-warning","results":[{"parentId":"project:alpha:wiki/conflict.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"candidate-status","results":[{"parentId":"project:alpha:wiki/candidate.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"parent-dedupe","results":[{"parentId":"project:alpha:wiki/dedupe.md","projectId":"alpha","sourceKind":"knowledge","uri":null},{"parentId":"project:alpha:wiki/dedupe.md","projectId":"alpha","sourceKind":"knowledge","uri":null},{"parentId":"project:alpha:wiki/dedupe.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"mixed-language","results":[{"parentId":"session:s-korean-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/korean.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"reserved-punctuation","results":[]},
+    {"queryId":"no-hit","results":[]},
+    {"queryId":"scope-alpha","results":[{"parentId":"session:s-scope-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/scope.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"scope-beta","results":[{"parentId":"session:s-scope-beta","projectId":"beta","sourceKind":"session","uri":null},{"parentId":"project:beta:wiki/scope.md","projectId":"beta","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"deprecated-warning","results":[{"parentId":"project:alpha:wiki/deprecated.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"superseded-warning","results":[{"parentId":"project:alpha:wiki/superseded.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"exact-feature-flag","results":[{"parentId":"session:s-feature-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/feature.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"exact-exception","results":[{"parentId":"session:s-null-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/null.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"semantic-wording","results":[{"parentId":"session:s-stage-alpha","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"project:alpha:wiki/stage.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"authority-pair","results":[{"parentId":"project:alpha:wiki/authority-canonical.md","projectId":"alpha","sourceKind":"knowledge","uri":null},{"parentId":"project:alpha:wiki/authority-candidate.md","projectId":"alpha","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"single-source-cap","results":[{"parentId":"session:cap-a1","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:cap-a2","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:cap-a3","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:cap-a4","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:cap-a5","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:cap-a6","projectId":"alpha","sourceKind":"session","uri":null},{"parentId":"session:cap-a7","projectId":"alpha","sourceKind":"session","uri":null}]},
+    {"queryId":"global-beta-unique","results":[{"parentId":"session:s-global-beta","projectId":"beta","sourceKind":"session","uri":null},{"parentId":"project:beta:wiki/global.md","projectId":"beta","sourceKind":"knowledge","uri":null}]},
+    {"queryId":"empty-wrong-scope","results":[]}
+  ],
+  "metrics": {
+    "evaluatedQueries": 22,
+    "recallAt5": 0.941558,
+    "recallAt10": 0.954545,
+    "mrr": 0.954545,
+    "duplicateParentOccupancy": 3,
+    "citationCompleteness": 0,
+    "scopeLeakage": 0,
+    "scopeLeakageCount": 0,
+    "resultCount": 46,
+    "sourceDistribution": {"session":22,"knowledge":24}
+  }
+}
