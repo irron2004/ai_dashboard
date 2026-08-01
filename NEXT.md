@@ -4,7 +4,7 @@
 
 상태: `active` · 갱신: `2026-08-02` · 진실: [`next.yml`](next.yml)
 
-**지금 집중:** retrieval consumer 전환을 마치고 증분 인덱싱·원문 resolver·품질 평가를 완결
+**지금 집중:** Retrieval Phase 1 릴리스 후 실제 corpus 평가와 MCP·embedding 채택 gate를 판정
 
 ## 할 일
 
@@ -12,15 +12,13 @@
 - [ ] `packaged-terminal-paste-qa` · **P0 · todo** — 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다 — TODO.md 터미널 붙여넣기 항목의 남은 수동 QA
 <a id="task-ai_dashboard-real-load-performance-profile"></a>
 - [ ] `real-load-performance-profile` · **P0 · todo** — 동일한 실제 프로젝트 부하에서 성능 개선 전후 시나리오를 계측해 회귀 기준선을 확정한다 — docs/handoffs/2026-07-23-multi-project-perf-diagnosis.md의 미완료 실부하 검증
-<a id="task-ai_dashboard-retrieval-index-eval"></a>
-- [ ] `retrieval-index-eval` · **P0 · todo** — Markdown 증분 인덱싱과 source resolver, Recall·MRR·scope·중복 평가 및 Electron smoke를 완결한다 — Phase 1 Stack C는 PR-B head에서 별도 worktree·branch·PR로 시작
 <a id="task-ai_dashboard-tmux-unicode-regression"></a>
 - [ ] `tmux-unicode-regression` · **P0 · todo** — 패키지 앱의 WSL·SSH tmux에서 glyph·색·split·resize·detach/attach와 재접속을 비교 검증한다 — TODO.md와 Windows QA handoff의 남은 수동 QA 및 Powerline 결손 진단
 <a id="task-ai_dashboard-packaged-preview-restart-qa"></a>
 - [ ] `packaged-preview-restart-qa` · **P1 · todo** — 패키지 앱에서 Ctrl-click 경로 미리보기와 앱 재시작 후 상태 복원을 검증한다 — docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md의 수동 승인 항목
 <a id="task-ai_dashboard-retrieval-context-package-cleanup"></a>
-- [ ] `retrieval-context-package-cleanup` · **P1 · blocked · blocked by retrieval-index-eval** — legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다 — production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
+- [ ] `retrieval-context-package-cleanup` · **P1 · todo** — legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다 — production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
 <a id="task-ai_dashboard-retrieval-embedding-gate"></a>
-- [ ] `retrieval-embedding-gate` · **P1 · blocked · blocked by retrieval-index-eval** — lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다 — Recall·MRR baseline보다 재현 가능한 개선이 있을 때만 production dependency 추가
+- [ ] `retrieval-embedding-gate` · **P1 · todo** — lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다 — 합성 gate를 통과했으므로 sanitized 실제 질의 corpus에서 lexical 실패와 비용·privacy 개선을 먼저 입증
 <a id="task-ai_dashboard-retrieval-mcp-primitives"></a>
-- [ ] `retrieval-mcp-primitives` · **P1 · blocked · blocked by retrieval-index-eval** — 검증된 retrieval application service 위에 search_evidence와 get_evidence_source MCP primitive를 노출한다 — Phase 2이며 answer_question 도구는 만들지 않음
+- [ ] `retrieval-mcp-primitives` · **P1 · todo** — 검증된 retrieval application service 위에 search_evidence와 get_evidence_source MCP primitive를 노출한다 — Phase 2이며 answer_question 도구는 만들지 않음

@@ -27,6 +27,25 @@ export type KnowledgeChunkWithNeighbors = {
   after: KnowledgeChunk[]
 }
 
+export type KnowledgeSnapshotDocument = {
+  relPath: string
+  markdown: string
+  updatedAt: string
+}
+
+export type ApplyProjectSnapshotInput = {
+  collection: KnowledgeCollection
+  documents: KnowledgeSnapshotDocument[]
+}
+
+export type ApplyProjectSnapshotResult = {
+  total: number
+  inserted: number
+  updated: number
+  deleted: number
+  unchanged: number
+}
+
 function hash(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex')
 }
@@ -60,10 +79,35 @@ export class KnowledgeStore {
 
   upsertCollection(input: KnowledgeCollection): void {
     const c = KnowledgeCollectionSchema.parse(input)
-    this.db.prepare(`INSERT OR REPLACE INTO knowledge_collections
+    const existing = this.db.prepare(
+      'SELECT project_id FROM knowledge_collections WHERE id = ?',
+    ).get(c.id) as { project_id: string } | undefined
+    if (existing && existing.project_id !== c.projectId) {
+      throw new Error(`knowledge collection ${c.id} already belongs to project ${existing.project_id}`)
+    }
+    this.db.prepare(`INSERT INTO knowledge_collections
       (id, project_id, name, root_path, include_globs, exclude_globs, include_by_default)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(c.id, c.projectId, c.name, c.rootPath, JSON.stringify(c.include), JSON.stringify(c.exclude), c.includeByDefault ? 1 : 0)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        root_path = excluded.root_path,
+        include_globs = excluded.include_globs,
+        exclude_globs = excluded.exclude_globs,
+        include_by_default = excluded.include_by_default
+      WHERE knowledge_collections.name <> excluded.name
+         OR knowledge_collections.root_path <> excluded.root_path
+         OR knowledge_collections.include_globs <> excluded.include_globs
+         OR knowledge_collections.exclude_globs <> excluded.exclude_globs
+         OR knowledge_collections.include_by_default <> excluded.include_by_default`)
+      .run(
+        c.id,
+        c.projectId,
+        c.name,
+        c.rootPath,
+        JSON.stringify(c.include),
+        JSON.stringify(c.exclude),
+        c.includeByDefault ? 1 : 0,
+      )
   }
 
   listCollections(projectId: string): KnowledgeCollection[] {
@@ -121,6 +165,102 @@ export class KnowledgeStore {
   getDocument(id: string): KnowledgeDocument | undefined {
     const row = this.db.prepare('SELECT * FROM knowledge_documents WHERE id = ?').get(id) as DocRow | undefined
     return row ? docFrom(row) : undefined
+  }
+
+  getDocumentByUri(uri: string): KnowledgeDocument | undefined {
+    const row = this.db.prepare(
+      'SELECT * FROM knowledge_documents WHERE uri = ? ORDER BY id LIMIT 1',
+    ).get(uri) as DocRow | undefined
+    return row ? docFrom(row) : undefined
+  }
+
+  listProjectDocuments(projectId: string): KnowledgeDocument[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM knowledge_documents WHERE project_id = ? ORDER BY rel_path, id',
+    ).all(projectId) as DocRow[]
+    return rows.map(docFrom)
+  }
+
+  deleteDocument(id: string): boolean {
+    const existing = this.db.prepare(
+      'SELECT id FROM knowledge_documents WHERE id = ?',
+    ).get(id) as { id: string } | undefined
+    if (!existing) return false
+    // FTS5 virtual tables do not participate in ON DELETE CASCADE.
+    this.db.prepare('DELETE FROM knowledge_chunk_fts WHERE doc_id = ?').run(id)
+    this.db.prepare('DELETE FROM knowledge_chunks WHERE doc_id = ?').run(id)
+    this.db.prepare('DELETE FROM knowledge_documents WHERE id = ?').run(id)
+    return true
+  }
+
+  /**
+   * Apply a complete, already-read project snapshot atomically. Identical content is deliberately
+   * left untouched, including its previous mtime, so a no-op scan performs zero durable writes.
+   */
+  applyProjectSnapshot(input: ApplyProjectSnapshotInput): ApplyProjectSnapshotResult {
+    const collection = KnowledgeCollectionSchema.parse(input.collection)
+    const documents = input.documents.map((document) => {
+      const relPath = document.relPath.trim()
+      if (!relPath) throw new TypeError('snapshot relPath must not be blank')
+      if (document.updatedAt.trim().length === 0) throw new TypeError(`snapshot updatedAt is blank: ${relPath}`)
+      return { ...document, relPath }
+    })
+    const duplicatePaths = documents
+      .map((document) => document.relPath)
+      .filter((relPath, index, values) => values.indexOf(relPath) !== index)
+    if (duplicatePaths.length > 0) {
+      throw new Error(`duplicate snapshot relPath: ${[...new Set(duplicatePaths)].sort().join(', ')}`)
+    }
+
+    let begun = false
+    try {
+      this.db.exec('BEGIN IMMEDIATE')
+      begun = true
+      this.upsertCollection(collection)
+
+      const existing = this.listProjectDocuments(collection.projectId)
+      const existingById = new Map(existing.map((document) => [document.id, document]))
+      const expectedIds = new Set(documents.map((document) => docId(collection.id, document.relPath)))
+      let inserted = 0
+      let updated = 0
+      let unchanged = 0
+
+      for (const document of documents) {
+        const id = docId(collection.id, document.relPath)
+        const current = existingById.get(id)
+        const context = this.contextForPath(collection.id, document.relPath)
+        const metadataMatches = current
+          && current.collectionId === collection.id
+          && current.projectId === collection.projectId
+          && current.docType === (context?.docType ?? 'unknown')
+          && current.status === (context?.statusHint ?? 'unknown')
+          && current.contextText === (context?.description ?? '')
+        if (current?.hash === hash(document.markdown) && metadataMatches) {
+          unchanged++
+          continue
+        }
+        this.indexMarkdownDoc({
+          collectionId: collection.id,
+          projectId: collection.projectId,
+          relPath: document.relPath,
+          markdown: document.markdown,
+          updatedAt: document.updatedAt,
+        })
+        if (current) updated++
+        else inserted++
+      }
+
+      let deleted = 0
+      for (const document of existing) {
+        if (!expectedIds.has(document.id) && this.deleteDocument(document.id)) deleted++
+      }
+      this.db.exec('COMMIT')
+      begun = false
+      return { total: documents.length, inserted, updated, deleted, unchanged }
+    } catch (error) {
+      if (begun) this.db.exec('ROLLBACK')
+      throw error
+    }
   }
 
   listChunks(docIdValue: string): KnowledgeChunk[] {

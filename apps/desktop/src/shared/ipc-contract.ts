@@ -6,6 +6,10 @@ import type {
   FileRefsResolveReq, FileRefsResolveRes, FilePreviewReadReq, FilePreviewReadRes,
   RetrievalResponse, RetrieverDiagnostic,
 } from '@apc/shared'
+import type {
+  EvidenceSourceResolveRequest,
+  EvidenceSourceResolveResult,
+} from '@apc/retrieval'
 
 /** Wiki authoring is intentionally single-engine. Keep this runtime constant shared by renderer and
  * main so stale localStorage or an older renderer cannot silently route a wiki run to another CLI. */
@@ -17,6 +21,7 @@ export const CH = {
   projectDashboard: 'q:projectDashboard',
   search: 'q:search',
   searchEvidence: 'q:searchEvidence',
+  resolveEvidenceSource: 'q:resolveEvidenceSource',
   listProfiles: 'q:listProfiles',
   tasksList: 'q:tasksList',
   workspaceOverview: 'q:workspaceOverview',
@@ -164,6 +169,8 @@ export type SearchEvidenceRes =
       evidence: []
       diagnostic: SearchEvidenceFailureDiagnostic
     }
+export type ResolveEvidenceSourceReq = EvidenceSourceResolveRequest
+export type ResolveEvidenceSourceRes = EvidenceSourceResolveResult
 export type ListProfilesReq = { projectPath: string }
 export type TasksListReq = { projectId: string }
 export type SubmitReviewReq = { review: Review }

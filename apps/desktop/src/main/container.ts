@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite'
 import { openDb, migrate, ProjectRegistry, IngestCursorStore } from '@apc/core'
 import {
   migratePm,
@@ -19,6 +18,7 @@ import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import {
+  EvidenceSourceResolver,
   KnowledgeFtsRetriever,
   RetrievalService,
   RetrievalUnavailableError,
@@ -67,7 +67,7 @@ import type {
   DevHarnessRunReq, DevHarnessRunRes, DevHarnessCancelReq, DevHarnessCancelRes, DevHarnessLogEvent,
   ReadProjectWikiReq, ReadProjectWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
-  SearchReq, SearchEvidenceReq, SearchEvidenceRes,
+  SearchReq, SearchEvidenceReq, SearchEvidenceRes, ResolveEvidenceSourceReq, ResolveEvidenceSourceRes,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
@@ -132,6 +132,7 @@ export type Container = {
   searchIndex: SearchIndex
   retrieval: RetrievalService
   searchEvidence: (req: SearchEvidenceReq) => Promise<SearchEvidenceRes>
+  resolveEvidenceSource: (req: ResolveEvidenceSourceReq) => ResolveEvidenceSourceRes
   /** @deprecated Use searchEvidence. */
   search: (req: SearchReq) => Promise<UnifiedSearchResponse>
   vault: VaultAdapter
@@ -213,6 +214,39 @@ function nextId(): string {
 const COMPOSE_WIKI_MAX_FILES = 6
 const COMPOSE_EXCERPT_CAP = 512
 const COMPOSE_RETRIEVAL_LIMIT = 12
+const PERSISTENT_SESSION_INDEX_MARKER = 'desktop_persistent_session_index_v1'
+
+/**
+ * Session FTS used to live in a process-local `:memory:` database while ingest cursors lived on
+ * disk. After restart, unchanged sources were therefore skipped and their searchable rows vanished.
+ * Mark the storage migration and invalidate only agent-source cursors once so the next ingest
+ * rebuilds the durable index. The marker and cursor invalidation commit atomically.
+ */
+function migratePersistentSessionIndex(db: ReturnType<typeof openDb>): void {
+  const completed = db.prepare(
+    'SELECT value FROM search_index_meta WHERE key = ?',
+  ).get(PERSISTENT_SESSION_INDEX_MARKER) as { value: string } | undefined
+  if (completed?.value === 'complete') return
+
+  let begun = false
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    begun = true
+    db.prepare(`DELETE FROM ingest_cursors
+      WHERE source_id LIKE 'claude:%'
+         OR source_id LIKE 'codex:%'
+         OR source_id LIKE 'opencode:%'`).run()
+    db.prepare(`INSERT INTO search_index_meta (key, value) VALUES (?, 'complete')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+      .run(PERSISTENT_SESSION_INDEX_MARKER)
+    db.exec('COMMIT')
+    begun = false
+  } catch (error) {
+    if (begun) db.exec('ROLLBACK')
+    throw error
+  }
+}
+
 /** Strip a leading YAML frontmatter block (LF or CRLF), then cap to COMPOSE_EXCERPT_CAP bytes. */
 function capExcerpt(raw: string): string {
   const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
@@ -305,8 +339,6 @@ export function buildContainer(opts: {
   const now = opts.now ?? Date.now
   const nowIso = () => new Date(now()).toISOString()
 
-  const searchDb = new DatabaseSync(':memory:')
-
   const registry = new ProjectRegistry(db, nowIso)
   const tasks = new TaskStore(db, nowIso)
   const nextNotes = new NextNoteStore(db, nowIso)
@@ -338,7 +370,8 @@ export function buildContainer(opts: {
   const liveQuestions = new LiveQuestionService(activityCoordinator, { now: nowIso })
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
-  const searchIndex = new SearchIndex(searchDb)
+  const searchIndex = new SearchIndex(db)
+  migratePersistentSessionIndex(db)
   const knowledgeStore = new KnowledgeStore(db)
   const knowledgeRetrieval = new KnowledgeRetrieval(db)
   const processedSources = new ProcessedSourceStore(db)
@@ -356,6 +389,22 @@ export function buildContainer(opts: {
   const searchEvidence = (req: SearchEvidenceReq): Promise<SearchEvidenceRes> =>
     unifiedSearch.searchEvidence(req)
   const search = (req: SearchReq): Promise<UnifiedSearchResponse> => unifiedSearch.search(req)
+  const sourceResolver = new EvidenceSourceResolver({
+    registry,
+    projectRoots: (projectId) => {
+      const project = registry.get(projectId)
+      if (!project) return []
+      return [
+        join(opts.vaultRoot, 'projects', projectId),
+        ...project.repoPaths.filter((path) => !path.startsWith('ssh://')),
+        ...project.vaultPaths.filter((path) => !path.startsWith('ssh://')),
+      ]
+    },
+    knowledge: knowledgeStore,
+    sessions: searchIndex,
+  })
+  const resolveEvidenceSource = (req: ResolveEvidenceSourceReq): ResolveEvidenceSourceRes =>
+    sourceResolver.resolve(req)
   const vault = new VaultAdapter(opts.vaultRoot)
   const taskProfiles = new TaskProfileStore(db)
   const summarize = makeSessionSummarizer({ runner: opts.agentRunner ?? new RoutingAgentRunner(), engine: 'claude' })
@@ -874,7 +923,7 @@ export function buildContainer(opts: {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, taskCommands, nextNotes, noteTasks, runs,
     activityStore, activityCoordinator, liveQuestions,
-    reviews, cursors, searchIndex, retrieval, searchEvidence, search, vault, taskProfiles,
+    reviews, cursors, searchIndex, retrieval, searchEvidence, resolveEvidenceSource, search, vault, taskProfiles,
     ingest, gitSync, receipts, retroStore, gate, retroService,
     ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,

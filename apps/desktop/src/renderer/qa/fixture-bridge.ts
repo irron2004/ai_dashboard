@@ -249,6 +249,20 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
           },
         })
       }
+      case CH.resolveEvidenceSource:
+        return Promise.resolve({
+          ok: true,
+          source: {
+            uri: String(request.uri ?? ''),
+            sourceKind: String(request.uri ?? '').startsWith('apc://') ? 'session' : 'knowledge',
+            projectId: selectedProject?.id ?? 'fixture-project',
+            title: 'Fixture source',
+            selectedOrdinal: 0,
+            content: 'Bounded fixture source content.',
+            truncated: false,
+            warnings: [],
+          },
+        })
       case CH.listProfiles:
         return Promise.resolve([])
       case CH.tasksList:
@@ -731,6 +745,7 @@ export function installFixtureBridge(search = window.location.search): FixtureMo
   window.apc = {
     invoke,
     searchEvidence: (request) => invoke(CH.searchEvidence, request) as ReturnType<Window['apc']['searchEvidence']>,
+    resolveEvidenceSource: (request) => invoke(CH.resolveEvidenceSource, request) as ReturnType<Window['apc']['resolveEvidenceSource']>,
     importProjectItems: (request) => invoke(CH.projectImport, request) as ReturnType<Window['apc']['importProjectItems']>,
     startPty: (request) => {
       calls.push({ channel: CH.ptyStart, payload: request })

@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "main": "./src/index.ts",
+  "scripts": {
+    "eval": "vite-node --config ../../vitest.config.ts src/eval/run-eval.ts"
+  },
   "dependencies": {
     "@apc/knowledge": "workspace:*",
     "@apc/search": "workspace:*",
