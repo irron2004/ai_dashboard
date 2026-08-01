@@ -5,6 +5,7 @@ export type PostProcessOptions = {
   limit: number
   perParentCap: number
   sourceCaps: Readonly<Record<RetrievalSourceKind, number>>
+  prioritizeAuthority?: boolean
 }
 
 export type PostProcessResult = {
@@ -36,6 +37,15 @@ function validateCap(name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) throw new RangeError(`${name} must be a positive integer`)
 }
 
+const AUTHORITY_PRIORITY: Record<EvidenceCandidate['authority'], number> = {
+  canonical: 5,
+  accepted: 4,
+  candidate: 3,
+  raw: 2,
+  unknown: 1,
+  deprecated: 0,
+}
+
 /** Apply deterministic exact/parent dedupe, source caps, then the final result limit. */
 export function postProcessCandidates(
   inputs: EvidenceCandidate[],
@@ -50,6 +60,7 @@ export function postProcessCandidates(
     .map((item) => EvidenceCandidateSchema.parse(item))
     .sort((a, b) => (
       (b.fusedScore ?? 0) - (a.fusedScore ?? 0)
+      || (options.prioritizeAuthority ? AUTHORITY_PRIORITY[b.authority] - AUTHORITY_PRIORITY[a.authority] : 0)
       || a.sourceRank - b.sourceRank
       || a.candidateId.localeCompare(b.candidateId)
     ))

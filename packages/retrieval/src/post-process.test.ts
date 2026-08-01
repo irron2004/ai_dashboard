@@ -96,4 +96,20 @@ describe('postProcessCandidates', () => {
       candidate('same', 'parent-b', 'knowledge', 0.1),
     ], defaults)).toThrow(/conflicting evidence identities/)
   })
+
+  test('uses authority only as an equal-relevance tie-break without changing RRF scores', () => {
+    const raw = candidate('raw', 'raw-parent', 'session', 0.5)
+    const canonical = candidate('canonical', 'canonical-parent', 'knowledge', 0.5, {
+      authority: 'canonical',
+      signals: { conflict: true, stale: false },
+      warnings: ['conflict-document'],
+    })
+    const result = postProcessCandidates([raw, canonical], { ...defaults, prioritizeAuthority: true })
+    expect(result.candidates.map((item) => item.candidateId)).toEqual(['canonical', 'raw'])
+    expect(result.candidates[0]).toMatchObject({
+      fusedScore: 0.5,
+      signals: { conflict: true, stale: false },
+      warnings: ['conflict-document'],
+    })
+  })
 })
