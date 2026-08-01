@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { join } from 'node:path'
 import { CH, WIKI_GENERATION_ENGINE } from '../shared/ipc-contract.js'
 import type {
-  RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, SearchEvidenceReq, ListProfilesReq, TasksListReq,
+  RegisterProjectReq, UpdateProjectReq, DeleteProjectReq, ProjectDashboardReq, SearchReq, SearchEvidenceReq, ResolveEvidenceSourceReq, ListProfilesReq, TasksListReq,
   ProjectContextConfirmReq,
   TaskCreateReq, TaskUpdateReq, TaskDeleteReq,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq, GeneratePreflightReq, GenerateProjectReq,
@@ -184,6 +184,14 @@ export function handlers(
         limit: z.number().int().min(1).max(100).optional(),
       }).strict().parse(payload) as SearchEvidenceReq
       return container.searchEvidence(req)
+    },
+
+    [CH.resolveEvidenceSource]: async (payload: unknown) => {
+      const req = z.object({
+        uri: z.string().trim().min(1).max(20_000),
+        neighbors: z.number().int().min(0).max(20).optional(),
+      }).strict().parse(payload) as ResolveEvidenceSourceReq
+      return container.resolveEvidenceSource(req)
     },
 
     [CH.listProfiles]: async (payload: unknown) => {

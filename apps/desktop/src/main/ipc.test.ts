@@ -165,6 +165,36 @@ describe('IPC handlers (no Electron)', () => {
     await expect(h[CH.searchEvidence]({ query: 'x', surprise: true })).rejects.toThrow()
   })
 
+  test('q:resolveEvidenceSource returns bounded content without an OS path', async () => {
+    const docsRoot = join(vaultDir, 'projects', 'p1', 'wiki')
+    mkdirSync(docsRoot, { recursive: true })
+    const markdown = '# Source\n\nbounded original evidence'
+    writeFileSync(join(docsRoot, 'source.md'), markdown)
+    const knowledge = new KnowledgeStore(container.db)
+    knowledge.upsertCollection({
+      id: 'project:p1', projectId: 'p1', name: 'p1', rootPath: join(vaultDir, 'projects', 'p1'),
+      include: ['**/*.md'], exclude: [], includeByDefault: true,
+    })
+    knowledge.indexMarkdownDoc({
+      collectionId: 'project:p1', projectId: 'p1', relPath: 'wiki/source.md',
+      markdown, updatedAt: '2026-08-02T00:00:00Z',
+    })
+    const h = handlers(container)
+
+    const result = await h[CH.resolveEvidenceSource]({
+      uri: 'pmw://project/p1/wiki/source.md#chunk-0',
+      neighbors: 1,
+    }) as any
+
+    expect(result).toMatchObject({
+      ok: true,
+      source: { sourceKind: 'knowledge', projectId: 'p1', content: expect.stringContaining('bounded original evidence') },
+    })
+    expect(JSON.stringify(result)).not.toContain(vaultDir)
+    await expect(h[CH.resolveEvidenceSource]({ uri: 'pmw://project/p1/wiki/source.md#chunk-0', neighbors: 21 }))
+      .rejects.toThrow()
+  })
+
   test('legacy q:search remains a lossy compatibility path over RetrievalService', async () => {
     container.searchIndex.indexSession({
       id: 'legacy-session', agentType: 'claude', projectId: 'p1',

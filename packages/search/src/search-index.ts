@@ -51,6 +51,14 @@ export type SessionTurnSource = {
   body: string
 }
 
+export type SessionTurnContext = {
+  sessionId: string
+  projectId: string
+  selected: SessionTurnSource
+  before: SessionTurnSource[]
+  after: SessionTurnSource[]
+}
+
 export function buildSessionTurnUri(sessionId: string, turnOrdinal: number): string {
   if (!sessionId.trim()) throw new TypeError('sessionId must not be blank')
   if (!Number.isInteger(turnOrdinal) || turnOrdinal < 0) {
@@ -299,6 +307,49 @@ export class SearchIndex {
       timestamp: row.timestamp || undefined,
       rawLocator: row.raw_locator,
       body: row.body,
+    }
+  }
+
+  resolveTurnContext(
+    uri: string,
+    before: number,
+    after: number,
+  ): SessionTurnContext | undefined {
+    for (const [name, value] of [['before', before], ['after', after]] as const) {
+      if (!Number.isInteger(value) || value < 0 || value > 20) {
+        throw new RangeError(`${name} must be an integer between 0 and 20`)
+      }
+    }
+    const parsed = parseSessionTurnUri(uri)
+    if (!parsed) return undefined
+    const rows = this.db.prepare(`
+      SELECT session_id, project_id, turn_id, turn_ordinal, role, timestamp, raw_locator, body
+      FROM turn_fts_v2
+      WHERE session_id = ? AND CAST(turn_ordinal AS INTEGER) BETWEEN ? AND ?
+      ORDER BY CAST(turn_ordinal AS INTEGER), rowid
+    `).all(
+      parsed.sessionId,
+      Math.max(0, parsed.turnOrdinal - before),
+      parsed.turnOrdinal + after,
+    ) as V2Row[]
+    const turns = rows.map((row): SessionTurnSource => ({
+      sessionId: row.session_id,
+      projectId: row.project_id,
+      turnId: row.turn_id,
+      turnOrdinal: Number(row.turn_ordinal),
+      role: row.role,
+      timestamp: row.timestamp || undefined,
+      rawLocator: row.raw_locator,
+      body: row.body,
+    }))
+    const selected = turns.find((turn) => turn.turnOrdinal === parsed.turnOrdinal)
+    if (!selected) return undefined
+    return {
+      sessionId: selected.sessionId,
+      projectId: selected.projectId,
+      selected,
+      before: turns.filter((turn) => turn.turnOrdinal < selected.turnOrdinal),
+      after: turns.filter((turn) => turn.turnOrdinal > selected.turnOrdinal),
     }
   }
 }

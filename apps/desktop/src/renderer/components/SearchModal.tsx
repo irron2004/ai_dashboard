@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EvidenceCandidate, RetrieverDiagnostic } from '@apc/shared'
-import type { SearchEvidenceRes } from '../../shared/ipc-contract.js'
+import type { ResolveEvidenceSourceRes, SearchEvidenceRes } from '../../shared/ipc-contract.js'
 import { api } from '../api.js'
 
 type Props = {
   open: boolean
   onClose: () => void
   onSelectProject: (projectId: string) => void
-  /** Stack C will bind this seam to the bounded URI resolver. */
-  onOpenSource?: (uri: string) => void
+  onOpenSource?: (uri: string) => void | Promise<void>
 }
 
 function RetrieverDiagnostics({ diagnostics }: { diagnostics: RetrieverDiagnostic[] }) {
@@ -63,9 +62,8 @@ function EvidenceResult({
           type="button"
           className="search-modal__source-action"
           aria-label={`원문 보기: ${candidate.title}`}
-          title={onOpenSource ? candidate.uri : '안전한 원문 조회는 다음 검색 단계에서 연결됩니다.'}
-          disabled={!onOpenSource}
-          onClick={() => onOpenSource?.(candidate.uri)}
+          title={candidate.uri}
+          onClick={() => { void onOpenSource?.(candidate.uri) }}
         >
           원문 보기
         </button>
@@ -79,16 +77,25 @@ export function SearchModal({ open, onClose, onSelectProject, onOpenSource }: Pr
   const [result, setResult] = useState<SearchEvidenceRes | null>(null)
   const [searched, setSearched] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sourceResult, setSourceResult] = useState<ResolveEvidenceSourceRes | null>(null)
+  const [sourceLoading, setSourceLoading] = useState(false)
   const requestGeneration = useRef(0)
+  const sourceGeneration = useRef(0)
 
   useEffect(() => {
-    if (!open) requestGeneration.current += 1
+    if (!open) {
+      requestGeneration.current += 1
+      sourceGeneration.current += 1
+    }
   }, [open])
 
   if (!open) return null
 
   const run = async () => {
     const generation = ++requestGeneration.current
+    sourceGeneration.current += 1
+    setSourceResult(null)
+    setSourceLoading(false)
     const trimmed = query.trim()
     if (!trimmed) {
       setError('검색어를 입력하세요.')
@@ -107,6 +114,38 @@ export function SearchModal({ open, onClose, onSelectProject, onOpenSource }: Pr
       setError(String(caught))
       setResult(null)
       setSearched(true)
+    }
+  }
+
+  const openSource = async (uri: string) => {
+    const generation = ++sourceGeneration.current
+    if (onOpenSource) {
+      try {
+        await onOpenSource(uri)
+      } catch {
+        if (generation === sourceGeneration.current) {
+          setSourceResult({
+            ok: false,
+            error: { code: 'source-unavailable', message: '원문을 안전하게 조회할 수 없습니다.' },
+          })
+        }
+      }
+      return
+    }
+    setSourceResult(null)
+    setSourceLoading(true)
+    try {
+      const resolved = await api.resolveEvidenceSource({ uri, neighbors: 1 })
+      if (generation === sourceGeneration.current) setSourceResult(resolved)
+    } catch {
+      if (generation === sourceGeneration.current) {
+        setSourceResult({
+          ok: false,
+          error: { code: 'source-unavailable', message: '원문을 안전하게 조회할 수 없습니다.' },
+        })
+      }
+    } finally {
+      if (generation === sourceGeneration.current) setSourceLoading(false)
     }
   }
 
@@ -143,10 +182,32 @@ export function SearchModal({ open, onClose, onSelectProject, onOpenSource }: Pr
               candidate={candidate}
               onClose={onClose}
               onSelectProject={onSelectProject}
-              onOpenSource={onOpenSource}
+              onOpenSource={openSource}
             />
           ))}
         </ul>
+        {sourceLoading && <p className="search-modal__source-status">원문을 불러오는 중…</p>}
+        {sourceResult?.ok && (
+          <section className="search-modal__source-detail" aria-label="원문 상세">
+            <div className="search-modal__source-heading">
+              <strong>{sourceResult.source.title}</strong>
+              <span>{sourceResult.source.sourceKind} · {sourceResult.source.projectId}</span>
+            </div>
+            {sourceResult.source.warnings.length > 0 && (
+              <div className="search-modal__badges">
+                {sourceResult.source.warnings.map((warning) => (
+                  <span key={warning} className="search-modal__warning">{warning}</span>
+                ))}
+              </div>
+            )}
+            <pre>{sourceResult.source.content}</pre>
+          </section>
+        )}
+        {sourceResult && !sourceResult.ok && (
+          <p className="search-modal__error">
+            {sourceResult.error.code}: {sourceResult.error.message}
+          </p>
+        )}
         <div className="add-project-dialog__actions">
           <button type="button" onClick={onClose}>Close</button>
         </div>

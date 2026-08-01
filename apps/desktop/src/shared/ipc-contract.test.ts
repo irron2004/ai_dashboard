@@ -21,6 +21,7 @@ describe('desktop IPC contract', () => {
       terminalDiagnostics: 'q:terminalDiagnostics',
       projectImport: 'c:projectImport',
       searchEvidence: 'q:searchEvidence',
+      resolveEvidenceSource: 'q:resolveEvidenceSource',
     })
   })
 

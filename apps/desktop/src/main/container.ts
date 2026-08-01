@@ -19,6 +19,7 @@ import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
 import { SearchIndex } from '@apc/search'
 import {
+  EvidenceSourceResolver,
   KnowledgeFtsRetriever,
   RetrievalService,
   RetrievalUnavailableError,
@@ -67,7 +68,7 @@ import type {
   DevHarnessRunReq, DevHarnessRunRes, DevHarnessCancelReq, DevHarnessCancelRes, DevHarnessLogEvent,
   ReadProjectWikiReq, ReadProjectWikiRes,
   HarnessEngineLogEvent, HarnessNodesEvent,
-  SearchReq, SearchEvidenceReq, SearchEvidenceRes,
+  SearchReq, SearchEvidenceReq, SearchEvidenceRes, ResolveEvidenceSourceReq, ResolveEvidenceSourceRes,
   TaskSetBlockedByReq, TaskSetBlockedByRes,
   ComposeContextReq, ComposeContextRes,
   DevHarnessStartedEvent,
@@ -132,6 +133,7 @@ export type Container = {
   searchIndex: SearchIndex
   retrieval: RetrievalService
   searchEvidence: (req: SearchEvidenceReq) => Promise<SearchEvidenceRes>
+  resolveEvidenceSource: (req: ResolveEvidenceSourceReq) => ResolveEvidenceSourceRes
   /** @deprecated Use searchEvidence. */
   search: (req: SearchReq) => Promise<UnifiedSearchResponse>
   vault: VaultAdapter
@@ -356,6 +358,22 @@ export function buildContainer(opts: {
   const searchEvidence = (req: SearchEvidenceReq): Promise<SearchEvidenceRes> =>
     unifiedSearch.searchEvidence(req)
   const search = (req: SearchReq): Promise<UnifiedSearchResponse> => unifiedSearch.search(req)
+  const sourceResolver = new EvidenceSourceResolver({
+    registry,
+    projectRoots: (projectId) => {
+      const project = registry.get(projectId)
+      if (!project) return []
+      return [
+        join(opts.vaultRoot, 'projects', projectId),
+        ...project.repoPaths.filter((path) => !path.startsWith('ssh://')),
+        ...project.vaultPaths.filter((path) => !path.startsWith('ssh://')),
+      ]
+    },
+    knowledge: knowledgeStore,
+    sessions: searchIndex,
+  })
+  const resolveEvidenceSource = (req: ResolveEvidenceSourceReq): ResolveEvidenceSourceRes =>
+    sourceResolver.resolve(req)
   const vault = new VaultAdapter(opts.vaultRoot)
   const taskProfiles = new TaskProfileStore(db)
   const summarize = makeSessionSummarizer({ runner: opts.agentRunner ?? new RoutingAgentRunner(), engine: 'claude' })
@@ -874,7 +892,7 @@ export function buildContainer(opts: {
     vaultRoot: opts.vaultRoot,
     db, registry, tasks, taskCommands, nextNotes, noteTasks, runs,
     activityStore, activityCoordinator, liveQuestions,
-    reviews, cursors, searchIndex, retrieval, searchEvidence, search, vault, taskProfiles,
+    reviews, cursors, searchIndex, retrieval, searchEvidence, resolveEvidenceSource, search, vault, taskProfiles,
     ingest, gitSync, receipts, retroStore, gate, retroService,
     ingestAdapters, runService, generate, generatePreflight, generateProject,
     harness, harnessRun, harnessResume, harnessConfirmNodes, harnessGetRun, harnessPromote, harnessPromoteCanonical, harnessCanonicalProposals,

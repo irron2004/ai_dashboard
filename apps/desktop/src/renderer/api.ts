@@ -1,6 +1,6 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq, SearchEvidenceReq, SearchEvidenceRes,
+  RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq, SearchEvidenceReq, SearchEvidenceRes, ResolveEvidenceSourceReq, ResolveEvidenceSourceRes,
   SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessConfirmNodesReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
@@ -57,6 +57,7 @@ declare global {
     apc: {
       invoke(channel: string, payload?: unknown): Promise<unknown>
       searchEvidence(req: SearchEvidenceReq): Promise<SearchEvidenceRes>
+      resolveEvidenceSource(req: ResolveEvidenceSourceReq): Promise<ResolveEvidenceSourceRes>
       importProjectItems(req: ProjectImportReq): Promise<ProjectImportRes>
       startPty(req: StartPtyReq): void
       writePty(req: PtyInputReq): void
@@ -121,6 +122,9 @@ export const api = {
   },
   searchEvidence(req: SearchEvidenceReq): Promise<SearchEvidenceRes> {
     return window.apc.searchEvidence(req)
+  },
+  resolveEvidenceSource(req: ResolveEvidenceSourceReq): Promise<ResolveEvidenceSourceRes> {
+    return window.apc.resolveEvidenceSource(req)
   },
   listProfiles(projectPath: string): Promise<AgentProfile[]> {
     return window.apc.invoke(CH.listProfiles, { projectPath }) as Promise<AgentProfile[]>

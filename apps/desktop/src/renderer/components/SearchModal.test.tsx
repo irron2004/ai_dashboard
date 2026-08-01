@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { SearchModal } from './SearchModal.js'
 
 const searchEvidence = vi.fn()
+const resolveEvidenceSource = vi.fn()
 
 vi.mock('../api.js', () => ({
-  api: { searchEvidence: (...args: unknown[]) => searchEvidence(...args) },
+  api: {
+    searchEvidence: (...args: unknown[]) => searchEvidence(...args),
+    resolveEvidenceSource: (...args: unknown[]) => resolveEvidenceSource(...args),
+  },
 }))
 
 const response = {
@@ -68,6 +72,20 @@ describe('SearchModal', () => {
   beforeEach(() => {
     searchEvidence.mockReset()
     searchEvidence.mockResolvedValue(response)
+    resolveEvidenceSource.mockReset()
+    resolveEvidenceSource.mockResolvedValue({
+      ok: true,
+      source: {
+        uri: 'apc://session/s1#turn-0',
+        sourceKind: 'session',
+        projectId: 'p1',
+        title: 'Authentication session',
+        selectedOrdinal: 0,
+        content: '[turn 0 · user]\nfull source context',
+        truncated: true,
+        warnings: ['source-content-truncated'],
+      },
+    })
   })
 
   test('renders nothing when closed', () => {
@@ -114,12 +132,41 @@ describe('SearchModal', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '원문 보기: Authentication session' }))
     expect(onOpenSource).toHaveBeenCalledWith('apc://session/s1#turn-0')
+    expect(resolveEvidenceSource).not.toHaveBeenCalled()
     expect(onSelectProject).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '프로젝트 열기: Authentication session' }))
     expect(onSelectProject).toHaveBeenCalledWith('p1')
     expect(onClose).toHaveBeenCalled()
+  })
+
+  test('resolves and renders bounded source detail through the default IPC action', async () => {
+    render(<SearchModal open onClose={vi.fn()} onSelectProject={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('search'), { target: { value: 'auth' } })
+    fireEvent.keyDown(screen.getByLabelText('search'), { key: 'Enter' })
+
+    fireEvent.click(await screen.findByRole('button', { name: '원문 보기: Authentication session' }))
+
+    expect(resolveEvidenceSource).toHaveBeenCalledWith({ uri: 'apc://session/s1#turn-0', neighbors: 1 })
+    const detail = await screen.findByRole('region', { name: '원문 상세' })
+    expect(within(detail).getByText('full source context', { exact: false })).toBeTruthy()
+    expect(within(detail).getByText('source-content-truncated')).toBeTruthy()
+    expect(within(detail).queryByText(/secret\.jsonl/)).toBeNull()
+  })
+
+  test('shows a typed source-resolution failure without closing search results', async () => {
+    resolveEvidenceSource.mockResolvedValue({
+      ok: false,
+      error: { code: 'source-not-found', message: '원문을 찾을 수 없습니다.' },
+    })
+    render(<SearchModal open onClose={vi.fn()} onSelectProject={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('search'), { target: { value: 'auth' } })
+    fireEvent.keyDown(screen.getByLabelText('search'), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('button', { name: '원문 보기: Authentication session' }))
+
+    expect(await screen.findByText('source-not-found: 원문을 찾을 수 없습니다.')).toBeTruthy()
+    expect(screen.getByText('Authentication session')).toBeTruthy()
   })
 
   test('shows a typed empty-registry diagnostic and no fake result', async () => {

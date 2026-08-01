@@ -167,6 +167,13 @@ export class KnowledgeStore {
     return row ? docFrom(row) : undefined
   }
 
+  getDocumentByUri(uri: string): KnowledgeDocument | undefined {
+    const row = this.db.prepare(
+      'SELECT * FROM knowledge_documents WHERE uri = ? ORDER BY id LIMIT 1',
+    ).get(uri) as DocRow | undefined
+    return row ? docFrom(row) : undefined
+  }
+
   listProjectDocuments(projectId: string): KnowledgeDocument[] {
     const rows = this.db.prepare(
       'SELECT * FROM knowledge_documents WHERE project_id = ? ORDER BY rel_path, id',

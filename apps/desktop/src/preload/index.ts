@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { CH } from '../shared/ipc-contract.js'
-import type { PtyDataEvent, PtyExitEvent, SearchEvidenceReq } from '../shared/ipc-contract.js'
+import type { PtyDataEvent, PtyExitEvent, ResolveEvidenceSourceReq, SearchEvidenceReq } from '../shared/ipc-contract.js'
 import type { AgentActivity, WikiRunEvent } from '@apc/shared'
 
 // Exposed as window.apc in the renderer. Queries/commands go through invoke();
@@ -8,6 +8,7 @@ import type { AgentActivity, WikiRunEvent } from '@apc/shared'
 contextBridge.exposeInMainWorld('apc', {
   invoke: (channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload),
   searchEvidence: (req: SearchEvidenceReq) => ipcRenderer.invoke(CH.searchEvidence, req),
+  resolveEvidenceSource: (req: ResolveEvidenceSourceReq) => ipcRenderer.invoke(CH.resolveEvidenceSource, req),
   importProjectItems: (req: unknown) => ipcRenderer.invoke(CH.projectImport, req),
 
   startPty: (req: unknown) => ipcRenderer.send(CH.ptyStart, req),
