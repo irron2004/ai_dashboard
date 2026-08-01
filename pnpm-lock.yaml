@@ -316,6 +316,12 @@ importers:
         specifier: workspace:*
         version: link:../vault
 
+  packages/retrieval:
+    dependencies:
+      '@apc/shared':
+        specifier: workspace:*
+        version: link:../shared
+
   packages/search:
     dependencies:
       '@apc/shared':
