@@ -1,7 +1,7 @@
 project: ai_dashboard
 status: active
-focus: Retrieval Phase 1 릴리스 후 실제 corpus 평가와 MCP·embedding 채택 gate를 판정
-updated: "2026-08-02"
+focus: 공용 MCP 릴리스 후 sanitized 실제 corpus로 embedding·reranker 채택 gate를 판정
+updated: "2026-08-03"
 tasks:
   - id: packaged-terminal-paste-qa
     title: 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다
@@ -54,9 +54,9 @@ tasks:
   - id: retrieval-mcp-primitives
     title: 검증된 retrieval application service 위에 search_evidence와 get_evidence_source MCP primitive를 노출한다
     priority: P1
-    status: todo
+    status: done
     source: agent:codex
-    note: Phase 2이며 answer_question 도구는 만들지 않음
+    note: 4개 MCP primitive·6,348문서 실제 인덱스·Codex 실호출·Claude 연결/도구 노출 검증 완료, answer_question은 만들지 않음
   - id: retrieval-embedding-gate
     title: lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다
     priority: P1

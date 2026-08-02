@@ -2,9 +2,9 @@
 
 # 다음 할 일 — ai_dashboard
 
-상태: `active` · 갱신: `2026-08-02` · 진실: [`next.yml`](next.yml)
+상태: `active` · 갱신: `2026-08-03` · 진실: [`next.yml`](next.yml)
 
-**지금 집중:** Retrieval Phase 1 릴리스 후 실제 corpus 평가와 MCP·embedding 채택 gate를 판정
+**지금 집중:** 공용 MCP 릴리스 후 sanitized 실제 corpus로 embedding·reranker 채택 gate를 판정
 
 ## 할 일
 
@@ -20,5 +20,3 @@
 - [ ] `retrieval-context-package-cleanup` · **P1 · todo** — legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다 — production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
 <a id="task-ai_dashboard-retrieval-embedding-gate"></a>
 - [ ] `retrieval-embedding-gate` · **P1 · todo** — lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다 — 합성 gate를 통과했으므로 sanitized 실제 질의 corpus에서 lexical 실패와 비용·privacy 개선을 먼저 입증
-<a id="task-ai_dashboard-retrieval-mcp-primitives"></a>
-- [ ] `retrieval-mcp-primitives` · **P1 · todo** — 검증된 retrieval application service 위에 search_evidence와 get_evidence_source MCP primitive를 노출한다 — Phase 2이며 answer_question 도구는 만들지 않음
