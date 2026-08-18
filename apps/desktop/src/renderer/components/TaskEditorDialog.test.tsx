@@ -20,6 +20,16 @@ afterEach(() => {
 })
 
 describe('TaskEditorDialog', () => {
+  test('limits file-managed projects to statuses represented by next.yml', () => {
+    bridge(vi.fn())
+    render(<TaskEditorDialog projectId="p1" task={task} fileManaged onClose={() => {}} />)
+    const labels = Array.from(
+      (screen.getByLabelText('Task 상태') as HTMLSelectElement).options,
+      (option) => option.text,
+    )
+    expect(labels).toEqual(['할 일', '진행 중', '완료'])
+  })
+
   test('validates title locally and creates a Task with all editor fields', async () => {
     const created = { ...task, id: 'T-new', title: '새 Task', status: 'todo' as const, priority: 'low' as const, dueDate: '2026-08-01' }
     const invoke = vi.fn(() => Promise.resolve({ ok: true, task: created }))

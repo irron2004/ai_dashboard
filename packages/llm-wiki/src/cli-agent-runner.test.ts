@@ -116,6 +116,27 @@ describe('CliAgentRunner', () => {
     expect(chunks).toEqual([['stdout', 'out-1'], ['stderr', 'err-1']])
   })
 
+  test('bounds retained output while continuing to stream every chunk', async () => {
+    const mockChild = createMockChild()
+    mockSpawn.mockReturnValue(mockChild)
+    const chunks: string[] = []
+    const runner = new CliAgentRunner(
+      { claude: { command: 'claude', args: ['-p'] } },
+      { maxOutputBytes: 6 },
+    )
+    const promise = runner.run({
+      agent: 'claude', prompt: 'x', timeoutMs: 10000,
+      onChunk: (_stream, text) => chunks.push(text),
+    })
+    mockChild.stdout.emit('data', 'AAAA')
+    mockChild.stdout.emit('data', 'BBBB')
+    mockChild.stdout.emit('data', 'CCCC')
+    mockChild.emit('close', 0)
+    const result = await promise
+    expect(result.output).toBe('AAAABB\n…[truncated at 6 bytes]\n')
+    expect(chunks).toEqual(['AAAA', 'BBBB', 'CCCC'])
+  })
+
   test('timeout result carries exitCode:null and partial stderr', async () => {
     vi.useFakeTimers()
     const mockChild = createMockChild()

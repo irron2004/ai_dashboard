@@ -10,7 +10,7 @@ const mainEntry = join(desktopDir, 'out/main/index.js')
 const BRIDGE_METHODS = [
   'invoke',
   'startPty', 'writePty', 'killPty', 'resizePty',
-  'onPtyData', 'onPtyExit', 'onPtyDataV2', 'onPtyExitV2',
+  'onPtyDataV2', 'onPtyExitV2',
   'onAgentActivity',
   'onHarnessProgress', 'onHarnessEngineLog', 'onHarnessNodes', 'onHarnessActivity',
   'onDevHarnessLog', 'onDevHarnessStarted',
@@ -101,13 +101,11 @@ test('Windows Electron: isolated boot, preload, IPC, tabs, shortcut', async ({},
           cleanup()
           resolveResult({ dataEvents, activities, exitEvent })
         }
-        const offData = window.apc.onPtyDataV2((event) => {
-          if (event.id !== pane.paneId) return
+        const offData = window.apc.onPtyDataV2(pane.paneId, (event) => {
           dataEvents.push(event)
           complete()
         })
-        const offExit = window.apc.onPtyExitV2((event) => {
-          if (event.id !== pane.paneId) return
+        const offExit = window.apc.onPtyExitV2(pane.paneId, (event) => {
           exitEvent = event
           complete()
         })

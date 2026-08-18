@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   ProjectSchema, TaskSchema, AgentRunSchema, ReviewSchema, AgentKind,
-  NextNoteSchema, nextNoteLifecycle, taskSourceOf,
+  NextNoteSchema, NextYmlSchema, nextNoteLifecycle, taskSourceOf,
 } from './schema.js'
 
 describe('ProjectSchema', () => {
@@ -96,6 +96,41 @@ describe('NextNoteSchema', () => {
     expect(nextNoteLifecycle(active)).toBe('active')
     expect(nextNoteLifecycle({ ...active, done: true })).toBe('completed')
     expect(nextNoteLifecycle({ ...active, done: true, archivedAt: '2026-07-21T00:00:00Z' })).toBe('archived')
+  })
+})
+
+describe('NextYmlSchema', () => {
+  const valid = {
+    project: 'ai_dashboard',
+    status: 'active',
+    focus: 'Ship file-backed tasks',
+    updated: '2026-07-27',
+    tasks: [{
+      id: 'next-yml-store',
+      title: 'Implement the store',
+      priority: 'P0',
+      status: 'blocked',
+      blocked_by: 'contract-test',
+      source: 'agent:codex',
+    }, {
+      id: 'contract-test',
+      title: 'Lock the contract',
+      priority: 'P1',
+      status: 'done',
+    }],
+  }
+
+  test('parses the root next-actions shape', () => {
+    expect(NextYmlSchema.parse(valid).tasks[0]?.blocked_by).toBe('contract-test')
+  })
+
+  test.each([
+    [{ ...valid, status: 'maintenance' }],
+    [{ ...valid, extra: true }],
+    [{ ...valid, tasks: [{ ...valid.tasks[0], id: 'UPPER' }] }],
+    [{ ...valid, tasks: [{ ...valid.tasks[0], priority: 'high' }] }],
+  ])('rejects a value outside the JSON Schema surface', (input) => {
+    expect(NextYmlSchema.safeParse(input).success).toBe(false)
   })
 })
 

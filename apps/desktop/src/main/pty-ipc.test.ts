@@ -24,9 +24,13 @@ const scopedStart = {
 }
 
 describe('PTY IPC boundary', () => {
-  test('accepts scoped identity and the one-release legacy shape', () => {
+  test('accepts scoped identity and a launch-scoped utility shape', () => {
     expect(parsePtyStart(scopedStart)).toEqual({ ok: true, value: scopedStart })
-    expect(parsePtyStart({ id: 'legacy', command: 'codex', args: [], cwd: '/repo' })).toMatchObject({ ok: true })
+    expect(parsePtyStart({
+      id: 'utility', command: 'codex', args: [], cwd: '/repo', launchId: 'launch-utility',
+    })).toMatchObject({ ok: true })
+    expect(parsePtyStart({ id: 'legacy', command: 'codex', args: [], cwd: '/repo' }))
+      .toEqual({ ok: false, reason: 'invalid-start' })
   })
 
   test.each([

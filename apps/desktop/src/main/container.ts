@@ -13,6 +13,8 @@ import {
   QuestionLogStore,
   ReceiptStore,
   RetroStore,
+  NextYmlStore,
+  NextYmlStoreError,
 } from '@apc/pm'
 import { migrateHarness, TaskProfileStore } from '@apc/harness'
 import { migrateKnowledge, KnowledgeStore, KnowledgeRetrieval, ProcessedSourceStore } from '@apc/knowledge'
@@ -31,7 +33,13 @@ import { WikiEngine, type AgentRunner } from '@apc/llm-wiki'
 import { RoutingAgentRunner } from './ssh-agent-runner.js'
 import { SshWorkspaceVault } from './remote-vault.js'
 import { UnifiedSearch } from './unified-search.js'
-import { ClaudeAdapter, CodexAdapter, OpenCodeAdapter, latestSessionDetail, type AgentIngestAdapter } from '@apc/agents'
+import {
+  ClaudeAdapter,
+  CodexAdapter,
+  OpenCodeAdapter,
+  latestSessionDetail,
+  type AgentIngestAdapter,
+} from '@apc/agents'
 import { readdirSync, statSync, readFileSync, openSync, readSync, closeSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { generateRemote } from './remote-generate.js'
@@ -77,6 +85,8 @@ import type {
   NextNotesListReq, NextNotesListRes, NextNoteUpdateReq, NextNoteSetPinnedReq,
   NextNoteSetLifecycleReq, NextNoteConvertToTaskReq, NextNoteMutationRes, NextNoteConvertToTaskRes,
   TaskCreateReq, TaskUpdateReq, TaskDeleteReq, TaskMutRes,
+  SubmitReviewReq, SubmitReviewRes,
+  NextActionsState, NextActionsDecisionReq, NextActionsDecisionRes, ProjectDashboardRes,
   AgentActivitySnapshotReq, AgentActivitySnapshotRes, AgentQuestionReconcileReq, AgentQuestionReconcileRes,
   HarnessListRunsReq, HarnessListRunsRes, HarnessGetProgressReq, HarnessGetProgressRes,
   HarnessReadLogReq, HarnessReadLogRes,
@@ -88,6 +98,7 @@ import {
   isHumanQuestionText,
   type RetrieverDiagnostic,
   type AgentActivity,
+  type Task,
   type UnifiedSearchResponse,
   type QuestionLogEntry,
 } from '@apc/shared'
@@ -121,6 +132,7 @@ export type Container = {
   registry: ProjectRegistry
   tasks: TaskStore
   taskCommands: TaskCommandService
+  nextYml: NextYmlStore
   nextNotes: NextNoteStore
   noteTasks: NoteTaskService
   runs: AgentRunStore
@@ -177,7 +189,8 @@ export type Container = {
   devHarnessReadTranscript: (req: DevHarnessReadTranscriptReq) => DevHarnessReadTranscriptRes
   readProjectWiki: (req: ReadProjectWikiReq) => ReadProjectWikiRes
   taskSetBlockedBy: (req: TaskSetBlockedByReq) => TaskSetBlockedByRes
-  dashboard: typeof getProjectDashboard
+  listTasks: (projectId: string) => Task[]
+  dashboard: (projectId: string) => ProjectDashboardRes
   workspaceOverview: () => WorkspaceOverview
   resumeCard: (req: ResumeCardReq) => Promise<ResumeCard | null>
   /** Clears the per-project resumeCard cache (see `resumeCard`). Call after anything that changes what
@@ -188,6 +201,9 @@ export type Container = {
   taskCreate: (req: TaskCreateReq) => TaskMutRes
   taskUpdate: (req: TaskUpdateReq) => TaskMutRes
   taskDelete: (req: TaskDeleteReq) => TaskMutRes
+  submitReview: (req: SubmitReviewReq) => SubmitReviewRes
+  nextActionsApprove: (req: NextActionsDecisionReq) => NextActionsDecisionRes
+  nextActionsDiscard: (req: NextActionsDecisionReq) => NextActionsDecisionRes
   nextNoteAdd: (req: NextNoteAddReq) => NextNoteAddRes
   nextNoteToggle: (req: NextNoteToggleReq) => NextNoteMutRes
   nextNoteDelete: (req: NextNoteDeleteReq) => NextNoteMutRes
@@ -341,11 +357,61 @@ export function buildContainer(opts: {
 
   const registry = new ProjectRegistry(db, nowIso)
   const tasks = new TaskStore(db, nowIso)
+  const runs = new AgentRunStore(db)
+  const nextYml = new NextYmlStore(registry, tasks, {
+    now: () => new Date(now()),
+  })
+  const readTaskSurface = (projectId: string): { tasks: Task[]; nextActions: NextActionsState } => {
+    try {
+      const snapshot = nextYml.readProject(projectId)
+      if (!snapshot.managed) {
+        return { tasks: tasks.listByProject(projectId), nextActions: { mode: 'legacy' } }
+      }
+      return {
+        tasks: snapshot.tasks,
+        nextActions: {
+          mode: 'managed',
+          filePath: snapshot.filePath,
+          canonicalUpdated: snapshot.document.updated,
+          projectStatus: snapshot.document.status,
+          focus: snapshot.document.focus,
+          proposal: snapshot.proposal ? {
+            proposalHash: snapshot.proposal.proposalHash,
+            tasks: snapshot.proposal.tasks,
+            conflict: snapshot.proposal.conflict,
+          } : undefined,
+          error: snapshot.proposalError,
+        },
+      }
+    } catch (error) {
+      const reason = error instanceof NextYmlStoreError ? error.code : 'invalid-next-yml'
+      return { tasks: [], nextActions: { mode: 'error', reason } }
+    }
+  }
+  const listTasks = (projectId: string): Task[] => readTaskSurface(projectId).tasks
+  const findTask = (taskId: string): Task | undefined => {
+    for (const project of registry.list()) {
+      const found = listTasks(project.id).find((task) => task.id === taskId)
+      if (found) return found
+    }
+    return undefined
+  }
+  const dashboard = (projectId: string): ProjectDashboardRes => {
+    const surface = readTaskSurface(projectId)
+    return {
+      ...getProjectDashboard({
+        registry,
+        tasks,
+        runs,
+        listTasks: () => surface.tasks,
+      }, projectId),
+      nextActions: surface.nextActions,
+    }
+  }
   const nextNotes = new NextNoteStore(db, nowIso)
   const questionLog = new QuestionLogStore(db)
-  const runs = new AgentRunStore(db)
-  // resumeCard is expensive: latestSessionDetail re-discovers + parses ALL sessions for 3 engines on
-  // every call (no incremental cursor). Cache per project; invalidated on project/task/note mutations and ingest.
+  // Resume cards are cached per project. The agents package additionally shares short-lived source listings
+  // and size/mtime-keyed JSONL metadata so switching projects does not re-read every transcript prefix.
   const resumeCardCache = new Map<string, ResumeCard | null>()
   const invalidateResumeCards = (projectId?: string): void => {
     if (projectId) resumeCardCache.delete(projectId)
@@ -367,6 +433,10 @@ export function buildContainer(opts: {
     emit: opts.emitAgentActivity,
   })
   activityCoordinator.normalizeStartup()
+  activityCoordinator.pruneInactive(
+    new Date(now() - 30 * 24 * 60 * 60 * 1_000).toISOString(),
+    registry.list().map((project) => project.id),
+  )
   const liveQuestions = new LiveQuestionService(activityCoordinator, { now: nowIso })
   const reviews = new ReviewService(db, tasks, nextId)
   const cursors = new IngestCursorStore(db)
@@ -415,10 +485,26 @@ export function buildContainer(opts: {
     questionLog,
     knowledge: new KnowledgeIndexer({ registry, store: knowledgeStore, vaultRoot: opts.vaultRoot }),
     onSessionParsed: async (session, projectId) => {
-      if (!projectId) return
-      const existing = tasks.get(`req:${projectId}:${session.id}`)
-      const { request, todos } = await extractTasks(session, projectId, { summarize, existingTitle: existing?.title })
-      reconcileSessionTasks(tasks, projectId, session.id, request, todos)
+      if (!projectId) return { accepted: true }
+      try {
+        const fileManaged = nextYml.isManaged(projectId)
+        const existing = fileManaged ? undefined : tasks.get(`req:${projectId}:${session.id}`)
+        const { request, todos } = await extractTasks(session, projectId, { summarize, existingTitle: existing?.title })
+        if (fileManaged) {
+          const proposed = nextYml.proposeDerivedTasks(
+            projectId,
+            [request, ...todos],
+            `chat:${session.id}`,
+            { replaceSource: true },
+          )
+          if (!proposed.ok) return { accepted: false }
+        } else {
+          reconcileSessionTasks(tasks, projectId, session.id, request, todos)
+        }
+        return { accepted: true }
+      } catch {
+        return { accepted: false }
+      }
     },
   })
   const gitSync = new GitSyncService()
@@ -432,13 +518,30 @@ export function buildContainer(opts: {
   const wslConversationFetcher = opts.wslConversationFetcher ?? fetchWslConversations
   const vaultWriter = new VaultWriter(vault)
   const wiki = new WikiEngine(opts.agentRunner ?? new RoutingAgentRunner())
-  const runService = new RunService({ wiki, vaultWriter, tasks, runs })
+  const runService = new RunService({
+    wiki,
+    vaultWriter,
+    tasks: {
+      updateStatus: (taskId, status, reviewStatus) => {
+        const task = findTask(taskId)
+        if (task) {
+          try {
+            if (nextYml.isManaged(task.projectId)) return
+          } catch {
+            return
+          }
+        }
+        tasks.updateStatus(taskId, status, reviewStatus)
+      },
+    },
+    runs,
+  })
   const generate = new GenerateService({ adapters: ingestAdapters, registry, vault, vaultWriter, wiki })
   const generatePreflight = async (req: GeneratePreflightReq): Promise<GeneratePreflightRes> => {
     const project = registry.get(req.projectId)
     if (!project) return { ok: false, reason: 'project not found' }
 
-    const allTasks = tasks.listByProject(project.id)
+    const allTasks = listTasks(project.id)
     const reviewRuns = allTasks.reduce((count, task) => count + runs.listByTask(task.id).length, 0)
     const vaultRoots = [...project.vaultPaths, join(opts.vaultRoot, 'projects', project.id)]
     const projectDocCount = countMarkdownFiles(vaultRoots)
@@ -602,9 +705,9 @@ export function buildContainer(opts: {
   const composeContext = async (req: ComposeContextReq): Promise<ComposeContextRes> => {
     const project = registry.get(req.projectId)
     if (!project) return { ok: false, reason: 'project not found' }
-    const task = tasks.get(req.taskId)
+    const allTasks = listTasks(project.id)
+    const task = allTasks.find((candidate) => candidate.id === req.taskId)
     if (!task || task.projectId !== req.projectId) return { ok: false, reason: 'task not found' }
-    const allTasks = tasks.listByProject(project.id)
     // Wiki excerpts: reuse the realpath-guarded, size-capped reader (md/mdx/txt only; other links skipped).
     const roots = [join(opts.vaultRoot, 'projects', project.id), ...project.repoPaths, ...project.vaultPaths]
     const wikiExcerpts: WikiExcerpt[] = []
@@ -683,10 +786,30 @@ export function buildContainer(opts: {
   }
 
   const taskSetBlockedBy = (req: TaskSetBlockedByReq): TaskSetBlockedByRes => {
+    const projectId = req.projectId ?? findTask(req.taskId)?.projectId
+    if (projectId) {
+      try {
+        if (nextYml.isManaged(projectId)) {
+          const result = nextYml.setBlockedBy(projectId, req.taskId, req.blockedBy)
+          if (result.ok) invalidateResumeCards(projectId)
+          return result.ok
+            ? {
+              ok: true,
+              pendingApproval: result.pendingApproval,
+              proposalHash: result.proposalHash,
+            }
+            : result
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          reason: error instanceof NextYmlStoreError ? error.code : 'invalid-next-yml',
+        }
+      }
+    }
     const check = validateBlockedBy((id) => tasks.get(id), req.taskId, req.blockedBy)
     if (!check.ok) return { ok: false, reason: check.reason }
     tasks.setBlockedBy(req.taskId, req.blockedBy)
-    const projectId = tasks.get(req.taskId)?.projectId
     invalidateResumeCards(projectId)
     return { ok: true }
   }
@@ -748,9 +871,72 @@ export function buildContainer(opts: {
     if (result.ok) invalidateResumeCards(projectId)
     return result
   }
-  const taskCreate = (req: TaskCreateReq): TaskMutRes => invalidateResumeOnSuccess(req.projectId, taskCommands.create(req))
-  const taskUpdate = (req: TaskUpdateReq): TaskMutRes => invalidateResumeOnSuccess(req.projectId, taskCommands.update(req))
-  const taskDelete = (req: TaskDeleteReq): TaskMutRes => invalidateResumeOnSuccess(req.projectId, taskCommands.delete(req))
+  const taskCreate = (req: TaskCreateReq): TaskMutRes => {
+    try {
+      const result = nextYml.isManaged(req.projectId)
+        ? nextYml.createTask(req.projectId, req)
+        : taskCommands.create(req)
+      return invalidateResumeOnSuccess(req.projectId, result)
+    } catch (error) {
+      return { ok: false, reason: error instanceof NextYmlStoreError ? error.code : 'invalid-next-yml' }
+    }
+  }
+  const taskUpdate = (req: TaskUpdateReq): TaskMutRes => {
+    try {
+      const result = nextYml.isManaged(req.projectId)
+        ? nextYml.updateTask(req.projectId, req)
+        : taskCommands.update(req)
+      return invalidateResumeOnSuccess(req.projectId, result)
+    } catch (error) {
+      return { ok: false, reason: error instanceof NextYmlStoreError ? error.code : 'invalid-next-yml' }
+    }
+  }
+  const taskDelete = (req: TaskDeleteReq): TaskMutRes => {
+    try {
+      const result = nextYml.isManaged(req.projectId)
+        ? nextYml.deleteTask(req.projectId, req.taskId)
+        : taskCommands.delete(req)
+      return invalidateResumeOnSuccess(req.projectId, result)
+    } catch (error) {
+      return { ok: false, reason: error instanceof NextYmlStoreError ? error.code : 'invalid-next-yml' }
+    }
+  }
+  const submitReview = (req: SubmitReviewReq): SubmitReviewRes => {
+    const parent = findTask(req.review.taskId)
+    if (!parent) return { ok: false, reason: 'task-not-found' }
+    try {
+      if (nextYml.isManaged(parent.projectId)) {
+        const result = nextYml.applyReview(parent.projectId, req.review)
+        if (!result.ok) return result
+        reviews.recordReview(req.review)
+        invalidateResumeCards(parent.projectId)
+        return result
+      }
+      const created = reviews.applyReview(req.review)
+      invalidateResumeCards(parent.projectId)
+      return { ok: true, tasks: created }
+    } catch (error) {
+      return { ok: false, reason: error instanceof NextYmlStoreError ? error.code : 'invalid-next-yml' }
+    }
+  }
+  const nextActionsApprove = (req: NextActionsDecisionReq): NextActionsDecisionRes => {
+    const result = nextYml.approve(req.projectId, req.proposalHash)
+    if (result.ok) {
+      for (const action of result.noteConversions ?? []) {
+        const taskId = `next:${req.projectId}:${action.nextTaskId}`
+        if (result.tasks.some((task) => task.id === taskId)) {
+          nextNotes.markConverted(req.projectId, action.noteId, taskId, nowIso())
+        }
+      }
+      invalidateResumeCards(req.projectId)
+    }
+    return result.ok ? { ok: true } : result
+  }
+  const nextActionsDiscard = (req: NextActionsDecisionReq): NextActionsDecisionRes => {
+    const result = nextYml.discard(req.projectId, req.proposalHash)
+    if (result.ok) invalidateResumeCards(req.projectId)
+    return result.ok ? { ok: true } : result
+  }
   const nextNoteAdd = (req: NextNoteAddReq): NextNoteAddRes => {
     if (!projectExists(req.projectId)) return { ok: false, reason: 'project-not-found' }
     const text = req.text.trim()
@@ -782,18 +968,42 @@ export function buildContainer(opts: {
     invalidateResumeOnSuccess(req.projectId, nextNotes.setLifecycle(req.projectId, req.noteId, req.lifecycle))
   )
   const nextNoteConvertToTask = (req: NextNoteConvertToTaskReq): NextNoteConvertToTaskRes => {
-    const result = invalidateResumeOnSuccess(req.projectId, noteTasks.convert(req))
-    return result.ok
-      ? { ok: true, note: result.note, task: result.task }
-      : result
+    try {
+      if (nextYml.isManaged(req.projectId)) {
+        const note = nextNotes.get(req.noteId)
+        if (!note) return { ok: false, reason: 'note-not-found' }
+        if (note.projectId !== req.projectId) return { ok: false, reason: 'project-mismatch' }
+        const result = nextYml.proposeNoteTask(req.projectId, {
+          noteId: note.id,
+          title: req.title?.trim() || note.text,
+          priority: req.priority,
+          dueDate: req.dueDate,
+        })
+        if (!result.ok) return result
+        invalidateResumeCards(req.projectId)
+        return {
+          ok: true,
+          note,
+          task: result.task,
+          pendingApproval: true,
+          proposalHash: result.proposalHash,
+        }
+      }
+      const result = invalidateResumeOnSuccess(req.projectId, noteTasks.convert(req))
+      return result.ok
+        ? { ok: true, note: result.note, task: result.task }
+        : result
+    } catch (error) {
+      return { ok: false, reason: error instanceof NextYmlStoreError ? error.code : 'conversion-failed' }
+    }
   }
 
   const agentActivitySnapshot = (req: AgentActivitySnapshotReq): AgentActivitySnapshotRes => ({
-    activities: activityStore.list(req.projectId),
+    activities: activityCoordinator.list(req.projectId),
     asOf: nowIso(),
   })
   const agentQuestionReconcile = async (req: AgentQuestionReconcileReq): Promise<AgentQuestionReconcileRes> => {
-    const activity = activityStore.get(req.paneId)
+    const activity = activityCoordinator.get(req.paneId)
     if (!activity || activity.launchId !== req.launchId) return { ok: false, reason: 'stale-launch' }
     const sessionId = req.sessionId ?? activity.pane.sessionId ?? activity.lastQuestion?.sessionId
     if (!sessionId) return { ok: false, reason: 'session-id-required' }
@@ -921,7 +1131,7 @@ export function buildContainer(opts: {
 
   return {
     vaultRoot: opts.vaultRoot,
-    db, registry, tasks, taskCommands, nextNotes, noteTasks, runs,
+    db, registry, tasks, taskCommands, nextYml, nextNotes, noteTasks, runs,
     activityStore, activityCoordinator, liveQuestions,
     reviews, cursors, searchIndex, retrieval, searchEvidence, resolveEvidenceSource, search, vault, taskProfiles,
     ingest, gitSync, receipts, retroStore, gate, retroService,
@@ -934,12 +1144,13 @@ export function buildContainer(opts: {
     devHarnessRun, devHarnessCancel, composeContext, devHarnessReadTranscript,
     readProjectWiki: readProjectWikiQuery,
     taskSetBlockedBy,
-    dashboard: getProjectDashboard,
-    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs, nextNotes }),
+    listTasks,
+    dashboard,
+    workspaceOverview: () => buildWorkspaceOverview({ registry, tasks, runs, nextNotes, listTasks }),
     resumeCard: async (req) => {
       if (resumeCardCache.has(req.projectId)) return resumeCardCache.get(req.projectId)!
       const card = await buildResumeCard({
-        registry, tasks, nextNotes,
+        registry, tasks: { listByProject: listTasks }, nextNotes,
         latestSession: async (repoPath) => {
           const found = await latestSessionDetail(['claude', 'codex', 'opencode'], repoPath)
           if (!found) return null
@@ -957,7 +1168,7 @@ export function buildContainer(opts: {
     invalidateResumeCards,
     questionLog: (req) => questionLog.listRecent(req),
     conversationHistory,
-    taskCreate, taskUpdate, taskDelete,
+    taskCreate, taskUpdate, taskDelete, submitReview, nextActionsApprove, nextActionsDiscard,
     nextNoteAdd, nextNoteToggle, nextNoteDelete, nextNotesList,
     nextNoteUpdate, nextNoteSetPinned, nextNoteSetLifecycle, nextNoteConvertToTask,
     agentActivitySnapshot, agentQuestionReconcile,

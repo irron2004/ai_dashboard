@@ -17,6 +17,7 @@ type Props = {
   onRunTask?: (taskId: string) => void
   onOpenTask?: (task: Task) => void
   onChanged?: () => void
+  singleBlocker?: boolean
 }
 
 const SOURCE_LABEL: Record<ReturnType<typeof taskSourceOf>, string> = {
@@ -27,7 +28,15 @@ const SOURCE_LABEL: Record<ReturnType<typeof taskSourceOf>, string> = {
   system: '시스템',
 }
 
-export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask, onOpenTask, onChanged }: Props) {
+export function TaskBoard({
+  tasks,
+  onSetBlockedBy,
+  onComposeTask,
+  onRunTask,
+  onOpenTask,
+  onChanged,
+  singleBlocker = false,
+}: Props) {
   const [editing, setEditing] = useState<string | null>(null)
   const [mutating, setMutating] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<{ taskId: string; message: string } | null>(null)
@@ -146,10 +155,14 @@ export function TaskBoard({ tasks, onSetBlockedBy, onComposeTask, onRunTask, onO
                     {mutationError?.taskId === task.id && <p className="pm-board__mutation-error" role="alert">{mutationError.message}</p>}
                     {onSetBlockedBy && editing === task.id && (
                       <select
-                        multiple className="pm-board__dep-select" aria-label={`차단 작업 선택 ${task.title}`}
-                        value={task.blockedBy}
-                        onChange={(e) => onSetBlockedBy(task.id, Array.from(e.target.selectedOptions, (o) => o.value))}
+                        multiple={!singleBlocker} className="pm-board__dep-select" aria-label={`차단 작업 선택 ${task.title}`}
+                        value={singleBlocker ? (task.blockedBy[0] ?? '') : task.blockedBy}
+                        onChange={(e) => onSetBlockedBy(
+                          task.id,
+                          Array.from(e.target.selectedOptions, (o) => o.value).filter(Boolean),
+                        )}
                       >
+                        {singleBlocker && <option value="">차단 없음</option>}
                         {tasks.filter((o) => o.id !== task.id).map((o) => (
                           <option key={o.id} value={o.id}>{o.title}</option>
                         ))}

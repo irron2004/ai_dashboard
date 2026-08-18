@@ -101,6 +101,40 @@ describe('PtyManager launch lifecycle', () => {
     })
     expect(send).toHaveBeenCalledWith(CH.ptyExitV2, { id: 'pane-1', launchId: 'L1', code: 1, reason: 'spawn-failed' })
   })
+
+  test('kills every live pane for a deleted project and invalidates a start still loading', async () => {
+    let resolveLoad: ((module: { spawn: () => FakePty }) => void) | undefined
+    const delayed = new Promise<{ spawn: () => FakePty }>((resolve) => { resolveLoad = resolve })
+    const manager = new PtyManager(vi.fn(), {
+      loadPty: () => delayed,
+      onLifecycle: vi.fn(),
+    })
+    const starting = manager.start('pane-1', '', [], '/repo', { pane, launchId: 'L1' })
+
+    expect(manager.kill('pane-1', 'L1', 'unmount')).toBe(true)
+    const child = new FakePty()
+    resolveLoad?.({ spawn: () => child })
+    await starting
+    expect(manager.currentLaunchId('pane-1')).toBeUndefined()
+    expect(child.kills).toBe(0)
+
+    const p1 = new FakePty()
+    const p2 = new FakePty()
+    const children = [p1, p2]
+    const live = new PtyManager(vi.fn(), {
+      loadPty: async () => ({ spawn: () => children.shift()! }),
+      onLifecycle: vi.fn(),
+    })
+    await live.start('p1-pane', '', [], '/repo', { pane: { ...pane, paneId: 'p1-pane' }, launchId: 'P1' })
+    await live.start('p2-pane', '', [], '/repo', {
+      pane: { ...pane, paneId: 'p2-pane', projectId: 'p2' }, launchId: 'P2',
+    })
+
+    expect(live.killProject('p1')).toBe(1)
+    expect(p1.kills).toBe(1)
+    expect(p2.kills).toBe(0)
+    expect(live.currentLaunchId('p2-pane')).toBe('P2')
+  })
 })
 
 describe('PTY payload guards', () => {

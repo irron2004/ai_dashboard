@@ -72,6 +72,8 @@ export const CH = {
   taskCreate: 'c:taskCreate',
   taskUpdate: 'c:taskUpdate',
   taskDelete: 'c:taskDelete',
+  nextActionsApprove: 'c:nextActionsApprove',
+  nextActionsDiscard: 'c:nextActionsDiscard',
   resumeCard: 'q:resumeCard',
   questionLog: 'q:questionLog',
   conversationHistory: 'q:conversationHistory',
@@ -93,13 +95,11 @@ export const CH = {
   receiptIssue: 'c:receiptIssue',
   gateStatus: 'q:gateStatus',
   gateInstall: 'c:gateInstall',
-  // pty: renderer → main = ptyStart/ptyInput/ptyKill; main → renderer events = ptyData/ptyExit
+  // pty: renderer → main commands; main → renderer launch-scoped V2 events
   ptyStart: 'pty:start',
   ptyInput: 'pty:input',
   ptyKill: 'pty:kill',
   ptyResize: 'pty:resize',
-  ptyData: 'pty:data',
-  ptyExit: 'pty:exit',
   ptyDataV2: 'pty:data:v2',
   ptyExitV2: 'pty:exit:v2',
   agentActivity: 'agent:activity',
@@ -149,7 +149,32 @@ export type ProjectContextConfirmReq = { projectId: string; field: 'goal' | 'cur
 export type ProjectContextMutRes = { ok: boolean; project?: Project; reason?: string }
 export type DeleteProjectReq = { id: string }
 export type ProjectDashboardReq = { projectId: string }
-export type ProjectDashboardRes = { project: Project; activeTasks: Task[]; reviewQueue: Task[]; recentRuns: AgentRun[]; allTasks: Task[] }
+export type NextActionsProposalView = {
+  proposalHash: string
+  tasks: Task[]
+  conflict: boolean
+}
+export type NextActionsState =
+  | { mode: 'legacy' }
+  | {
+    mode: 'managed'
+    filePath: string
+    canonicalUpdated: string
+    projectStatus: 'active' | 'paused' | 'done' | 'archived'
+    focus?: string
+    proposal?: NextActionsProposalView
+    error?: string
+  }
+  | { mode: 'error'; reason: string }
+export type ProjectDashboardRes = {
+  project: Project
+  activeTasks: Task[]
+  reviewQueue: Task[]
+  recentRuns: AgentRun[]
+  allTasks: Task[]
+  /** Optional for fixture/backward compatibility; real main-process responses always include it. */
+  nextActions?: NextActionsState
+}
 /** @deprecated Use SearchEvidenceReq/q:searchEvidence. Kept for one compatibility release. */
 export type SearchReq = { query: string; projectId?: string }
 export type SearchEvidenceReq = { query: string; projectId?: string; limit?: number }
@@ -174,10 +199,22 @@ export type ResolveEvidenceSourceRes = EvidenceSourceResolveResult
 export type ListProfilesReq = { projectPath: string }
 export type TasksListReq = { projectId: string }
 export type SubmitReviewReq = { review: Review }
+export type SubmitReviewRes = {
+  ok: boolean
+  tasks?: Task[]
+  pendingApproval?: boolean
+  proposalHash?: string
+  reason?: string
+}
 export type PromoteCurrentReq = { projectId: string; lastReadHash: string }
 export type SelectProfileReq = { taskId: string; profileId: string }
 export type TaskSetBlockedByReq = { taskId: string; blockedBy: string[]; projectId?: string }
-export type TaskSetBlockedByRes = { ok: boolean; reason?: string }
+export type TaskSetBlockedByRes = {
+  ok: boolean
+  reason?: string
+  pendingApproval?: boolean
+  proposalHash?: string
+}
 export type TaskCreateReq = {
   projectId: string
   title: string
@@ -194,7 +231,15 @@ export type TaskUpdateReq = {
   dueDate?: string
 }
 export type TaskDeleteReq = { projectId: string; taskId: string }
-export type TaskMutRes = { ok: boolean; task?: Task; reason?: string }
+export type TaskMutRes = {
+  ok: boolean
+  task?: Task
+  reason?: string
+  pendingApproval?: boolean
+  proposalHash?: string
+}
+export type NextActionsDecisionReq = { projectId: string; proposalHash: string }
+export type NextActionsDecisionRes = { ok: boolean; reason?: string }
 
 // Resume card / conversation history / next-note surface (P3): the legacy QuestionLogEntry stays in
 // @apc/shared; the richer session + Q&A DTOs live here because they are desktop IPC view models.
@@ -258,7 +303,14 @@ export type NextNoteConvertToTaskReq = {
   dueDate?: string
 }
 export type NextNoteMutationRes = { ok: boolean; note?: NextNote; reason?: string }
-export type NextNoteConvertToTaskRes = { ok: boolean; note?: NextNote; task?: Task; reason?: string }
+export type NextNoteConvertToTaskRes = {
+  ok: boolean
+  note?: NextNote
+  task?: Task
+  reason?: string
+  pendingApproval?: boolean
+  proposalHash?: string
+}
 
 export type AgentActivitySnapshotReq = { projectId?: string }
 export type AgentActivitySnapshotRes = { activities: AgentActivity[]; asOf: string }
@@ -495,9 +547,9 @@ type StartPtyBase = {
   sessionId?: string          // 알려진 세션 id(없으면 main이 최신 발견)
 }
 type ScopedPtyStart = { pane: AgentPaneIdentity; launchId: string }
-type LegacyPtyStart = { pane?: undefined; launchId?: undefined }
-/** Legacy starts remain accepted for one compatibility release; all new panes use the scoped form. */
-export type StartPtyReq = StartPtyBase & (ScopedPtyStart | LegacyPtyStart)
+type UnscopedPtyStart = { pane?: undefined; launchId: string }
+/** Every start is launch-scoped; pane identity is optional only for non-workspace test/utility terminals. */
+export type StartPtyReq = StartPtyBase & (ScopedPtyStart | UnscopedPtyStart)
 export type PtyInputReq = {
   id: string
   data: string

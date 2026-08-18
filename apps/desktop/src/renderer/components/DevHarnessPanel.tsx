@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Task } from '@apc/shared'
 import { api } from '../api.js'
+import { appendBoundedLog } from '../bounded-log.js'
 
 export type DevHarnessPanelRequest =
   | { requestId: number; projectId: string; action: 'compose' | 'run'; taskId: string }
@@ -10,6 +11,8 @@ type Props = { projectId: string; tasks: Task[]; request?: DevHarnessPanelReques
 
 // dock pty keys are `${projectId}:${agent}` (App.tsx). Order matches App.tsx AGENTS.
 const INJECT_AGENTS = ['claude', 'opencode', 'codex'] as const
+const LOG_BATCH_MS = 50
+const LOG_BATCH_CHARS = 64 * 1024
 
 /**
  * Drives the multi-agent dev harness (S3) for one task and composes an LLM-handoff prompt (P2).
@@ -24,6 +27,8 @@ export function DevHarnessPanel({ projectId, tasks, request = null }: Props) {
   const [running, setRunning] = useState(false)
   const [log, setLog] = useState('')
   const runIdRef = useRef<string | null>(null)
+  const pendingLogRef = useRef('')
+  const logTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // composer state
   const [prompt, setPrompt] = useState('')
   const [composing, setComposing] = useState(false)
@@ -35,6 +40,37 @@ export function DevHarnessPanel({ projectId, tasks, request = null }: Props) {
   const [transcript, setTranscript] = useState('')
   const handledRequestRef = useRef<number | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const flushLog = useCallback(() => {
+    if (logTimerRef.current) clearTimeout(logTimerRef.current)
+    logTimerRef.current = null
+    const chunk = pendingLogRef.current
+    pendingLogRef.current = ''
+    if (chunk) setLog((previous) => appendBoundedLog(previous, chunk))
+  }, [])
+
+  const queueLog = useCallback((chunk: string) => {
+    if (!chunk) return
+    pendingLogRef.current += chunk
+    if (pendingLogRef.current.length >= LOG_BATCH_CHARS) {
+      flushLog()
+      return
+    }
+    if (!logTimerRef.current) logTimerRef.current = setTimeout(flushLog, LOG_BATCH_MS)
+  }, [flushLog])
+
+  const resetLog = useCallback(() => {
+    if (logTimerRef.current) clearTimeout(logTimerRef.current)
+    logTimerRef.current = null
+    pendingLogRef.current = ''
+    setLog('')
+  }, [])
+
+  useEffect(() => () => {
+    if (logTimerRef.current) clearTimeout(logTimerRef.current)
+    logTimerRef.current = null
+    pendingLogRef.current = ''
+  }, [])
 
   useEffect(() => {
     // Primary runId source: the started ack (fires before any log chunk).
@@ -51,27 +87,28 @@ export function DevHarnessPanel({ projectId, tasks, request = null }: Props) {
       // Fallback capture if the started ack has not arrived yet; then filter to the live run.
       if (!runIdRef.current) { runIdRef.current = e.runId; setRunId(e.runId) }
       if (e.runId !== runIdRef.current) return
-      setLog((prev) => prev + e.chunk)
+      queueLog(e.chunk)
     })
     return typeof off === 'function' ? off : undefined
-  }, [])
+  }, [queueLog])
 
   const start = useCallback(async (requestedTaskId = taskId) => {
     if (!requestedTaskId || running || composing) return
     setTaskId(requestedTaskId)
     runIdRef.current = null
-    setRunId(null); setLog(''); setStatus('Harness 실행 중…'); setRunning(true)
+    setRunId(null); resetLog(); setStatus('Harness 실행 중…'); setRunning(true)
     try {
       const res = await api.devHarnessRun({ projectId, taskId: requestedTaskId })
       if (res.runId) { runIdRef.current = res.runId; setRunId(res.runId) }
-      setLog((prev) => prev + `\n[${res.ok ? 'done' : 'failed'}${res.exitCode != null ? ` · exit ${res.exitCode}` : ''}${res.reason ? ` · ${res.reason}` : ''}]\n`)
+      queueLog(`\n[${res.ok ? 'done' : 'failed'}${res.exitCode != null ? ` · exit ${res.exitCode}` : ''}${res.reason ? ` · ${res.reason}` : ''}]\n`)
+      flushLog()
       setStatus(res.ok ? 'Harness 실행 완료' : `Harness 실행 실패: ${res.reason ?? 'unknown'}`)
     } catch (err) {
       setStatus(`Harness 실행 실패: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRunning(false)
     }
-  }, [composing, projectId, running, taskId])
+  }, [composing, flushLog, projectId, queueLog, resetLog, running, taskId])
 
   function cancel() {
     if (runIdRef.current) void api.devHarnessCancel({ runId: runIdRef.current })

@@ -71,6 +71,38 @@ export function taskSourceOf(task: Pick<Task, 'source'>): TaskSource {
   return task.source ?? 'manual'
 }
 
+const NextYmlId = z.string().regex(/^[a-z0-9_-]+$/)
+
+export const NextYmlProjectStatus = z.enum(['active', 'paused', 'done', 'archived'])
+export type NextYmlProjectStatus = z.infer<typeof NextYmlProjectStatus>
+
+export const NextYmlTaskPriority = z.enum(['P0', 'P1', 'P2'])
+export type NextYmlTaskPriority = z.infer<typeof NextYmlTaskPriority>
+
+export const NextYmlTaskStatus = z.enum(['todo', 'doing', 'blocked', 'done'])
+export type NextYmlTaskStatus = z.infer<typeof NextYmlTaskStatus>
+
+export const NextYmlTaskSchema = z.object({
+  id: NextYmlId,
+  title: z.string().min(1),
+  priority: NextYmlTaskPriority,
+  status: NextYmlTaskStatus,
+  due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  source: z.string().min(1).optional(),
+  note: z.string().min(1).optional(),
+  blocked_by: NextYmlId.optional(),
+}).strict()
+export type NextYmlTask = z.infer<typeof NextYmlTaskSchema>
+
+export const NextYmlSchema = z.object({
+  project: NextYmlId,
+  status: NextYmlProjectStatus,
+  focus: z.string().min(1).optional(),
+  updated: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  tasks: z.array(NextYmlTaskSchema),
+}).strict()
+export type NextYml = z.infer<typeof NextYmlSchema>
+
 export const NextNoteSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),

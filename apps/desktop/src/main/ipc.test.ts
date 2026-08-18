@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parse, stringify } from 'yaml'
 import { handlers } from './ipc.js'
 import { buildContainer } from './container.js'
 import { CH } from '../shared/ipc-contract.js'
@@ -60,6 +61,136 @@ describe('IPC handlers (no Electron)', () => {
     expect((res as any).activeTasks[0].id).toBe('T1')
     expect((res as any).recentRuns).toHaveLength(1)
     expect((res as any).recentRuns[0].id).toBe('R1')
+  })
+
+  test('round-trips next.yml through dashboard proposal and explicit approval without SQLite truth', async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'apc-next-roundtrip-'))
+    try {
+      writeFileSync(join(repoDir, 'next.yml'), stringify({
+        project: 'file_project',
+        status: 'active',
+        updated: '2026-07-27',
+        tasks: [{
+          id: 'canonical',
+          title: 'Canonical file task',
+          priority: 'P0',
+          status: 'todo',
+        }],
+      }), 'utf8')
+      container.registry.register({
+        id: 'file-project',
+        name: 'File project',
+        status: 'active',
+        projectType: 'git',
+        domain: 'project-docs',
+        repoPaths: [repoDir],
+        vaultPaths: [],
+        sourcePaths: [],
+      })
+      container.tasks.create({
+        id: 'sqlite-only',
+        projectId: 'file-project',
+        title: 'Must not leak from SQLite',
+        status: 'todo',
+        assigneeType: 'agent',
+        priority: 'high',
+        reviewStatus: 'none',
+        acceptanceCriteria: [],
+        linkedWikiPages: [],
+        blockedBy: [],
+      })
+
+      const h = handlers(container)
+      const before = await h[CH.projectDashboard]({ projectId: 'file-project' }) as any
+      expect(before.allTasks.map((task: any) => task.title)).toEqual(['Canonical file task'])
+      expect(before.nextActions.mode).toBe('managed')
+
+      const created = await h[CH.taskCreate]({
+        projectId: 'file-project',
+        title: 'Human-approved file task',
+        status: 'todo',
+        priority: 'medium',
+      }) as any
+      expect(created).toMatchObject({ ok: true, pendingApproval: true })
+      expect((parse(readFileSync(join(repoDir, 'next.yml'), 'utf8')) as any).tasks).toHaveLength(1)
+
+      const proposed = await h[CH.projectDashboard]({ projectId: 'file-project' }) as any
+      expect(proposed.nextActions.proposal.tasks.map((task: any) => task.title))
+        .toContain('Human-approved file task')
+      await expect(h[CH.nextActionsApprove]({
+        projectId: 'file-project',
+        proposalHash: created.proposalHash,
+      })).resolves.toEqual({ ok: true })
+
+      const written = parse(readFileSync(join(repoDir, 'next.yml'), 'utf8')) as any
+      expect(written.tasks.map((task: any) => task.title)).toContain('Human-approved file task')
+      const after = await h[CH.projectDashboard]({ projectId: 'file-project' }) as any
+      expect(after.allTasks.map((task: any) => task.title)).not.toContain('Must not leak from SQLite')
+      expect(after.nextActions.proposal).toBeUndefined()
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true })
+    }
+  })
+
+  test('keeps note conversion and review follow-ups pending until next.yml approval', async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'apc-next-actions-'))
+    try {
+      writeFileSync(join(repoDir, 'next.yml'), stringify({
+        project: 'managed',
+        status: 'active',
+        updated: '2026-07-27',
+        tasks: [{ id: 'work', title: 'Review me', priority: 'P0', status: 'doing' }],
+      }), 'utf8')
+      container.registry.register({
+        id: 'managed',
+        name: 'Managed',
+        status: 'active',
+        projectType: 'git',
+        domain: 'project-docs',
+        repoPaths: [repoDir],
+        vaultPaths: [],
+        sourcePaths: [],
+      })
+      const h = handlers(container)
+      await h[CH.projectDashboard]({ projectId: 'managed' }) // populates disposable compatibility cache
+
+      const note = container.nextNotes.add('managed', 'Task from note')
+      const converted = await h[CH.nextNoteConvertToTask]({
+        projectId: 'managed',
+        noteId: note.id,
+      }) as any
+      expect(converted).toMatchObject({ ok: true, pendingApproval: true })
+      expect(container.nextNotes.get(note.id)?.convertedTaskId).toBeUndefined()
+      await h[CH.nextActionsApprove]({
+        projectId: 'managed',
+        proposalHash: converted.proposalHash,
+      })
+      expect(container.nextNotes.get(note.id)?.convertedTaskId).toBe(converted.task.id)
+
+      const reviewed = await h[CH.submitReview]({
+        review: {
+          id: 'review-managed',
+          taskId: 'next:managed:work',
+          agentRunId: 'run-managed',
+          reviewer: 'human',
+          status: 'approved',
+          summary: 'Approved',
+          nextTasks: ['Follow up'],
+        },
+      }) as any
+      expect(reviewed).toMatchObject({ ok: true, pendingApproval: true })
+      expect((parse(readFileSync(join(repoDir, 'next.yml'), 'utf8')) as any)
+        .tasks.find((task: any) => task.id === 'work').status).toBe('doing')
+      await h[CH.nextActionsApprove]({
+        projectId: 'managed',
+        proposalHash: reviewed.proposalHash,
+      })
+      const written = parse(readFileSync(join(repoDir, 'next.yml'), 'utf8')) as any
+      expect(written.tasks.find((task: any) => task.id === 'work').status).toBe('done')
+      expect(written.tasks.map((task: any) => task.title)).toContain('Follow up')
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true })
+    }
   })
 
   test('c:devHarnessRun returns ok:false for a project without repoPaths (no spawn)', async () => {
@@ -209,6 +340,18 @@ describe('IPC handlers (no Electron)', () => {
     expect(JSON.stringify(result)).not.toContain('authority')
   })
 
+  test('c:deleteProject runs runtime cleanup before removing the registry row', async () => {
+    const beforeDeleteProject = vi.fn((projectId: string) => {
+      expect(container.registry.get(projectId)?.id).toBe(projectId)
+    })
+    const h = handlers(container, { beforeDeleteProject })
+
+    await expect(h[CH.deleteProject]({ id: 'p1' })).resolves.toEqual({ ok: true })
+
+    expect(beforeDeleteProject).toHaveBeenCalledWith('p1')
+    expect(container.registry.get('p1')).toBeUndefined()
+  })
+
   test('q:listProfiles reads OpenCode agent profiles from a project path', async () => {
     const projDir = mkdtempSync(join(tmpdir(), 'apc-ipc-proj-'))
     try {
@@ -251,6 +394,75 @@ describe('IPC handlers (no Electron)', () => {
     const res = (await h[CH.ingestAll](undefined)) as { sources: number; sessions: number; documents: number }
     expect(res).toEqual({ sources: 1, sessions: 1, documents: 0 })
     expect(c2.searchIndex.search('control tower', { projectId: 'p1' })).toHaveLength(1)
+  })
+
+  test('c:ingestAll sends managed-project conversation tasks to next.yml approval', async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), 'apc-ingest-next-'))
+    try {
+      writeFileSync(join(repoDir, 'next.yml'), stringify({
+        project: 'managed_ingest',
+        status: 'active',
+        updated: '2026-07-27',
+        tasks: [],
+      }), 'utf8')
+      const session: NormalizedSession = {
+        id: 'managed-session',
+        agentType: 'claude',
+        repoPath: repoDir,
+        sourceMeta: {
+          provider: 'claude',
+          sourceKind: 'jsonl-file',
+          rawLocator: '/x/managed.jsonl',
+          sessionHeader: {},
+        },
+        turns: [{ role: 'user', text: 'capture this follow-up', toolCalls: [] }],
+        filesTouched: [],
+      }
+      const fake: AgentIngestAdapter = {
+        agentKind: 'claude',
+        async discoverSources(): Promise<AgentSource[]> {
+          return [{
+            id: 'claude:managed-session',
+            agentKind: 'claude',
+            kind: 'jsonl-file',
+            locator: '/x/managed.jsonl',
+            repoPath: repoDir,
+          }]
+        },
+        async parseSource(): Promise<{ session: NormalizedSession; position: string }> {
+          return { session, position: '{}' }
+        },
+      }
+      const { FakeAgentRunner } = await import('@apc/llm-wiki')
+      const managed = buildContainer({
+        dbFile: ':memory:',
+        vaultRoot: vaultDir,
+        ingestAdapters: [fake],
+        agentRunner: new FakeAgentRunner(['{"title":"Captured request"}']),
+      })
+      managed.registry.register({
+        id: 'managed-ingest',
+        name: 'Managed ingest',
+        status: 'active',
+        projectType: 'git',
+        domain: 'project-docs',
+        repoPaths: [repoDir],
+        vaultPaths: [],
+        sourcePaths: [],
+      })
+      await handlers(managed)[CH.ingestAll](undefined)
+
+      const canonical = parse(readFileSync(join(repoDir, 'next.yml'), 'utf8')) as any
+      expect(canonical.tasks).toEqual([])
+      const snapshot = managed.nextYml.readProject('managed-ingest')
+      expect(snapshot.managed && snapshot.proposal?.document.tasks).toContainEqual(expect.objectContaining({
+        title: 'Captured request',
+        source: 'chat:managed-session',
+      }))
+      expect(managed.tasks.listByProject('managed-ingest')).toEqual([])
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true })
+    }
   })
 
   test('c:generateProject summarizes the latest session into a proposal', async () => {

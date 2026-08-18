@@ -48,12 +48,12 @@ const scopedStart = startBase.extend({
   }
 })
 
-const legacyStart = startBase.extend({
+const unscopedStart = startBase.extend({
   pane: z.undefined().optional(),
-  launchId: z.undefined().optional(),
+  launchId: boundedId,
 }).strict()
 
-const startSchema = z.union([scopedStart, legacyStart])
+const startSchema = z.union([scopedStart, unscopedStart])
 const inputSchema = z.object({
   id: boundedId,
   data: z.string(),

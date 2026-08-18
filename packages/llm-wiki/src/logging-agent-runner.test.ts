@@ -78,4 +78,19 @@ describe('LoggingAgentRunner', () => {
     await new LoggingAgentRunner(inner, root).run({ agent: 'codex', prompt: 'p', timeoutMs: 100, label: 'L', onChunk: (s, t) => seen.push([s, t]) })
     expect(seen).toEqual([['stderr', 'e1']])
   })
+
+  test('flushes all queued chunks before returning even when the time window has not elapsed', async () => {
+    const root = tmp()
+    const inner: AgentRunner = {
+      run: async (input) => {
+        for (let index = 0; index < 100; index += 1) input.onChunk?.('stdout', `${index},`)
+        return { ok: true, output: '', raw: '' }
+      },
+    }
+    await new LoggingAgentRunner(inner, root, { flushBytes: 1024 * 1024, flushMs: 60_000 })
+      .run({ agent: 'codex', prompt: 'p', timeoutMs: 100, label: 'L' })
+    expect(readFileSync(join(root, '01-L', 'stdout.log'), 'utf8')).toBe(
+      Array.from({ length: 100 }, (_, index) => `${index},`).join(''),
+    )
+  })
 })

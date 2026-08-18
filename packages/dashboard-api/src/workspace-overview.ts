@@ -25,7 +25,7 @@ export type WorkspaceOverviewDeps = DashboardDeps & {
 export function buildWorkspaceOverview(deps: WorkspaceOverviewDeps): WorkspaceOverview {
   const running = deps.runs.listRunning()  // all in-flight, newest first
   const projects = deps.registry.list().map((project): ProjectOverview => {
-    const tasks = deps.tasks.listByProject(project.id)
+    const tasks = deps.listTasks?.(project.id) ?? deps.tasks.listByProject(project.id)
     const taskIds = new Set(tasks.map((t) => t.id))
     const topNote = deps.nextNotes?.listByProject(project.id)[0]?.text
     return {

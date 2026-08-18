@@ -62,6 +62,99 @@ describe('PmHome', () => {
     expect(within(nextUp).queryByText('needs review')).toBeNull()
   })
 
+  test('shows a next.yml proposal and applies only the proposal hash the user reviewed', async () => {
+    const proposalHash = 'a'.repeat(64)
+    const managed: ProjectDashboardRes = {
+      ...dashboard,
+      nextActions: {
+        mode: 'managed',
+        filePath: '/workspace/apc/next.yml',
+        canonicalUpdated: '2026-07-26',
+        projectStatus: 'active',
+        proposal: {
+          proposalHash,
+          conflict: false,
+          tasks: [
+            { ...dashboard.allTasks[0], title: 'file-backed work' },
+            dashboard.allTasks[1],
+          ],
+        },
+      },
+    }
+    const invoke = vi.fn(() => Promise.resolve({ ok: true }))
+    const onChanged = vi.fn()
+    ;(window as unknown as { apc: unknown }).apc = {
+      invoke,
+      onDevHarnessLog: () => () => {},
+      onDevHarnessStarted: () => () => {},
+    }
+    try {
+      render(<PmHome dashboard={managed} onChanged={onChanged} />)
+      expect(within(screen.getByTestId('next-yml-proposal')).getByText('변경 · file-backed work')).toBeDefined()
+      fireEvent.click(screen.getByRole('button', { name: '승인하고 next.yml 기록' }))
+      await waitFor(() => expect(invoke).toHaveBeenCalledWith(CH.nextActionsApprove, {
+        projectId: 'p1',
+        proposalHash,
+      }))
+      expect(onChanged).toHaveBeenCalled()
+    } finally {
+      delete (window as unknown as { apc?: unknown }).apc
+    }
+  })
+
+  test('shows a concurrent-edit conflict and disables automatic approval', () => {
+    render(<PmHome dashboard={{
+      ...dashboard,
+      nextActions: {
+        mode: 'managed',
+        filePath: '/workspace/apc/next.yml',
+        canonicalUpdated: '2026-07-27',
+        projectStatus: 'active',
+        proposal: {
+          proposalHash: 'b'.repeat(64),
+          conflict: true,
+          tasks: dashboard.allTasks,
+        },
+      },
+    }} />)
+    expect(screen.getByRole('alert').textContent).toContain('canonical 파일이 제안 이후 변경')
+    expect((screen.getByRole('button', { name: '승인하고 next.yml 기록' }) as HTMLButtonElement).disabled)
+      .toBe(true)
+  })
+
+  test('includes note-only changes in the proposal summary', () => {
+    render(<PmHome dashboard={{
+      ...dashboard,
+      nextActions: {
+        mode: 'managed',
+        filePath: '/workspace/apc/next.yml',
+        canonicalUpdated: '2026-07-27',
+        projectStatus: 'active',
+        proposal: {
+          proposalHash: 'c'.repeat(64),
+          conflict: false,
+          tasks: [
+            { ...dashboard.allTasks[0], acceptanceCriteria: ['New next.yml note'] },
+            dashboard.allTasks[1],
+          ],
+        },
+      },
+    }} />)
+    expect(within(screen.getByTestId('next-yml-proposal')).getByText('변경 · do work')).toBeDefined()
+  })
+
+  test('does not render SQLite fallback tasks when main reports a next.yml error', () => {
+    render(<PmHome dashboard={{
+      ...dashboard,
+      allTasks: [],
+      activeTasks: [],
+      reviewQueue: [],
+      nextActions: { mode: 'error', reason: 'invalid-next-yml' },
+    }} />)
+    expect(screen.getByRole('alert').textContent).toContain('SQLite 캐시로 대체하지 않았습니다')
+    expect(screen.queryByText('do work')).toBeNull()
+  })
+
   test('opens the shared editor from nextUp and refreshes only after a successful save', async () => {
     const updated = { ...dashboard.allTasks[0], title: 'edited work' }
     const invoke = vi.fn((channel: string) => Promise.resolve(
@@ -188,7 +281,11 @@ describe('PmHome', () => {
       const select = screen.getByLabelText('차단 작업 선택 do work') as HTMLSelectElement
       ;(within(select).getByText('needs review') as HTMLOptionElement).selected = true
       fireEvent.change(select)
-      expect(invoke).toHaveBeenCalledWith(CH.taskSetBlockedBy, { taskId: 'T1', blockedBy: ['T2'] })
+      expect(invoke).toHaveBeenCalledWith(CH.taskSetBlockedBy, {
+        projectId: 'p1',
+        taskId: 'T1',
+        blockedBy: ['T2'],
+      })
       expect(screen.getByText('🚫 차단')).toBeDefined() // optimistic overlay reflects blockage
       await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
     } finally {

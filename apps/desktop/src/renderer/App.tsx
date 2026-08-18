@@ -28,14 +28,30 @@ const MAX_KEPT_DOCKS = 8
 export const STATUS_COLOR = AGENT_STATUS_COLOR
 
 export function App() {
-  const {
-    projects, selectedProjectId, dashboard, error,
-    harnessLoading, workspaceOverview,
-    resumeCard, resumeBannerOpen, loadResumeCard, dismissResumeBanner, addNextNote,
-    activities, activeWorktrees, loadAgentActivities, mergeAgentActivity, focusAgentPane,
-    refreshProjectSurfaces: refreshProjectCaches,
-    loadProjects, addProject, updateProject, confirmProjectContext, deleteProject, selectProject, clearError, loadWorkspaceOverview,
-  } = useStore()
+  const projects = useStore((state) => state.projects)
+  const selectedProjectId = useStore((state) => state.selectedProjectId)
+  const dashboard = useStore((state) => state.dashboard)
+  const error = useStore((state) => state.error)
+  const harnessLoading = useStore((state) => state.harnessLoading)
+  const workspaceOverview = useStore((state) => state.workspaceOverview)
+  const resumeCard = useStore((state) => state.resumeCard)
+  const resumeBannerOpen = useStore((state) => state.resumeBannerOpen)
+  const activeWorktrees = useStore((state) => state.activeWorktrees)
+  const loadResumeCard = useStore((state) => state.loadResumeCard)
+  const dismissResumeBanner = useStore((state) => state.dismissResumeBanner)
+  const addNextNote = useStore((state) => state.addNextNote)
+  const loadAgentActivities = useStore((state) => state.loadAgentActivities)
+  const mergeAgentActivity = useStore((state) => state.mergeAgentActivity)
+  const focusAgentPane = useStore((state) => state.focusAgentPane)
+  const refreshProjectCaches = useStore((state) => state.refreshProjectSurfaces)
+  const loadProjects = useStore((state) => state.loadProjects)
+  const addProject = useStore((state) => state.addProject)
+  const updateProject = useStore((state) => state.updateProject)
+  const confirmProjectContext = useStore((state) => state.confirmProjectContext)
+  const deleteProject = useStore((state) => state.deleteProject)
+  const selectProject = useStore((state) => state.selectProject)
+  const clearError = useStore((state) => state.clearError)
+  const loadWorkspaceOverview = useStore((state) => state.loadWorkspaceOverview)
   const [agent, setAgent] = useState<AgentType>('claude')
   const [agentResumeRequest, setAgentResumeRequest] = useState<AgentResumeRequest | null>(null)
   // Projects whose agent terminals are kept mounted (insertion order; capped at MAX_KEPT_DOCKS).
@@ -242,6 +258,14 @@ export function App() {
   // Keep the selected project's dock mounted (FIFO-capped). Its terminals were display:none while hidden,
   // so nudge a resize once it becomes visible to re-fit xterm.
   useEffect(() => {
+    const currentProjectIds = new Set(projects.map((project) => project.id))
+    setOpenedIds((previous) => {
+      const next = previous.filter((projectId) => currentProjectIds.has(projectId))
+      return next.length === previous.length ? previous : next
+    })
+  }, [projects])
+
+  useEffect(() => {
     if (!selectedProjectId) return
     setOpenedIds((prev) => {
       const next = prev.includes(selectedProjectId) ? prev : [...prev, selectedProjectId].slice(-MAX_KEPT_DOCKS)
@@ -440,7 +464,6 @@ export function App() {
             overview={workspaceOverview}
             onRefreshWorkspace={() => { void loadWorkspaceOverview(); void loadAgentActivities() }}
             onOpenProject={(pid) => openProject(pid, true)}
-            activities={activities}
             onOpenActivityPane={focusPane}
             onOpenActivityQuestion={openActivityQuestion}
             onProjectChanged={refreshProjectSurfaces}
@@ -477,7 +500,6 @@ export function App() {
           collapsed={dockCollapsed}
           onToggleCollapsed={toggleDock}
           onActiveAgentChange={setAgent}
-          activities={activities}
           resumeRequest={agentResumeRequest}
           onResumeHandled={() => setAgentResumeRequest(null)}
         />

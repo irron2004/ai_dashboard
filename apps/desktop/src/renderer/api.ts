@@ -1,7 +1,8 @@
 import { CH } from '../shared/ipc-contract.js'
 import type {
-  RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq, SearchEvidenceReq, SearchEvidenceRes, ResolveEvidenceSourceReq, ResolveEvidenceSourceRes,
-  SubmitReviewReq, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
+  RegisterProjectReq, UpdateProjectReq, ProjectDashboardReq, ProjectDashboardRes, SearchReq,
+  SearchEvidenceReq, SearchEvidenceRes, ResolveEvidenceSourceReq, ResolveEvidenceSourceRes,
+  SubmitReviewReq, SubmitReviewRes, PromoteCurrentReq, SelectProfileReq, GenerateRunReq,
   GeneratePreflightReq, GeneratePreflightRes, GenerateProjectReq, GenerateProjectRes, HarnessRunReq, HarnessRunRes, HarnessGetRunReq, HarnessGetRunRes, HarnessPromoteReq, HarnessPromoteRes,
   HarnessResumeReq, HarnessConfirmNodesReq, HarnessPromoteCanonicalReq, HarnessPromoteCanonicalRes,
   HarnessCanonicalProposalsReq, HarnessCanonicalProposalsRes,
@@ -36,6 +37,7 @@ import type {
   ReceiptIssueReq, ReceiptIssueRes, GateQueryReq, GateStatusRes, GateInstallReq, GateInstallRes,
   ProjectContextConfirmReq, ProjectContextMutRes,
   TaskCreateReq, TaskUpdateReq, TaskDeleteReq, TaskMutRes,
+  NextActionsDecisionReq, NextActionsDecisionRes,
   NextNotesListReq, NextNotesListRes, NextNoteUpdateReq, NextNoteSetPinnedReq,
   NextNoteSetLifecycleReq, NextNoteConvertToTaskReq, NextNoteMutationRes, NextNoteConvertToTaskRes,
   AgentActivitySnapshotReq, AgentActivitySnapshotRes, AgentQuestionReconcileReq, AgentQuestionReconcileRes,
@@ -63,10 +65,8 @@ declare global {
       writePty(req: PtyInputReq): void
       killPty(req: PtyKillReq): void
       resizePty(req: PtyResizeReq): void
-      onPtyData(cb: (id: string, data: string) => void): () => void
-      onPtyExit(cb: (id: string, code: number) => void): () => void
-      onPtyDataV2(cb: (event: PtyDataEvent) => void): () => void
-      onPtyExitV2(cb: (event: PtyExitEvent) => void): () => void
+      onPtyDataV2(id: string, cb: (event: PtyDataEvent) => void): () => void
+      onPtyExitV2(id: string, cb: (event: PtyExitEvent) => void): () => void
       onAgentActivity(cb: (event: AgentActivity) => void): () => void
       onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void
       onHarnessEngineLog(cb: (e: { label: string; stream: 'stdout' | 'stderr'; chunk: string }) => void): () => void
@@ -146,6 +146,12 @@ export const api = {
   },
   taskDelete(req: TaskDeleteReq): Promise<TaskMutRes> {
     return window.apc.invoke(CH.taskDelete, req) as Promise<TaskMutRes>
+  },
+  nextActionsApprove(req: NextActionsDecisionReq): Promise<NextActionsDecisionRes> {
+    return window.apc.invoke(CH.nextActionsApprove, req) as Promise<NextActionsDecisionRes>
+  },
+  nextActionsDiscard(req: NextActionsDecisionReq): Promise<NextActionsDecisionRes> {
+    return window.apc.invoke(CH.nextActionsDiscard, req) as Promise<NextActionsDecisionRes>
   },
   resumeCard(projectId: string): Promise<ResumeCard | null> {
     return window.apc.invoke(CH.resumeCard, { projectId }) as Promise<ResumeCard | null>
@@ -306,8 +312,8 @@ export const api = {
     // Tolerate a missing preload bridge (component tests without a stubbed window.apc).
     return window.apc?.onDevHarnessStarted?.(cb) ?? (() => {})
   },
-  submitReview(req: SubmitReviewReq): Promise<unknown> {
-    return window.apc.invoke(CH.submitReview, req)
+  submitReview(req: SubmitReviewReq): Promise<SubmitReviewRes> {
+    return window.apc.invoke(CH.submitReview, req) as Promise<SubmitReviewRes>
   },
   promoteCurrent(req: PromoteCurrentReq): Promise<unknown> {
     return window.apc.invoke(CH.promoteCurrent, req)
@@ -378,10 +384,12 @@ export const api = {
   writePty(req: PtyInputReq): void { window.apc.writePty(req) },
   killPty(req: PtyKillReq): void { window.apc.killPty(req) },
   resizePty(req: PtyResizeReq): void { window.apc.resizePty(req) },
-  onPtyData(cb: (id: string, data: string) => void): () => void { return window.apc.onPtyData(cb) },
-  onPtyExit(cb: (id: string, code: number) => void): () => void { return window.apc.onPtyExit(cb) },
-  onPtyDataV2(cb: (event: PtyDataEvent) => void): () => void { return window.apc.onPtyDataV2(cb) },
-  onPtyExitV2(cb: (event: PtyExitEvent) => void): () => void { return window.apc.onPtyExitV2(cb) },
+  onPtyDataV2(id: string, cb: (event: PtyDataEvent) => void): () => void {
+    return window.apc.onPtyDataV2(id, cb)
+  },
+  onPtyExitV2(id: string, cb: (event: PtyExitEvent) => void): () => void {
+    return window.apc.onPtyExitV2(id, cb)
+  },
   onAgentActivity(cb: (event: AgentActivity) => void): () => void { return window.apc.onAgentActivity(cb) },
   onHarnessProgress(cb: (e: { runId: string; state: string }) => void): () => void {
     return window.apc.onHarnessProgress(cb)

@@ -99,4 +99,50 @@ describe('SessionStore', () => {
       agent: 'claude', lastSessionId: 'legacy-session', wasOpen: true,
     }])
   })
+
+  test('deleteProject removes legacy/v2 restore rows and a matching selection only', () => {
+    store.upsertPane({
+      paneId: 'pane-1', projectId: 'p1', worktreePath: '/one', slotId: 'codex-1',
+      agent: 'codex', wasOpen: true,
+    })
+    store.upsertPane({
+      paneId: 'pane-2', projectId: 'p2', worktreePath: '/two', slotId: 'codex-1',
+      agent: 'codex', wasOpen: true,
+    })
+    store.setState('selected_project_id', 'p1')
+
+    store.deleteProject('p1')
+
+    expect(store.listOpenPaneRecords()).toEqual([{
+      paneId: 'pane-2', projectId: 'p2', worktreePath: '/two', slotId: 'codex-1',
+      agent: 'codex', lastSessionId: null, wasOpen: true,
+    }])
+    expect(store.getState('selected_project_id')).toBeNull()
+  })
+
+  test('pruneInactive removes orphaned and long-closed rows while retaining open and recent panes', () => {
+    const db = new DatabaseSync(':memory:')
+    let clock = '2026-01-01T00:00:00Z'
+    const retained = new SessionStore(db, { now: () => clock })
+    retained.ensureSchema()
+    retained.upsertPane({
+      paneId: 'expired', projectId: 'p1', worktreePath: '/one', slotId: 'codex-1', agent: 'codex', wasOpen: false,
+    })
+    retained.upsertPane({
+      paneId: 'orphan', projectId: 'deleted', worktreePath: '/gone', slotId: 'codex-1', agent: 'codex', wasOpen: false,
+    })
+    retained.upsertPane({
+      paneId: 'open', projectId: 'p2', worktreePath: '/two', slotId: 'codex-1', agent: 'codex', wasOpen: true,
+    })
+    clock = '2026-07-20T00:00:00Z'
+    retained.upsertPane({
+      paneId: 'recent', projectId: 'p3', worktreePath: '/three', slotId: 'codex-1', agent: 'codex', wasOpen: false,
+    })
+
+    expect(retained.pruneInactive('2026-06-20T00:00:00Z', ['p1', 'p2', 'p3'])).toBe(4)
+    expect(retained.getPane('expired')).toBeUndefined()
+    expect(retained.getPane('orphan')).toBeUndefined()
+    expect(retained.getPane('open')?.wasOpen).toBe(true)
+    expect(retained.getPane('recent')?.wasOpen).toBe(false)
+  })
 })

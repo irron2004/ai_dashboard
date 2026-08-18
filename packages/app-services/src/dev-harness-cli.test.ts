@@ -69,6 +69,20 @@ test('reassembles a multibyte char split across chunk boundaries', async () => {
   expect(chunks.join('')).toBe('가')
 })
 
+test('bounds retained diagnostics without stopping live chunks', async () => {
+  const child = fakeChild()
+  const cli = new DevHarnessCli((() => child) as never, { maxOutputBytes: 5 })
+  const chunks: string[] = []
+  const p = cli.run({ root: '/r', taskId: 'T', onChunk: (_stream, text) => chunks.push(text) })
+  child.stdout.emit('data', Buffer.from('abc'))
+  child.stdout.emit('data', Buffer.from('def'))
+  child.stdout.emit('data', Buffer.from('ghi'))
+  child.emit('close', 0)
+  const res = await p
+  expect(res.stdout).toBe('abcde\n…[truncated at 5 bytes]\n')
+  expect(chunks).toEqual(['abc', 'def', 'ghi'])
+})
+
 test('spawn error → exitCode null + error', async () => {
   const child = fakeChild()
   const cli = new DevHarnessCli((() => child) as never)

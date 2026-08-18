@@ -2,7 +2,12 @@ import type { AgentRun, AgentType, NormalizedSession, WikiGeneration } from '@ap
 import type { WikiEngine } from '@apc/llm-wiki'
 import type { TaskStore, AgentRunStore, VaultWriter } from '@apc/pm'
 
-export type RunServiceDeps = { wiki: WikiEngine; vaultWriter: VaultWriter; tasks: TaskStore; runs: AgentRunStore }
+export type RunServiceDeps = {
+  wiki: WikiEngine
+  vaultWriter: VaultWriter
+  tasks: Pick<TaskStore, 'updateStatus'>
+  runs: AgentRunStore
+}
 
 export type CompleteRunInput = {
   run: AgentRun; session: NormalizedSession; projectId: string

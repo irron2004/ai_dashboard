@@ -28,13 +28,11 @@ vi.mock('../api.js', () => ({
     resizePty: (req: unknown) => resizePty(req),
     clipboardReadText: () => clipboardReadText(),
     terminalGetPreferences: vi.fn(() => Promise.resolve({ ok: false })),
-    onPtyData: () => () => {},
-    onPtyExit: () => () => {},
-    onPtyDataV2: (callback: NonNullable<typeof ptyDataV2Callback>) => {
+    onPtyDataV2: (_id: string, callback: NonNullable<typeof ptyDataV2Callback>) => {
       ptyDataV2Callback = callback
       return () => { ptyDataV2Callback = null }
     },
-    onPtyExitV2: (callback: NonNullable<typeof ptyExitV2Callback>) => {
+    onPtyExitV2: (_id: string, callback: NonNullable<typeof ptyExitV2Callback>) => {
       ptyExitV2Callback = callback
       return () => { ptyExitV2Callback = null }
     },
@@ -145,7 +143,7 @@ describe('AgentTerminal', () => {
     terminalInstances[0].dataHandler?.('테스트해줘\r')
     expect(onQuestionCandidate).toHaveBeenCalledWith('테스트해줘')
     expect(writePty).toHaveBeenCalledWith({
-      id: 'pane-1', data: '테스트해줘\r', launchId: undefined, questionCandidates: ['테스트해줘'],
+      id: 'pane-1', data: '테스트해줘\r', launchId: expect.any(String), questionCandidates: ['테스트해줘'],
     })
   })
 

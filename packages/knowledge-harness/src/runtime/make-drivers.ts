@@ -630,7 +630,7 @@ export function makeDrivers(deps: DriverDeps): Partial<Record<KhState, Driver>> 
       const staging = new StagingVault(deps.vaultRoot, deps.stagingRoot)
       staging.prepare()
       const applied = writer.apply(plan, staging)
-      const patch = staging.diff()
+      const patch = await staging.diff()
       ctx.store.writeFile('diff.patch', patch)  // top-level deliverable (design §6.2)
       const artifacts: Array<{ name: string; data: unknown }> = [
         { name: ARTIFACTS.appliedWriteReport, data: applied },

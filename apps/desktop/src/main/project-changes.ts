@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -15,6 +15,46 @@ export type ChangedFile = {
 }
 export type ChangesResult = { ok: boolean; files?: ChangedFile[]; reason?: string }
 export type DiffResult = { ok: boolean; patch?: string; reason?: string }
+export type ProjectChangesOptions = { signal?: AbortSignal }
+
+const GIT_TIMEOUT_MS = 15_000
+const GIT_MAX_BUFFER = 32 * 1024 * 1024
+
+type GitCommandError = Error & { code?: number | string; stdout?: string | Buffer; stderr?: string | Buffer }
+type GitCommandResult = { code: number | null; stdout: string; stderr: string; error?: GitCommandError }
+
+function runGit(repo: string, args: readonly string[], signal?: AbortSignal): Promise<GitCommandResult> {
+  return new Promise((resolve) => {
+    try {
+      execFile('git', [...args], {
+        cwd: repo,
+        encoding: 'utf8',
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: GIT_MAX_BUFFER,
+        signal,
+      }, (error, stdout, stderr) => {
+        const commandError = error as GitCommandError | null
+        resolve({
+          code: commandError == null
+            ? 0
+            : typeof commandError.code === 'number'
+              ? commandError.code
+              : null,
+          stdout: String(stdout ?? commandError?.stdout ?? ''),
+          stderr: String(stderr ?? commandError?.stderr ?? ''),
+          ...(commandError ? { error: commandError } : {}),
+        })
+      })
+    } catch (error) {
+      resolve({ code: null, stdout: '', stderr: '', error: error as GitCommandError })
+    }
+  })
+}
+
+function gitFailure(repo: string, result: GitCommandResult): string {
+  const detail = result.stderr.trim() || result.error?.message || `exit code ${result.code ?? 'unknown'}`
+  return `git 실패 (${repo}): ${detail}`
+}
 
 function unquote(p: string): string {
   return p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p
@@ -96,23 +136,23 @@ export function markUnreflected<T extends { isMarkdown: boolean; mtimeMs: number
   return files.map((f) => ({ ...f, unreflected: f.isMarkdown && (cutoff === null || f.mtimeMs > cutoff) }))
 }
 
-export function listProjectChanges(repoPaths: readonly string[], latestIngestAt: string | null): ChangesResult {
+export async function listProjectChanges(
+  repoPaths: readonly string[],
+  latestIngestAt: string | null,
+  options: ProjectChangesOptions = {},
+): Promise<ChangesResult> {
   if (repoPaths.length === 0) return { ok: false, reason: '등록된 repo 경로가 없습니다' }
   const all: ChangedFile[] = []
   for (const repo of repoPaths) {
-    let stdout: string
-    try {
-      stdout = execFileSync('git', ['status', '--porcelain=v1'], { cwd: repo, encoding: 'utf8', timeout: 15_000 })
-    } catch (e) {
-      return { ok: false, reason: `git 실패 (${repo}): ${(e as { stderr?: string }).stderr?.toString().trim() || String(e)}` }
-    }
+    const status = await runGit(repo, ['status', '--porcelain=v1'], options.signal)
+    if (options.signal?.aborted) return { ok: false, reason: 'git 요청이 취소됐습니다' }
+    if (status.code !== 0) return { ok: false, reason: gitFailure(repo, status) }
     let numstat = new Map<string, NumstatEntry>()
-    try {
-      numstat = parseNumstat(execFileSync('git', ['diff', 'HEAD', '--numstat', '--find-renames'], {
-        cwd: repo, encoding: 'utf8', timeout: 15_000,
-      }))
-    } catch { /* HEAD가 없는 빈 repo여도 untracked 목록은 계속 제공한다. */ }
-    for (const row of parsePorcelain(stdout)) {
+    const statsResult = await runGit(repo, ['diff', 'HEAD', '--numstat', '--find-renames'], options.signal)
+    if (options.signal?.aborted) return { ok: false, reason: 'git 요청이 취소됐습니다' }
+    if (statsResult.code === 0) numstat = parseNumstat(statsResult.stdout)
+    // HEAD가 없는 빈 repo여도 untracked 목록은 계속 제공한다.
+    for (const row of parsePorcelain(status.stdout)) {
       let mtimeMs = 0
       try { mtimeMs = statSync(join(repo, row.path)).mtimeMs } catch { /* 삭제된 파일 등 */ }
       const stats = numstat.get(row.path)
@@ -133,24 +173,25 @@ export function listProjectChanges(repoPaths: readonly string[], latestIngestAt:
   return { ok: true, files: markUnreflected(all, latestIngestAt) }
 }
 
-export function diffProjectFile(repoPaths: readonly string[], relPath: string): DiffResult {
+export async function diffProjectFile(
+  repoPaths: readonly string[],
+  relPath: string,
+  options: ProjectChangesOptions = {},
+): Promise<DiffResult> {
   for (const repo of repoPaths) {
     // Try tracked content first: deleted files no longer exist on disk but still have a HEAD diff.
-    try {
-      const tracked = execFileSync('git', ['diff', 'HEAD', '--', relPath], { cwd: repo, encoding: 'utf8', timeout: 15_000 })
-      if (tracked.trim()) return { ok: true, patch: tracked }
-    } catch { /* HEAD 없음(빈 repo) 등 — untracked 경로로 폴백 */ }
+    const tracked = await runGit(repo, ['diff', 'HEAD', '--', relPath], options.signal)
+    if (options.signal?.aborted) return { ok: false, reason: 'git 요청이 취소됐습니다' }
+    if (tracked.code === 0 && tracked.stdout.trim()) return { ok: true, patch: tracked.stdout }
+    // HEAD 없음(빈 repo) 등 — untracked 경로로 폴백
     // Untracked fallback only applies when the file exists in this repository.
     try { statSync(join(repo, relPath)) } catch { continue }
-    try {
-      // Git for Windows maps the literal '/dev/null' to the NUL device internally, so this is portable.
-      execFileSync('git', ['diff', '--no-index', '--', '/dev/null', relPath], { cwd: repo, encoding: 'utf8', timeout: 15_000 })
-      return { ok: true, patch: '' }  // exit 0 = 차이 없음(빈 파일)
-    } catch (e) {
-      const out = (e as { stdout?: string | Buffer }).stdout?.toString()
-      if (out) return { ok: true, patch: out }  // exit 1 + stdout = 정상 diff
-      return { ok: false, reason: String(e) }
-    }
+    // Git for Windows maps the literal '/dev/null' to the NUL device internally, so this is portable.
+    const untracked = await runGit(repo, ['diff', '--no-index', '--', '/dev/null', relPath], options.signal)
+    if (options.signal?.aborted) return { ok: false, reason: 'git 요청이 취소됐습니다' }
+    if (untracked.code === 0) return { ok: true, patch: '' } // exit 0 = 차이 없음(빈 파일)
+    if (untracked.code === 1 && untracked.stdout) return { ok: true, patch: untracked.stdout }
+    return { ok: false, reason: gitFailure(repo, untracked) }
   }
   return { ok: false, reason: `파일을 찾을 수 없음: ${relPath}` }
 }

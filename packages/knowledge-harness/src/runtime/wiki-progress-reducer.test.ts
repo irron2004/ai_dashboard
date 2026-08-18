@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { WikiRunEventSchema, type WikiRunEvent } from '@apc/shared'
-import { reduceWikiProgress } from './wiki-progress-reducer.js'
+import { reduceWikiProgress, WikiProgressAccumulator } from './wiki-progress-reducer.js'
 
 function event(seq: number, kind: string, payload: Record<string, unknown> = {}): WikiRunEvent {
   return WikiRunEventSchema.parse({
@@ -97,5 +97,24 @@ describe('reduceWikiProgress', () => {
       retry,
     ])
     expect(summary?.work.retries).toBe(1)
+  })
+
+  test('incremental accumulation matches a full replay after every worker transition', () => {
+    const events = [
+      event(1, 'run_started'),
+      event(2, 'work_planned', { total: 2 }),
+      event(3, 'worker_started', { workerId: 'w1', folder: 'src', attempt: 1 }),
+      event(4, 'worker_retrying', { workerId: 'w1', folder: 'src', attempt: 2 }),
+      event(5, 'worker_completed', { workerId: 'w1', folder: 'src', attempt: 2 }),
+      event(6, 'worker_started', { workerId: 'w2', folder: 'docs', attempt: 1 }),
+      event(7, 'worker_failed', { workerId: 'w2', folder: 'docs', attempt: 1 }),
+    ]
+    const accumulator = new WikiProgressAccumulator()
+    events.forEach((item, index) => {
+      accumulator.add(item)
+      expect(accumulator.summary()).toEqual(reduceWikiProgress(events.slice(0, index + 1)))
+    })
+    expect(accumulator.eventCount).toBe(events.length)
+    expect(accumulator.maximumSeq).toBe(7)
   })
 })

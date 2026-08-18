@@ -1,6 +1,7 @@
 import { spawn as nodeSpawn } from 'node:child_process'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { BoundedOutputBuffer, DEFAULT_OUTPUT_CAPTURE_BYTES } from '@apc/llm-wiki'
 
 /** CLI_CONTRACT.md 입력: ROOT(env+cwd), task_id(argv[0]), --workflow/--graph-profile(옵션). */
 export type DevHarnessCliInput = {
@@ -33,7 +34,14 @@ const defaultSpawn: SpawnFn = (cmd, args, opts) => nodeSpawn(cmd, args, opts) as
  * Distinct from `harness-cli.ts`, which parses argv for the wiki/knowledge-harness command.
  */
 export class DevHarnessCli {
-  constructor(private readonly spawnFn: SpawnFn = defaultSpawn) {}
+  private readonly maxOutputBytes: number
+
+  constructor(
+    private readonly spawnFn: SpawnFn = defaultSpawn,
+    options: { maxOutputBytes?: number } = {},
+  ) {
+    this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_OUTPUT_CAPTURE_BYTES
+  }
 
   run(input: DevHarnessCliInput): Promise<DevHarnessCliResult> {
     const entry = join(input.root, 'agents_up.sh')
@@ -49,12 +57,20 @@ export class DevHarnessCli {
         env: { ...process.env, ROOT: input.root },
         shell: process.platform === 'win32',
       })
-      let stdout = '', stderr = '', settled = false
+      const stdout = new BoundedOutputBuffer(this.maxOutputBytes)
+      const stderr = new BoundedOutputBuffer(this.maxOutputBytes)
+      let settled = false
       const finish = (r: DevHarnessCliResult) => { if (settled) return; settled = true; cleanup(); resolve(r) }
+      const result = (exitCode: number | null, error?: string): DevHarnessCliResult => ({
+        exitCode,
+        stdout: stdout.toString(),
+        stderr: stderr.toString(),
+        ...(error ? { error } : {}),
+      })
       const timer = input.timeoutMs
-        ? setTimeout(() => { child.kill('SIGKILL'); finish({ exitCode: null, stdout, stderr, error: `timeout after ${input.timeoutMs}ms` }) }, input.timeoutMs)
+        ? setTimeout(() => { child.kill('SIGKILL'); finish(result(null, `timeout after ${input.timeoutMs}ms`)) }, input.timeoutMs)
         : undefined
-      const onAbort = () => { child.kill('SIGTERM'); finish({ exitCode: null, stdout, stderr, error: 'cancelled' }) }
+      const onAbort = () => { child.kill('SIGTERM'); finish(result(null, 'cancelled')) }
       const cleanup = () => { if (timer) clearTimeout(timer); input.signal?.removeEventListener('abort', onAbort) }
       if (input.signal) {
         if (input.signal.aborted) { onAbort(); return }
@@ -64,13 +80,13 @@ export class DevHarnessCli {
       // across two Buffer chunks isn't corrupted — String(buffer) decodes each chunk independently.
       const outDec = new StringDecoder('utf8'), errDec = new StringDecoder('utf8')
       const decode = (dec: StringDecoder, d: unknown) => dec.write(Buffer.isBuffer(d) ? d : Buffer.from(String(d)))
-      child.stdout?.on('data', (d) => { const t = decode(outDec, d); if (t) { stdout += t; input.onChunk?.('stdout', t) } })
-      child.stderr?.on('data', (d) => { const t = decode(errDec, d); if (t) { stderr += t; input.onChunk?.('stderr', t) } })
-      child.on('error', (e) => finish({ exitCode: null, stdout, stderr, error: String(e) }))
+      child.stdout?.on('data', (d) => { const t = decode(outDec, d); if (t) { stdout.append(t); input.onChunk?.('stdout', t) } })
+      child.stderr?.on('data', (d) => { const t = decode(errDec, d); if (t) { stderr.append(t); input.onChunk?.('stderr', t) } })
+      child.on('error', (e) => finish(result(null, String(e))))
       child.on('close', (code) => {
-        const to = outDec.end(); if (to) { stdout += to; input.onChunk?.('stdout', to) }
-        const te = errDec.end(); if (te) { stderr += te; input.onChunk?.('stderr', te) }
-        finish({ exitCode: code, stdout, stderr })
+        const to = outDec.end(); if (to) { stdout.append(to); input.onChunk?.('stdout', to) }
+        const te = errDec.end(); if (te) { stderr.append(te); input.onChunk?.('stderr', te) }
+        finish(result(code))
       })
     })
   }

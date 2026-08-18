@@ -1,8 +1,14 @@
 project: ai_dashboard
 status: active
 focus: 공용 MCP 릴리스 후 sanitized 실제 corpus로 embedding·reranker 채택 gate를 판정
-updated: "2026-08-03"
+updated: "2026-08-18"
 tasks:
+  - id: next-yml-dashboard-single-source
+    title: 대시보드 Task 읽기·수동 편집·대화 추출을 next.yml 제안·승인 단일소스로 전환한다
+    priority: P0
+    status: done
+    source: agent:codex
+    note: 파일 화면 라운드트립과 SQLite 파생 캐시·동시편집·career PII 게이트를 자동 검증함
   - id: packaged-terminal-paste-qa
     title: 패키지 앱에서 네 가지 붙여넣기 제스처와 local·WSL·SSH 입력을 실제 검증한다
     priority: P0
@@ -63,3 +69,21 @@ tasks:
     status: todo
     source: agent:codex
     note: 합성 gate를 통과했으므로 sanitized 실제 질의 corpus에서 lexical 실패와 비용·privacy 개선을 먼저 입증
+  - id: next-yml-dashboard-windows-qa
+    title: Windows 패키지에서 next.yml 제안 승인·거절·외부편집 충돌과 career PII 차단을 실제 검증한다
+    priority: P1
+    status: todo
+    source: agent:codex
+    note: 자동 라운드트립 이후 남은 Electron 패키지 파일 권한·rename·사용자 피드백 수동 승인
+  - id: reusable-asset-catalog-v1
+    title: APC 핵심 workspace package 5개의 계약·비보장·실제 소비를 assets.yml 정본으로 이관한다
+    priority: P1
+    status: done
+    source: agent:codex
+    note: schema v1과 root tool commit 1928a6d 기준이며 다섯 package 모두 현재 version 0.0.0임을 실측했다
+  - id: publish-reusable-packages
+    title: APC 재사용 package에 build output·semver·독립 install smoke와 배포 경계를 추가한다
+    priority: P1
+    status: todo
+    source: agent:codex
+    note: 현재 소비는 모두 같은 Git 저장소의 workspace dependency라 외부 stable 계약이 아니다

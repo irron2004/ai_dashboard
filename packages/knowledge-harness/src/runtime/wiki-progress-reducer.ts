@@ -17,82 +17,98 @@ function isTerminal(status: WikiProgressSummary['status']): boolean {
   return status === 'completed' || status === 'failed'
 }
 
-/** Reduces the durable event envelope only; wall-clock quiet/stalled health is a renderer concern. */
-export function reduceWikiProgress(events: readonly WikiRunEvent[]): WikiProgressSummary | undefined {
-  if (events.length === 0) return undefined
-  const eventIds = new Set<string>()
-  const ordered = [...events]
-    .sort((left, right) => left.seq - right.seq)
-    .filter((event) => {
-      if (eventIds.has(event.eventId)) return false
-      eventIds.add(event.eventId)
-      return true
-    })
-  const first = ordered[0]
-  const workers = new Map<string, MutableWorker>()
-  const nodes = new Map<string, MutableNode>()
-  let status: WikiProgressSummary['status'] = 'generating'
-  let phase: string | undefined
-  let startedAt = first.at
-  let lastActivityAt = first.at
-  let endedAt: string | undefined
-  let total = 0
-  let retries = 0
+type CountedWorkerStatus = 'completed' | 'inProgress' | 'failed' | null
 
-  const setNonterminalStatus = (next: WikiProgressSummary['status']) => {
-    if (!isTerminal(status)) status = next
-  }
+function countedWorkerStatus(status: WikiWorkerSummary['status']): CountedWorkerStatus {
+  if (status === 'completed') return 'completed'
+  if (status === 'running' || status === 'retrying') return 'inProgress'
+  if (status === 'failed') return 'failed'
+  return null
+}
 
-  for (const event of ordered) {
-    if (event.runId !== first.runId || event.projectId !== first.projectId) {
+/** Incremental durable-event reducer. add() is O(1) average; summary materialization is O(workers + nodes). */
+export class WikiProgressAccumulator {
+  private readonly eventIds = new Set<string>()
+  private readonly workers = new Map<string, MutableWorker>()
+  private readonly nodes = new Map<string, MutableNode>()
+  private runId: string | undefined
+  private projectId: string | undefined
+  private status: WikiProgressSummary['status'] = 'generating'
+  private phase: string | undefined
+  private startedAt: string | undefined
+  private lastActivityAt: string | undefined
+  private endedAt: string | undefined
+  private total = 0
+  private retries = 0
+  private completed = 0
+  private inProgress = 0
+  private failed = 0
+  private count = 0
+  private maxSeq = 0
+
+  get eventCount(): number { return this.count }
+  get maximumSeq(): number { return this.maxSeq }
+
+  add(event: WikiRunEvent): boolean {
+    if (this.eventIds.has(event.eventId)) return false
+    if (this.runId && (event.runId !== this.runId || event.projectId !== this.projectId)) {
       throw new Error('Wiki progress events from different runs cannot be reduced together')
     }
-    lastActivityAt = event.at
+    if (!this.runId) {
+      this.runId = event.runId
+      this.projectId = event.projectId
+      this.startedAt = event.at
+    }
+    this.eventIds.add(event.eventId)
+    this.count += 1
+    this.maxSeq = Math.max(this.maxSeq, event.seq)
+    this.lastActivityAt = event.at
 
     switch (event.kind) {
       case 'run_started':
-        startedAt = event.at
-        setNonterminalStatus('generating')
+        this.startedAt = event.at
+        this.setNonterminalStatus('generating')
         break
       case 'run_completed':
-        status = 'completed'
-        endedAt = event.at
+        this.status = 'completed'
+        this.endedAt = event.at
         break
       case 'run_failed':
-        status = 'failed'
-        endedAt = event.at
+        this.status = 'failed'
+        this.endedAt = event.at
         break
       case 'phase_started':
       case 'phase_completed':
-        phase = event.phase
-        setNonterminalStatus('generating')
+        this.phase = event.phase
+        this.setNonterminalStatus('generating')
         break
       case 'phase_failed':
-        phase = event.phase
-        status = 'failed'
+        this.phase = event.phase
+        this.status = 'failed'
         break
       case 'phase_paused':
-        phase = event.phase
-        setNonterminalStatus('waiting')
+        this.phase = event.phase
+        this.setNonterminalStatus('waiting')
         break
       case 'work_planned':
-        total = event.total
-        setNonterminalStatus('generating')
+        this.total = event.total
+        this.setNonterminalStatus('generating')
         break
       case 'worker_started':
       case 'worker_completed':
       case 'worker_failed':
       case 'worker_retrying': {
-        const current = workers.get(event.workerId)
+        const current = this.workers.get(event.workerId)
         const workerStatus: WikiWorkerSummary['status'] = event.kind === 'worker_started'
           ? 'running'
           : event.kind === 'worker_completed'
             ? 'completed'
             : event.kind === 'worker_failed'
-              ? 'failed'
+            ? 'failed'
               : 'retrying'
-        if (event.kind === 'worker_retrying') retries += 1
-        workers.set(event.workerId, {
+        if (event.kind === 'worker_retrying') this.retries += 1
+        this.adjustWorkerCount(current?.status, -1)
+        this.workers.set(event.workerId, {
           workerId: event.workerId,
           folder: event.folder ?? current?.folder,
           attempt: event.attempt,
@@ -100,19 +116,20 @@ export function reduceWikiProgress(events: readonly WikiRunEvent[]): WikiProgres
           lastActivityAt: event.at,
           message: event.message,
         })
-        setNonterminalStatus('generating')
+        this.adjustWorkerCount(workerStatus, 1)
+        this.setNonterminalStatus('generating')
         break
       }
       case 'node_discovered':
       case 'node_accepted':
       case 'node_dropped': {
         const key = nodeKey(event.workerId, event.proposalId)
-        const current = nodes.get(key)
+        const current = this.nodes.get(key)
         const finalDiscovery = event.kind === 'node_discovered'
           && current != null
           && current.status !== 'discovered'
         if (finalDiscovery) {
-          setNonterminalStatus('generating')
+          this.setNonterminalStatus('generating')
           break
         }
         const requestedStatus: WikiNodeProgress['status'] = event.kind === 'node_discovered'
@@ -120,7 +137,7 @@ export function reduceWikiProgress(events: readonly WikiRunEvent[]): WikiProgres
           : event.kind === 'node_accepted'
             ? 'accepted'
             : 'dropped'
-        nodes.set(key, {
+        this.nodes.set(key, {
           workerId: event.workerId,
           proposalId: event.proposalId,
           title: event.title,
@@ -130,41 +147,62 @@ export function reduceWikiProgress(events: readonly WikiRunEvent[]): WikiProgres
           discoveredAt: current?.discoveredAt ?? event.at,
           updatedAt: event.at,
         })
-        setNonterminalStatus('generating')
+        this.setNonterminalStatus('generating')
         break
       }
       case 'engine_request_started':
-        setNonterminalStatus('waiting')
+        this.setNonterminalStatus('waiting')
         break
       case 'engine_activity':
       case 'engine_request_finished':
-        setNonterminalStatus('generating')
+        this.setNonterminalStatus('generating')
         break
       case 'transport_reconnecting':
-        setNonterminalStatus('reconnecting')
+        this.setNonterminalStatus('reconnecting')
         break
     }
+    return true
   }
 
-  const workerList = [...workers.values()]
-  const summary = {
-    runId: first.runId,
-    projectId: first.projectId,
-    status,
-    health: 'active' as const,
-    phase,
-    startedAt,
-    lastActivityAt,
-    endedAt,
-    work: {
-      total,
-      completed: workerList.filter((worker) => worker.status === 'completed').length,
-      inProgress: workerList.filter((worker) => worker.status === 'running' || worker.status === 'retrying').length,
-      failed: workerList.filter((worker) => worker.status === 'failed').length,
-      retries,
-    },
-    workers: workerList,
-    nodes: [...nodes.values()],
+  summary(): WikiProgressSummary | undefined {
+    if (!this.runId || !this.projectId || !this.startedAt || !this.lastActivityAt) return undefined
+    return WikiProgressSummarySchema.parse({
+      runId: this.runId,
+      projectId: this.projectId,
+      status: this.status,
+      health: 'active',
+      phase: this.phase,
+      startedAt: this.startedAt,
+      lastActivityAt: this.lastActivityAt,
+      endedAt: this.endedAt,
+      work: {
+        total: this.total,
+        completed: this.completed,
+        inProgress: this.inProgress,
+        failed: this.failed,
+        retries: this.retries,
+      },
+      workers: [...this.workers.values()],
+      nodes: [...this.nodes.values()],
+    })
   }
-  return WikiProgressSummarySchema.parse(summary)
+
+  private setNonterminalStatus(next: WikiProgressSummary['status']): void {
+    if (!isTerminal(this.status)) this.status = next
+  }
+
+  private adjustWorkerCount(status: WikiWorkerSummary['status'] | undefined, delta: 1 | -1): void {
+    const counted = status ? countedWorkerStatus(status) : null
+    if (counted === 'completed') this.completed += delta
+    else if (counted === 'inProgress') this.inProgress += delta
+    else if (counted === 'failed') this.failed += delta
+  }
+}
+
+/** Reduces the durable event envelope only; wall-clock quiet/stalled health is a renderer concern. */
+export function reduceWikiProgress(events: readonly WikiRunEvent[]): WikiProgressSummary | undefined {
+  if (events.length === 0) return undefined
+  const accumulator = new WikiProgressAccumulator()
+  for (const event of [...events].sort((left, right) => left.seq - right.seq)) accumulator.add(event)
+  return accumulator.summary()
 }

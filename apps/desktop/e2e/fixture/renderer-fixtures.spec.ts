@@ -298,10 +298,11 @@ test('live-ux-contracts: fake clipboard failure and scoped PTY events stay separ
   const events = await page.evaluate(async () => {
     const data: Array<{ id: string; launchId: string; data: string }> = []
     const activities: Array<{ pane: { paneId: string; projectId: string; worktreePath: string; slotId: string }; launchId: string }> = []
-    const offData = window.apc.onPtyDataV2((event) => data.push(event))
+    const paneId = 'qa-project-01:fixture:event-smoke'
+    const offData = window.apc.onPtyDataV2(paneId, (event) => data.push(event))
     const offActivity = window.apc.onAgentActivity((event) => activities.push(event))
     const pane = {
-      paneId: 'qa-project-01:fixture:event-smoke', projectId: 'qa-project-01',
+      paneId, projectId: 'qa-project-01',
       worktreePath: 'C:\\qa\\workspace\\project-01', slotId: 'codex-event-smoke', agent: 'codex' as const,
     }
     window.apc.startPty({

@@ -2,6 +2,15 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { CH } from '../shared/ipc-contract.js'
 import type { PtyDataEvent, PtyExitEvent, ResolveEvidenceSourceReq, SearchEvidenceReq } from '../shared/ipc-contract.js'
 import type { AgentActivity, WikiRunEvent } from '@apc/shared'
+import { PtyEventRouter } from './pty-event-router.js'
+
+const ptyDataRouter = new PtyEventRouter<PtyDataEvent>()
+const ptyExitRouter = new PtyEventRouter<PtyExitEvent>()
+
+// Exactly one Electron listener per high-frequency PTY channel. Individual terminals subscribe to
+// pane ids through the in-process routers below instead of each adding an ipcRenderer listener.
+ipcRenderer.on(CH.ptyDataV2, (_event, payload: PtyDataEvent) => ptyDataRouter.emit(payload))
+ipcRenderer.on(CH.ptyExitV2, (_event, payload: PtyExitEvent) => ptyExitRouter.emit(payload))
 
 // Exposed as window.apc in the renderer. Queries/commands go through invoke();
 // the PTY stream is event-based.
@@ -16,26 +25,8 @@ contextBridge.exposeInMainWorld('apc', {
   killPty: (req: unknown) => ipcRenderer.send(CH.ptyKill, req),
   resizePty: (req: unknown) => ipcRenderer.send(CH.ptyResize, req),
 
-  onPtyData: (cb: (id: string, data: string) => void) => {
-    const handler = (_e: unknown, id: string, data: string) => cb(id, data)
-    ipcRenderer.on(CH.ptyData, handler)
-    return () => ipcRenderer.removeListener(CH.ptyData, handler)
-  },
-  onPtyExit: (cb: (id: string, code: number) => void) => {
-    const handler = (_e: unknown, id: string, code: number) => cb(id, code)
-    ipcRenderer.on(CH.ptyExit, handler)
-    return () => ipcRenderer.removeListener(CH.ptyExit, handler)
-  },
-  onPtyDataV2: (cb: (event: PtyDataEvent) => void) => {
-    const handler = (_e: unknown, event: PtyDataEvent) => cb(event)
-    ipcRenderer.on(CH.ptyDataV2, handler)
-    return () => ipcRenderer.removeListener(CH.ptyDataV2, handler)
-  },
-  onPtyExitV2: (cb: (event: PtyExitEvent) => void) => {
-    const handler = (_e: unknown, event: PtyExitEvent) => cb(event)
-    ipcRenderer.on(CH.ptyExitV2, handler)
-    return () => ipcRenderer.removeListener(CH.ptyExitV2, handler)
-  },
+  onPtyDataV2: (id: string, cb: (event: PtyDataEvent) => void) => ptyDataRouter.subscribe(id, cb),
+  onPtyExitV2: (id: string, cb: (event: PtyExitEvent) => void) => ptyExitRouter.subscribe(id, cb),
   onAgentActivity: (cb: (event: AgentActivity) => void) => {
     const handler = (_e: unknown, event: AgentActivity) => cb(event)
     ipcRenderer.on(CH.agentActivity, handler)

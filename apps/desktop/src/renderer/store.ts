@@ -208,6 +208,11 @@ function updateHarnessConfig(state: ApcStore, projectId: string, next: HarnessCo
   return { harnessConfigs: { ...state.harnessConfigs, [projectId]: next } }
 }
 
+function withoutProjectKeys<T>(record: Record<string, T>, projectId: string): Record<string, T> {
+  const prefix = `${projectId}:`
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key !== projectId && !key.startsWith(prefix)))
+}
+
 /** Revision is pane-local. Snapshot/event arrival order must never roll a pane backwards. */
 export function mergeAgentActivities(
   current: readonly AgentActivity[],
@@ -470,6 +475,16 @@ export const useStore = create<ApcStore>((set, get) => ({
   async deleteProject(id: string) {
     try {
       await api.deleteProject(id)
+      set((state) => ({
+        activities: state.activities.filter((activity) => activity.pane.projectId !== id),
+        activeWorktrees: withoutProjectKeys(state.activeWorktrees, id),
+        agentStatus: withoutProjectKeys(state.agentStatus, id),
+        openPanes: withoutProjectKeys(state.openPanes, id),
+        restartNonce: withoutProjectKeys(state.restartNonce, id),
+        stoppingKeys: withoutProjectKeys(state.stoppingKeys, id),
+        harnessConfigs: withoutProjectKeys(state.harnessConfigs, id),
+        paneTarget: state.paneTarget?.pane.projectId === id ? null : state.paneTarget,
+      }))
       if (get().selectedProjectId === id) {
         set({
           selectedProjectId: null, dashboard: null, resumeCard: null, resumeBannerOpen: false,

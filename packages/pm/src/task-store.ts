@@ -146,6 +146,42 @@ export class TaskStore {
     return rows.map(toTask)
   }
 
+  /**
+   * Replace only this project's `next.yml#...` rows with a canonical file snapshot.
+   *
+   * This intentionally bypasses producer/user-edit preservation: for a file-managed project,
+   * `next.yml` is the truth and these rows are a disposable compatibility/search cache.
+   * Legacy/manual/conversation rows outside the `next.yml#` namespace are left untouched.
+   */
+  replaceNextYmlTasks(projectId: string, tasks: Task[]): void {
+    const parsed = tasks.map((task) => {
+      const value = TaskSchema.parse(task)
+      if (value.projectId !== projectId || !value.sourceRef?.startsWith('next.yml#')) {
+        throw new Error('invalid next.yml cache task')
+      }
+      return value
+    })
+    const keep = new Set(parsed.map((task) => task.id))
+    this.db.exec('SAVEPOINT replace_next_yml_tasks')
+    try {
+      for (const task of parsed) {
+        this.put(TaskSchema.parse({ ...task, userEditedAt: undefined, deletedAt: undefined }))
+      }
+      const rows = this.db.prepare(
+        `SELECT id FROM tasks
+         WHERE project_id = ? AND source_ref LIKE 'next.yml#%'`,
+      ).all(projectId) as Array<{ id: string }>
+      for (const row of rows) {
+        if (!keep.has(row.id)) this.db.prepare('DELETE FROM tasks WHERE id = ?').run(row.id)
+      }
+      this.db.exec('RELEASE SAVEPOINT replace_next_yml_tasks')
+    } catch (error) {
+      this.db.exec('ROLLBACK TO SAVEPOINT replace_next_yml_tasks')
+      this.db.exec('RELEASE SAVEPOINT replace_next_yml_tasks')
+      throw error
+    }
+  }
+
   updateUserFields(projectId: string, id: string, patch: UserTaskPatch): TaskMutationResult {
     const existing = this.get(id)
     if (!existing) return { ok: false, reason: 'task-not-found' }

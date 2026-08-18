@@ -115,19 +115,19 @@ describe('markUnreflected', () => {
 })
 
 describe('listProjectChanges (integration, real git)', () => {
-  test('non-git directory → ok:false with reason', () => {
+  test('non-git directory → ok:false with reason', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-nongit-'))
-    const res = listProjectChanges([dir], null)
+    const res = await listProjectChanges([dir], null)
     expect(res.ok).toBe(false)
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('lists untracked md with mtime in a real repo', () => {
+  test('lists untracked md with mtime in a real repo', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-git-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
     writeFileSync(join(dir, 'note.md'), '# n')
     utimesSync(join(dir, 'note.md'), new Date(), new Date())
-    const res = listProjectChanges([dir], null)
+    const res = await listProjectChanges([dir], null)
     expect(res.ok).toBe(true)
     const f = res.files?.find((x) => x.path === 'note.md')
     expect(f?.status).toBe('new')
@@ -137,7 +137,7 @@ describe('listProjectChanges (integration, real git)', () => {
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('modified 파일에 +/− 카운트, untracked에 줄 수가 붙는다', () => {
+  test('modified 파일에 +/− 카운트, untracked에 줄 수가 붙는다', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-numstat-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
     writeFileSync(join(dir, 'doc.md'), 'a\nb\nc\n')
@@ -146,18 +146,18 @@ describe('listProjectChanges (integration, real git)', () => {
     writeFileSync(join(dir, 'doc.md'), 'a\nX\nY\nc\n')
     writeFileSync(join(dir, 'fresh.md'), 'one\ntwo\n')
 
-    const res = listProjectChanges([dir], null)
+    const res = await listProjectChanges([dir], null)
     expect(res.ok).toBe(true)
     expect(res.files?.find((f) => f.path === 'doc.md')).toMatchObject({ additions: 2, deletions: 1 })
     expect(res.files?.find((f) => f.path === 'fresh.md')).toMatchObject({ additions: 2, deletions: 0 })
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('빈 repo(HEAD 없음)에서도 untracked 카운트가 나온다', () => {
+  test('빈 repo(HEAD 없음)에서도 untracked 카운트가 나온다', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-nohead-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
     writeFileSync(join(dir, 'a.md'), 'x\n')
-    const res = listProjectChanges([dir], null)
+    const res = await listProjectChanges([dir], null)
     expect(res.ok).toBe(true)
     expect(res.files?.find((f) => f.path === 'a.md')?.additions).toBe(1)
     rmSync(dir, { recursive: true, force: true })
@@ -169,32 +169,32 @@ describe('diffProjectFile (integration, real git)', () => {
   const commit = (cwd: string, msg: string) =>
     execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', msg], { cwd })
 
-  test('untracked file → patch shows the whole file as additions (--no-index fallback)', () => {
+  test('untracked file → patch shows the whole file as additions (--no-index fallback)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-diff-untracked-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
     writeFileSync(join(dir, 'fresh.md'), '# brand new\nline two\n')
-    const res = diffProjectFile([dir], 'fresh.md')
+    const res = await diffProjectFile([dir], 'fresh.md')
     expect(res.ok).toBe(true)
     expect(res.patch).toContain('+# brand new')
     expect(res.patch).toContain('+line two')
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('tracked + modified file → patch is the HEAD diff', () => {
+  test('tracked + modified file → patch is the HEAD diff', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-diff-tracked-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
     writeFileSync(join(dir, 'doc.md'), 'original\n')
     execFileSync('git', ['add', 'doc.md'], { cwd: dir })
     commit(dir, 'init')
     writeFileSync(join(dir, 'doc.md'), 'changed\n')
-    const res = diffProjectFile([dir], 'doc.md')
+    const res = await diffProjectFile([dir], 'doc.md')
     expect(res.ok).toBe(true)
     expect(res.patch).toContain('-original')
     expect(res.patch).toContain('+changed')
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('tracked + deleted file → patch includes deleted content', () => {
+  test('tracked + deleted file → patch includes deleted content', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-diff-deleted-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
     writeFileSync(join(dir, 'gone.md'), 'goodbye\nlast line\n')
@@ -202,17 +202,17 @@ describe('diffProjectFile (integration, real git)', () => {
     commit(dir, 'init')
     rmSync(join(dir, 'gone.md'))
 
-    const res = diffProjectFile([dir], 'gone.md')
+    const res = await diffProjectFile([dir], 'gone.md')
     expect(res.ok).toBe(true)
     expect(res.patch).toContain('-goodbye')
     expect(res.patch).toContain('-last line')
     rmSync(dir, { recursive: true, force: true })
   })
 
-  test('file absent from every repo → ok:false with reason', () => {
+  test('file absent from every repo → ok:false with reason', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'apc-diff-missing-'))
     execFileSync('git', ['init', '-q'], { cwd: dir })
-    const res = diffProjectFile([dir], 'nope.md')
+    const res = await diffProjectFile([dir], 'nope.md')
     expect(res.ok).toBe(false)
     expect(res.reason).toContain('nope.md')
     rmSync(dir, { recursive: true, force: true })

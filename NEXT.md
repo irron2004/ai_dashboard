@@ -2,7 +2,7 @@
 
 # 다음 할 일 — ai_dashboard
 
-상태: `active` · 갱신: `2026-08-03` · 진실: [`next.yml`](next.yml)
+상태: `active` · 갱신: `2026-08-18` · 진실: [`next.yml`](next.yml)
 
 **지금 집중:** 공용 MCP 릴리스 후 sanitized 실제 corpus로 embedding·reranker 채택 gate를 판정
 
@@ -20,3 +20,7 @@
 - [ ] `retrieval-context-package-cleanup` · **P1 · todo** — legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다 — production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
 <a id="task-ai_dashboard-retrieval-embedding-gate"></a>
 - [ ] `retrieval-embedding-gate` · **P1 · todo** — lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다 — 합성 gate를 통과했으므로 sanitized 실제 질의 corpus에서 lexical 실패와 비용·privacy 개선을 먼저 입증
+<a id="task-ai_dashboard-next-yml-dashboard-windows-qa"></a>
+- [ ] `next-yml-dashboard-windows-qa` · **P1 · todo** — Windows 패키지에서 next.yml 제안 승인·거절·외부편집 충돌과 career PII 차단을 실제 검증한다 — 자동 라운드트립 이후 남은 Electron 패키지 파일 권한·rename·사용자 피드백 수동 승인
+<a id="task-ai_dashboard-publish-reusable-packages"></a>
+- [ ] `publish-reusable-packages` · **P1 · todo** — APC 재사용 package에 build output·semver·독립 install smoke와 배포 경계를 추가한다 — 현재 소비는 모두 같은 Git 저장소의 workspace dependency라 외부 stable 계약이 아니다

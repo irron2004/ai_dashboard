@@ -4,7 +4,18 @@ import type { AgentIngestAdapter } from '@apc/agents'
 import type { NormalizedSession } from '@apc/shared'
 import type { KnowledgeIndexer } from './knowledge-indexer.js'
 
-export type IngestDeps = { registry: ProjectRegistry; cursors: IngestCursorStore; index: SearchIndex; knowledge?: Pick<KnowledgeIndexer, 'reindexAll'>; onSessionParsed?: (session: NormalizedSession, projectId: string) => Promise<void>; questionLog?: { record(session: NormalizedSession): void } }
+export type IngestDeps = {
+  registry: ProjectRegistry
+  cursors: IngestCursorStore
+  index: SearchIndex
+  knowledge?: Pick<KnowledgeIndexer, 'reindexAll'>
+  /** Return accepted:false when a durable downstream proposal was not recorded; the cursor will retry. */
+  onSessionParsed?: (
+    session: NormalizedSession,
+    projectId: string,
+  ) => Promise<void | { accepted: boolean }>
+  questionLog?: { record(session: NormalizedSession): void }
+}
 export type IngestResult = { sources: number; sessions: number; documents: number }
 
 export class IngestService {
@@ -30,11 +41,16 @@ export class IngestService {
           this.deps.index.indexSession(withProject)
           try { this.deps.questionLog?.record(withProject) }
           catch (e) { console.warn(`[ingest] questionLog.record failed for session ${withProject.id} (project ${withProject.projectId ?? '?'}):`, e) }
+          let downstreamAccepted = true
           if (this.deps.onSessionParsed) {
-            try { await this.deps.onSessionParsed(withProject, withProject.projectId ?? '') }
+            try {
+              const downstream = await this.deps.onSessionParsed(withProject, withProject.projectId ?? '')
+              downstreamAccepted = downstream?.accepted !== false
+            }
             catch (e) { console.warn(`[ingest] onSessionParsed failed for session ${withProject.id} (project ${withProject.projectId ?? '?'}):`, e) }
           }
-          this.deps.cursors.set(source.id, position)
+          if (downstreamAccepted) this.deps.cursors.set(source.id, position)
+          else console.warn(`[ingest] downstream proposal deferred for session ${withProject.id}; cursor not advanced`)
           sessions++
         }
       }

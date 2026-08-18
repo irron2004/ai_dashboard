@@ -1,7 +1,7 @@
 import { join, dirname } from 'node:path'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import type { AgentRunStore } from '@apc/pm'
-import type { DevHarnessCli } from './dev-harness-cli.js'
+import type { DevHarnessCli, DevHarnessCliResult } from './dev-harness-cli.js'
 
 export type DevHarnessLogEvent = { runId: string; label: string; stream: 'stdout' | 'stderr'; chunk: string }
 export type DevHarnessRunInput = { projectId: string; taskId: string; workflow?: string; graphProfile?: string }
@@ -16,6 +16,62 @@ export type DevHarnessServiceDeps = {
   runsRoot: string
   now?: () => string
   timeoutMs?: number
+  logBatchMs?: number
+  logBatchBytes?: number
+}
+
+const DEFAULT_LOG_BATCH_MS = 50
+const DEFAULT_LOG_BATCH_BYTES = 64 * 1024
+
+type PendingLog = { stream: DevHarnessLogEvent['stream']; parts: string[] }
+
+class DevHarnessLogBatcher {
+  private transcriptParts: string[] = []
+  private logs: PendingLog[] = []
+  private pendingBytes = 0
+  private timer: ReturnType<typeof setTimeout> | undefined
+
+  constructor(
+    private readonly transcriptPath: string,
+    private readonly runId: string,
+    private readonly onLog: ((event: DevHarnessLogEvent) => void) | undefined,
+    private readonly batchMs: number,
+    private readonly batchBytes: number,
+  ) {}
+
+  push(stream: DevHarnessLogEvent['stream'], text: string): void {
+    if (!text) return
+    this.transcriptParts.push(text)
+    const previous = this.logs.at(-1)
+    if (previous?.stream === stream) previous.parts.push(text)
+    else this.logs.push({ stream, parts: [text] })
+    this.pendingBytes += Buffer.byteLength(text)
+    if (this.pendingBytes >= this.batchBytes) this.flush()
+    else this.schedule()
+  }
+
+  flush = (): void => {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = undefined
+    if (this.transcriptParts.length === 0) return
+    const transcript = this.transcriptParts.join('')
+    const logs = this.logs
+    this.transcriptParts = []
+    this.logs = []
+    this.pendingBytes = 0
+    try { appendFileSync(this.transcriptPath, transcript) } catch { /* transcript is best-effort */ }
+    for (const log of logs) {
+      try {
+        this.onLog?.({ runId: this.runId, label: 'harness', stream: log.stream, chunk: log.parts.join('') })
+      } catch { /* a live-tail listener must never fail the run */ }
+    }
+  }
+
+  private schedule(): void {
+    if (this.timer) return
+    this.timer = setTimeout(this.flush, this.batchMs)
+    this.timer.unref?.()
+  }
 }
 
 /**
@@ -58,15 +114,24 @@ export class DevHarnessService {
 
     const controller = new AbortController()
     this.active.set(runId, controller)
-    const onChunk = (stream: 'stdout' | 'stderr', text: string) => {
-      try { appendFileSync(transcriptPath, text) } catch { /* transcript is best-effort; never fail the run */ }
-      onLog?.({ runId, label: 'harness', stream, chunk: text })
+    const logBatch = new DevHarnessLogBatcher(
+      transcriptPath,
+      runId,
+      onLog,
+      this.deps.logBatchMs ?? DEFAULT_LOG_BATCH_MS,
+      this.deps.logBatchBytes ?? DEFAULT_LOG_BATCH_BYTES,
+    )
+    let result: DevHarnessCliResult
+    try {
+      result = await this.deps.cli.run({
+        root, taskId: input.taskId, workflow: input.workflow, graphProfile: input.graphProfile,
+        onChunk: (stream, text) => logBatch.push(stream, text),
+        timeoutMs: this.deps.timeoutMs, signal: controller.signal,
+      })
+    } finally {
+      logBatch.flush()
+      this.active.delete(runId)
     }
-    const result = await this.deps.cli.run({
-      root, taskId: input.taskId, workflow: input.workflow, graphProfile: input.graphProfile,
-      onChunk, timeoutMs: this.deps.timeoutMs, signal: controller.signal,
-    })
-    this.active.delete(runId)
 
     const endedAt = this.now()
     if (result.exitCode === 0) {
