@@ -14,13 +14,13 @@
 - [ ] `real-load-performance-profile` · **P0 · todo** — 동일한 실제 프로젝트 부하에서 성능 개선 전후 시나리오를 계측해 회귀 기준선을 확정한다 — docs/handoffs/2026-07-23-multi-project-perf-diagnosis.md의 미완료 실부하 검증
 <a id="task-ai_dashboard-tmux-unicode-regression"></a>
 - [ ] `tmux-unicode-regression` · **P0 · todo** — 패키지 앱의 WSL·SSH tmux에서 glyph·색·split·resize·detach/attach와 재접속을 비교 검증한다 — TODO.md와 Windows QA handoff의 남은 수동 QA 및 Powerline 결손 진단
+<a id="task-ai_dashboard-next-yml-dashboard-windows-qa"></a>
+- [ ] `next-yml-dashboard-windows-qa` · **P1 · todo** — Windows 패키지에서 next.yml 제안 승인·거절·외부편집 충돌과 career PII 차단을 실제 검증한다 — 자동 라운드트립 이후 남은 Electron 패키지 파일 권한·rename·사용자 피드백 수동 승인
 <a id="task-ai_dashboard-packaged-preview-restart-qa"></a>
 - [ ] `packaged-preview-restart-qa` · **P1 · todo** — 패키지 앱에서 Ctrl-click 경로 미리보기와 앱 재시작 후 상태 복원을 검증한다 — docs/handoffs/2026-07-20-project-context-live-ux-windows-qa.md의 수동 승인 항목
+<a id="task-ai_dashboard-publish-reusable-packages"></a>
+- [ ] `publish-reusable-packages` · **P1 · todo** — APC 재사용 package에 build output·semver·독립 install smoke와 배포 경계를 추가한다 — 현재 소비는 모두 같은 Git 저장소의 workspace dependency라 외부 stable 계약이 아니다
 <a id="task-ai_dashboard-retrieval-context-package-cleanup"></a>
 - [ ] `retrieval-context-package-cleanup` · **P1 · todo** — legacy ContextPackageBuilder의 downstream 사용을 재확인하고 compatibility release 뒤 제거한다 — production reference 0건이며 packages/knowledge/src/context-package.ts에 deprecated 표시
 <a id="task-ai_dashboard-retrieval-embedding-gate"></a>
 - [ ] `retrieval-embedding-gate` · **P1 · todo** — lexical fixture 실패 사례와 비용·privacy 기준으로 embedding 및 reranker 도입 여부를 판정한다 — 합성 gate를 통과했으므로 sanitized 실제 질의 corpus에서 lexical 실패와 비용·privacy 개선을 먼저 입증
-<a id="task-ai_dashboard-next-yml-dashboard-windows-qa"></a>
-- [ ] `next-yml-dashboard-windows-qa` · **P1 · todo** — Windows 패키지에서 next.yml 제안 승인·거절·외부편집 충돌과 career PII 차단을 실제 검증한다 — 자동 라운드트립 이후 남은 Electron 패키지 파일 권한·rename·사용자 피드백 수동 승인
-<a id="task-ai_dashboard-publish-reusable-packages"></a>
-- [ ] `publish-reusable-packages` · **P1 · todo** — APC 재사용 package에 build output·semver·독립 install smoke와 배포 경계를 추가한다 — 현재 소비는 모두 같은 Git 저장소의 workspace dependency라 외부 stable 계약이 아니다
